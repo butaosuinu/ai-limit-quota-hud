@@ -195,24 +195,9 @@ async fn refresh_once(
     let (combined, changed) = {
         let mut guard = latest.write().expect("latest snapshots lock poisoned");
         let prev = guard.clone();
-        // Replace only the refreshed providers' rows so unmodified providers
-        // keep showing their last good snapshots.
-        let touched: std::collections::HashSet<&str> =
-            per_provider.keys().copied().collect();
-        guard.retain(|snap| {
-            let provider_id = provider_root_id(&snap.provider_id);
-            !touched.contains(provider_id)
-        });
-        // Extend in provider declaration order (HashMap iteration is not
-        // stable, so iterating the providers slice keeps the row order
-        // deterministic across refreshes — otherwise the change-detection
-        // comparison below would flip-flop on unchanged data).
-        for provider in providers {
-            if let Some(snapshots) = per_provider.remove(provider.id()) {
-                guard.extend(snapshots);
-            }
-        }
-        let changed = !snapshots_equivalent(&prev, &guard);
+        let next = merge_refreshed_snapshots(&prev, providers, &mut per_provider);
+        let changed = !snapshots_equivalent(&prev, &next);
+        *guard = next;
         (guard.clone(), changed)
     };
     // Skip the emit when nothing meaningful changed — providers refresh on a
@@ -224,6 +209,35 @@ async fn refresh_once(
     if let Err(err) = app.emit(USAGE_UPDATED_EVENT, &combined) {
         log::warn!("emit `{USAGE_UPDATED_EVENT}` failed: {err}");
     }
+}
+
+/// Rebuild the snapshot list in provider declaration order, preferring the
+/// freshly-refreshed snapshots and falling back to the previous ones for
+/// providers that did not run this cycle. Doing this in one pass — rather
+/// than `retain` + `extend` — keeps row positions stable on partial
+/// refreshes so `snapshots_equivalent` doesn't flip-flop on unchanged data.
+fn merge_refreshed_snapshots(
+    prev: &[UsageSnapshot],
+    providers: &[Arc<dyn UsageProvider>],
+    per_provider: &mut HashMap<&'static str, Vec<UsageSnapshot>>,
+) -> Vec<UsageSnapshot> {
+    let mut next = Vec::with_capacity(prev.len());
+    for provider in providers {
+        let id = provider.id();
+        if let Some(snapshots) = per_provider.remove(id) {
+            next.extend(snapshots);
+        } else {
+            // Carry the previous snapshots for this provider forward — by
+            // filtering on `provider_root_id` we keep namespaced rows like
+            // `manual:<uuid>` grouped under their owning provider.
+            next.extend(
+                prev.iter()
+                    .filter(|snap| provider_root_id(&snap.provider_id) == id)
+                    .cloned(),
+            );
+        }
+    }
+    next
 }
 
 /// Compare two snapshot lists ignoring `observed_at`. That field ticks every
@@ -278,6 +292,51 @@ pub fn trigger(handle: &SchedulerHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{
+        Confidence, ProviderKind, SnapshotStatus, UsageMetric, UsageSource, UsageWindow,
+    };
+    use async_trait::async_trait;
+
+    struct FakeProvider {
+        id: &'static str,
+        kind: ProviderKind,
+    }
+
+    #[async_trait]
+    impl UsageProvider for FakeProvider {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn kind(&self) -> ProviderKind {
+            self.kind
+        }
+        async fn refresh(
+            &self,
+            _ctx: &ProviderContext,
+        ) -> anyhow::Result<Vec<UsageSnapshot>> {
+            Ok(vec![])
+        }
+    }
+
+    fn snap(provider_id: &str) -> UsageSnapshot {
+        UsageSnapshot {
+            provider_id: provider_id.to_string(),
+            provider_kind: ProviderKind::Manual,
+            account_label: provider_id.to_string(),
+            window: UsageWindow::Unknown,
+            metric: UsageMetric::Unknown,
+            limit: None,
+            used: None,
+            remaining: None,
+            remaining_percent: None,
+            reset_at: None,
+            observed_at: "2026-05-13T12:00:00Z".into(),
+            source: UsageSource::Manual,
+            confidence: Confidence::Low,
+            status: SnapshotStatus::Ok,
+            message: None,
+        }
+    }
 
     #[test]
     fn effective_interval_grows_then_caps() {
@@ -296,5 +355,89 @@ mod tests {
         assert_eq!(provider_root_id("manual:abc-uuid"), "manual");
         assert_eq!(provider_root_id("manual"), "manual");
         assert_eq!(provider_root_id("openai-api:account"), "openai-api");
+    }
+
+    #[test]
+    fn merge_keeps_provider_order_on_partial_refresh() {
+        // providers declared as [A, B]; only A refreshed this cycle. The
+        // previous list had A's rows first, then B's. After merging the new
+        // A rows must remain in front of B's untouched rows — otherwise
+        // `snapshots_equivalent` flags spurious changes.
+        let providers: Vec<Arc<dyn UsageProvider>> = vec![
+            Arc::new(FakeProvider {
+                id: "a",
+                kind: ProviderKind::Manual,
+            }),
+            Arc::new(FakeProvider {
+                id: "b",
+                kind: ProviderKind::Manual,
+            }),
+        ];
+        let prev = vec![snap("a:1"), snap("a:2"), snap("b:1")];
+        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =
+            HashMap::new();
+        per_provider.insert("a", vec![snap("a:3")]);
+        let next = merge_refreshed_snapshots(&prev, &providers, &mut per_provider);
+        assert_eq!(
+            next.iter().map(|s| s.provider_id.as_str()).collect::<Vec<_>>(),
+            vec!["a:3", "b:1"],
+        );
+    }
+
+    #[test]
+    fn merge_keeps_provider_order_when_second_refreshes() {
+        // Symmetric: B refreshes, A doesn't. A's rows still come first
+        // because providers are declared in [A, B] order.
+        let providers: Vec<Arc<dyn UsageProvider>> = vec![
+            Arc::new(FakeProvider {
+                id: "a",
+                kind: ProviderKind::Manual,
+            }),
+            Arc::new(FakeProvider {
+                id: "b",
+                kind: ProviderKind::Manual,
+            }),
+        ];
+        let prev = vec![snap("a:1"), snap("b:1"), snap("b:2")];
+        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =
+            HashMap::new();
+        per_provider.insert("b", vec![snap("b:3"), snap("b:4")]);
+        let next = merge_refreshed_snapshots(&prev, &providers, &mut per_provider);
+        assert_eq!(
+            next.iter().map(|s| s.provider_id.as_str()).collect::<Vec<_>>(),
+            vec!["a:1", "b:3", "b:4"],
+        );
+    }
+
+    #[test]
+    fn merge_yields_identical_list_when_no_provider_refreshes() {
+        // No entries in per_provider → all rows carried over unchanged.
+        let providers: Vec<Arc<dyn UsageProvider>> = vec![Arc::new(FakeProvider {
+            id: "a",
+            kind: ProviderKind::Manual,
+        })];
+        let prev = vec![snap("a:1"), snap("a:2")];
+        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =
+            HashMap::new();
+        let next = merge_refreshed_snapshots(&prev, &providers, &mut per_provider);
+        assert!(snapshots_equivalent(&prev, &next));
+    }
+
+    #[test]
+    fn snapshots_equivalent_ignores_observed_at() {
+        let mut a = snap("a:1");
+        let mut b = snap("a:1");
+        a.observed_at = "2026-05-13T00:00:00Z".into();
+        b.observed_at = "2026-05-14T00:00:00Z".into();
+        assert!(snapshots_equivalent(&[a], &[b]));
+    }
+
+    #[test]
+    fn snapshots_equivalent_detects_status_change() {
+        let mut a = snap("a:1");
+        let mut b = snap("a:1");
+        a.status = SnapshotStatus::Ok;
+        b.status = SnapshotStatus::Critical;
+        assert!(!snapshots_equivalent(&[a], &[b]));
     }
 }
