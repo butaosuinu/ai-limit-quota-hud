@@ -22,9 +22,21 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
-        "visible": true,
+        "visible": false,
         "visibleOnAllWorkspaces": true,
-        "shadow": false
+        "shadow": false,
+        "focus": false
+      },
+      {
+        "label": "settings",
+        "title": "QuotaHUD Settings",
+        "width": 480,
+        "height": 420,
+        "decorations": true,
+        "transparent": false,
+        "resizable": true,
+        "visible": false,
+        "skipTaskbar": false
       }
     ],
     "security": {
