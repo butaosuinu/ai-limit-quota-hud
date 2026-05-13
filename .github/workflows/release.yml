@@ -3,13 +3,13 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name for the draft release (e.g. v0.0.0-dev)'
+        description: "Tag name for the draft release (e.g. v0.0.0-dev)"
         required: true
-        default: 'v0.0.0-dev'
+        default: "v0.0.0-dev"
 
 permissions:
   contents: write
@@ -22,11 +22,11 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: ''
+            args: ""
           - platform: ubuntu-latest
-            args: ''
+            args: ""
           - platform: windows-latest
-            args: ''
+            args: ""
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
-          releaseName: 'QuotaHUD ${{ steps.tag.outputs.name }}'
+          releaseName: "QuotaHUD ${{ steps.tag.outputs.name }}"
           releaseDraft: true
           prerelease: true
           releaseBody: |
