@@ -7,7 +7,12 @@ type SampleRow = {
 
 const SAMPLE_ROWS: SampleRow[] = [
   { id: "claude-code", label: "Claude Code", detail: "74%", reset: "2:14" },
-  { id: "anthropic-api", label: "Anthropic API", detail: "812k tok", reset: "0:37" },
+  {
+    id: "anthropic-api",
+    label: "Anthropic API",
+    detail: "812k tok",
+    reset: "0:37",
+  },
   { id: "openai-api", label: "OpenAI API", detail: "59 req", reset: "0:01" },
 ];
 
@@ -24,7 +29,9 @@ export function App() {
           </li>
         ))}
       </ul>
-      <footer className="overlay__footer">phase 0 scaffold · sample data</footer>
+      <footer className="overlay__footer">
+        phase 0 scaffold · sample data
+      </footer>
     </main>
   );
 }

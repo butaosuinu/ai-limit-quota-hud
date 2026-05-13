@@ -55,4 +55,3 @@ Review the current diff against AGENTS.md and docs/ACCEPTANCE_CHECKLIST.md. Look
 ```text
 Check whether the repository is ready for a public alpha release. Verify build commands, generated artifacts, README accuracy, privacy/security claims, and OS limitation notes. Do not overstate support for Windows virtual desktops or Wayland if not verified. Produce a concise release checklist with remaining blockers.
 ```
-

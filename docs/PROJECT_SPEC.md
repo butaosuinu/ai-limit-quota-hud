@@ -271,19 +271,44 @@ TypeScript equivalent:
 ```ts
 export type UsageSnapshot = {
   providerId: string;
-  providerKind: 'open-ai-api' | 'anthropic-api' | 'claude-code-local' | 'codex-local' | 'manual';
+  providerKind:
+    | "open-ai-api"
+    | "anthropic-api"
+    | "claude-code-local"
+    | "codex-local"
+    | "manual";
   accountLabel: string;
-  window: 'one-minute' | 'five-hours' | 'daily' | 'weekly' | 'monthly' | 'api' | 'unknown';
-  metric: 'requests' | 'tokens' | 'input-tokens' | 'output-tokens' | 'messages' | 'percent' | 'unknown';
+  window:
+    | "one-minute"
+    | "five-hours"
+    | "daily"
+    | "weekly"
+    | "monthly"
+    | "api"
+    | "unknown";
+  metric:
+    | "requests"
+    | "tokens"
+    | "input-tokens"
+    | "output-tokens"
+    | "messages"
+    | "percent"
+    | "unknown";
   limit?: number | null;
   used?: number | null;
   remaining?: number | null;
   remainingPercent?: number | null;
   resetAt?: string | null;
   observedAt: string;
-  source: 'official-api' | 'response-header' | 'local-log' | 'manual' | 'estimate' | 'unavailable';
-  confidence: 'high' | 'medium' | 'low';
-  status: 'ok' | 'warning' | 'critical' | 'no-data' | 'error';
+  source:
+    | "official-api"
+    | "response-header"
+    | "local-log"
+    | "manual"
+    | "estimate"
+    | "unavailable";
+  confidence: "high" | "medium" | "low";
+  status: "ok" | "warning" | "critical" | "no-data" | "error";
   message?: string | null;
 };
 ```
@@ -737,4 +762,3 @@ The project README should include:
 - No-Python guarantee.
 - Privacy/security note.
 - How to report provider parser issues with sanitized logs.
-
