@@ -47,7 +47,9 @@ function describeError(action: string, err: unknown): string {
 }
 
 async function bootstrap(
-  setState: (next: ManualRowsState) => void,
+  setState: (
+    next: ManualRowsState | ((prev: ManualRowsState) => ManualRowsState),
+  ) => void,
   lifecycle: Lifecycle,
 ): Promise<void> {
   const result = await listManualRows().catch(
@@ -55,12 +57,21 @@ async function bootstrap(
   );
   if (lifecycle.cancelled) return;
   if (isFailure(result)) {
-    // First-load failure starts with no rows anyway; record the error so the
-    // settings UI shows it instead of a silent empty state.
-    setState({ rows: [], error: result.message });
+    // Record the load failure but never clobber rows the user has already
+    // mutated in the meantime.
+    setState((prev) => ({ rows: prev.rows, error: result.message }));
     return;
   }
-  setState({ rows: result, error: null });
+  // Defensive: backend should return an array but tests use a generic mock
+  // that resolves with `undefined`. Treat a non-array as empty rather than
+  // letting `rows: undefined` propagate into the UI.
+  const fetched: readonly ManualRow[] = Array.isArray(result) ? result : [];
+  setState((prev) => {
+    // If a CRUD mutation landed before the initial fetch resolved, the
+    // in-memory state is fresher than `fetched` — keep the user's edits.
+    if (prev.rows.length > 0 || prev.error !== null) return prev;
+    return { rows: fetched, error: null };
+  });
 }
 
 export const manualRowsAtom = atom(
@@ -88,12 +99,13 @@ export const refetchManualRowsAtom = atom(null, async (get, set) => {
     set(stateAtom, { rows: prev.rows, error: result.message });
     return;
   }
-  set(stateAtom, { rows: result, error: null });
+  const fetched: readonly ManualRow[] = Array.isArray(result) ? result : [];
+  set(stateAtom, { rows: fetched, error: null });
 });
 
 export const createManualRowAtom = atom(
   null,
-  async (get, set, input: ManualRowInput) => {
+  async (get, set, input: ManualRowInput): Promise<boolean> => {
     const result = await createManualRow(input).catch(
       (err: unknown): Failure => failure(describeError("行の追加に失敗", err)),
     );
@@ -101,15 +113,20 @@ export const createManualRowAtom = atom(
     if (isFailure(result)) {
       console.warn("create_manual_row failed", result.message);
       set(stateAtom, { rows: prev.rows, error: result.message });
-      return;
+      return false;
     }
     set(stateAtom, { rows: [...prev.rows, result], error: null });
+    return true;
   },
 );
 
 export const updateManualRowAtom = atom(
   null,
-  async (get, set, payload: { id: string; input: ManualRowInput }) => {
+  async (
+    get,
+    set,
+    payload: { id: string; input: ManualRowInput },
+  ): Promise<boolean> => {
     const result = await updateManualRow(payload.id, payload.input).catch(
       (err: unknown): Failure => failure(describeError("行の更新に失敗", err)),
     );
@@ -117,27 +134,32 @@ export const updateManualRowAtom = atom(
     if (isFailure(result)) {
       console.warn("update_manual_row failed", result.message);
       set(stateAtom, { rows: prev.rows, error: result.message });
-      return;
+      return false;
     }
     set(stateAtom, {
       rows: prev.rows.map((row) => (row.id === result.id ? result : row)),
       error: null,
     });
+    return true;
   },
 );
 
-export const deleteManualRowAtom = atom(null, async (get, set, id: string) => {
-  const result = await deleteManualRow(id).catch(
-    (err: unknown): Failure => failure(describeError("行の削除に失敗", err)),
-  );
-  const prev = get(stateAtom);
-  if (isFailure(result)) {
-    console.warn("delete_manual_row failed", result.message);
-    set(stateAtom, { rows: prev.rows, error: result.message });
-    return;
-  }
-  set(stateAtom, {
-    rows: prev.rows.filter((row) => row.id !== id),
-    error: null,
-  });
-});
+export const deleteManualRowAtom = atom(
+  null,
+  async (get, set, id: string): Promise<boolean> => {
+    const result = await deleteManualRow(id).catch(
+      (err: unknown): Failure => failure(describeError("行の削除に失敗", err)),
+    );
+    const prev = get(stateAtom);
+    if (isFailure(result)) {
+      console.warn("delete_manual_row failed", result.message);
+      set(stateAtom, { rows: prev.rows, error: result.message });
+      return false;
+    }
+    set(stateAtom, {
+      rows: prev.rows.filter((row) => row.id !== id),
+      error: null,
+    });
+    return true;
+  },
+);

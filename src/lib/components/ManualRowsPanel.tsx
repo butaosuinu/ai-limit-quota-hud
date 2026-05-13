@@ -128,7 +128,7 @@ export function ManualRowsPanel() {
     }
   }, [selectedId, rows]);
 
-  const submit = (event: React.SyntheticEvent<HTMLFormElement>) => {
+  const submit = async (event: React.SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (hasInvalidIntegerField(form)) {
       setFormError(
@@ -139,12 +139,14 @@ export function ManualRowsPanel() {
     setFormError(null);
     const input = formToInput(form);
     if (input.providerLabel === "" || input.accountLabel === "") return;
-    if (selectedId === null) {
-      void createRow(input);
-    } else {
-      void updateRow({ id: selectedId, input });
-      setSelectedId(null);
-    }
+    const succeeded =
+      selectedId === null
+        ? await createRow(input)
+        : await updateRow({ id: selectedId, input });
+    // Preserve typed values on backend failure so the user can retry without
+    // re-entering everything. `manualRowsErrorAtom` already shows the cause.
+    if (!succeeded) return;
+    setSelectedId(null);
     setForm(EMPTY_FORM);
   };
 

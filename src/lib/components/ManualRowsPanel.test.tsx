@@ -153,4 +153,38 @@ describe("ManualRowsPanel", () => {
     const banner = screen.getByTestId("manual-rows-error");
     expect(banner.textContent).toContain("sqlite is locked");
   });
+
+  it("keeps the typed form values when the create command fails", async () => {
+    mockedInvoke.mockImplementation((command) => {
+      if (command === "create_manual_row") {
+        return Promise.reject(new Error("sqlite is locked"));
+      }
+      return Promise.resolve(undefined);
+    });
+    renderPanel();
+    const asInput = (testId: string): HTMLInputElement => {
+      const el = screen.getByTestId(testId);
+      if (!(el instanceof HTMLInputElement)) {
+        throw new Error(`${testId} is not an HTMLInputElement`);
+      }
+      return el;
+    };
+    const providerInput = asInput("manual-form-provider-label");
+    const accountInput = asInput("manual-form-account-label");
+    const limitInput = asInput("manual-form-limit");
+    fireEvent.change(providerInput, { target: { value: "ChatGPT" } });
+    fireEvent.change(accountInput, { target: { value: "personal" } });
+    fireEvent.change(limitInput, { target: { value: "40" } });
+    fireEvent.click(screen.getByTestId("manual-form-submit"));
+    await waitFor(() => {
+      expect(
+        mockedInvoke.mock.calls.find(([cmd]) => cmd === "create_manual_row"),
+      ).toBeTruthy();
+    });
+    // The async create promise rejects → form must retain values so the user
+    // can fix and retry without re-typing.
+    expect(providerInput.value).toBe("ChatGPT");
+    expect(accountInput.value).toBe("personal");
+    expect(limitInput.value).toBe("40");
+  });
 });
