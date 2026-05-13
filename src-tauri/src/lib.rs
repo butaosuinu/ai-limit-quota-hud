@@ -323,7 +323,15 @@ pub fn run() {
             attach_window_listeners(&handle);
             emit_settings_changed(&handle, &initial);
 
-            init_provider_runtime(&handle)?;
+            // Provider/storage failures should not bring down the whole app:
+            // the overlay and settings UI can still run, and the provider
+            // commands will surface their own error to the frontend via the
+            // missing-managed-state error.
+            if let Err(err) = init_provider_runtime(&handle) {
+                log::error!(
+                    "provider runtime init failed; provider features disabled: {err}"
+                );
+            }
 
             Ok(())
         })

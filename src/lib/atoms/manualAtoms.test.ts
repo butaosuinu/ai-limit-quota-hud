@@ -8,6 +8,7 @@ import {
   deleteManualRowAtom,
   manualRowsAtom,
   manualRowsErrorAtom,
+  refetchManualRowsAtom,
   updateManualRowAtom,
 } from "./manualAtoms";
 
@@ -184,5 +185,46 @@ describe("deleteManualRowAtom", () => {
     expect(store.get(manualRowsErrorAtom)).toMatchInlineSnapshot(
       `"行の削除に失敗: sqlite is busy"`,
     );
+  });
+});
+
+describe("refetchManualRowsAtom", () => {
+  it("preserves existing rows when list_manual_rows fails", async () => {
+    mockedInvoke.mockImplementation((command) => {
+      if (command === "list_manual_rows") {
+        return Promise.reject(new Error("ipc closed"));
+      }
+      return Promise.resolve(undefined);
+    });
+    const store = createStore();
+    const existing = [
+      sampleRow({ id: "row-a", accountLabel: "alice" }),
+      sampleRow({ id: "row-b", accountLabel: "bob" }),
+    ];
+    store.set(manualRowsAtom, existing);
+    await store.set(refetchManualRowsAtom);
+    // Rows must not be wiped just because the fetch failed.
+    expect(store.get(manualRowsAtom).map((r) => r.id)).toEqual([
+      "row-a",
+      "row-b",
+    ]);
+    expect(store.get(manualRowsErrorAtom)).toMatchInlineSnapshot(
+      `"行の取得に失敗: ipc closed"`,
+    );
+  });
+
+  it("replaces rows and clears error on a successful refetch", async () => {
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "list_manual_rows") {
+        return [sampleRow({ id: "row-fresh" })];
+      }
+      return undefined;
+    });
+    const store = createStore();
+    store.set(manualRowsAtom, [sampleRow({ id: "stale" })]);
+    store.set(manualRowsErrorAtom, "previous error");
+    await store.set(refetchManualRowsAtom);
+    expect(store.get(manualRowsAtom).map((r) => r.id)).toEqual(["row-fresh"]);
+    expect(store.get(manualRowsErrorAtom)).toBeNull();
   });
 });
