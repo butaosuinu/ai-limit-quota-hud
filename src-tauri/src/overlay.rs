@@ -17,8 +17,9 @@ struct SettingsPayload<'a> {
 }
 
 /// Apply the window-controllable bits of `settings` to the overlay window.
-/// Returns the position the window was moved to (if any), so the caller can
-/// distinguish a programmatic Moved event from a real user drag.
+/// Returns the position the window was moved to (if any) so the caller can
+/// distinguish a programmatic Moved event from a real user drag. Returns
+/// `None` when no move was needed (window already at the resolved position).
 pub fn apply_to_window(
     window: &WebviewWindow,
     settings: &OverlaySettings,
@@ -27,12 +28,17 @@ pub fn apply_to_window(
     let _ = window.set_ignore_cursor_events(settings.click_through);
 
     let target = resolve_target_position(window, settings);
-    if let Some(position) = target {
-        let _ = window.set_position(PhysicalPosition {
-            x: position.x,
-            y: position.y,
-        });
-    }
+    let moved_to = target.filter(|p| {
+        let already_there = window
+            .outer_position()
+            .ok()
+            .is_some_and(|cur| cur.x == p.x && cur.y == p.y);
+        if already_there {
+            return false;
+        }
+        let _ = window.set_position(PhysicalPosition { x: p.x, y: p.y });
+        true
+    });
 
     if settings.visible {
         let _ = window.show();
@@ -40,7 +46,7 @@ pub fn apply_to_window(
         let _ = window.hide();
     }
 
-    target
+    moved_to
 }
 
 /// Decide where the overlay should land. A saved `position` is honored only
@@ -80,9 +86,15 @@ fn position_visible_on_any_monitor(window: &WebviewWindow, position: Position) -
 
 fn point_in_rect(point: Position, origin: (i32, i32), size: (u32, u32)) -> bool {
     let (ox, oy) = origin;
-    let right = ox.saturating_add(i32::try_from(size.0).unwrap_or(i32::MAX));
-    let bottom = oy.saturating_add(i32::try_from(size.1).unwrap_or(i32::MAX));
-    point.x >= ox && point.x < right && point.y >= oy && point.y < bottom
+    let right = ox.saturating_add(u32_to_i32_saturating(size.0));
+    let bottom = oy.saturating_add(u32_to_i32_saturating(size.1));
+    (ox..right).contains(&point.x) && (oy..bottom).contains(&point.y)
+}
+
+/// Saturating `u32 → i32` for window/monitor dimensions that exceed `i32::MAX`
+/// (vanishingly rare but possible on virtual desktops spanning many monitors).
+fn u32_to_i32_saturating(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
 }
 
 fn corner_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option<Position> {
@@ -91,14 +103,12 @@ fn corner_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option
     let window_size = window.outer_size().ok()?;
     let margin_x = settings.margin_x.max(0);
     let margin_y = settings.margin_y.max(0);
-    let max_x = i32::try_from(monitor_size.width)
-        .unwrap_or(i32::MAX)
-        .saturating_sub(i32::try_from(window_size.width).unwrap_or(i32::MAX))
+    let max_x = u32_to_i32_saturating(monitor_size.width)
+        .saturating_sub(u32_to_i32_saturating(window_size.width))
         .saturating_sub(margin_x)
         .max(margin_x);
-    let max_y = i32::try_from(monitor_size.height)
-        .unwrap_or(i32::MAX)
-        .saturating_sub(i32::try_from(window_size.height).unwrap_or(i32::MAX))
+    let max_y = u32_to_i32_saturating(monitor_size.height)
+        .saturating_sub(u32_to_i32_saturating(window_size.height))
         .saturating_sub(margin_y)
         .max(margin_y);
     let monitor_pos = monitor.position();
@@ -190,7 +200,6 @@ mod tests {
 
     #[test]
     fn point_in_rect_handles_offset_monitor() {
-        // Second monitor at +1920,0 (typical right-hand sidecar)
         assert!(point_in_rect(
             Position { x: 2500, y: 600 },
             (1920, 0),
@@ -204,8 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn point_in_rect_rejects_negative_offset_left() {
-        // Monitor to the left of the primary (origin at -1920,0)
+    fn point_in_rect_handles_negative_offset_monitor() {
         assert!(point_in_rect(
             Position { x: -1000, y: 400 },
             (-1920, 0),
@@ -215,6 +223,26 @@ mod tests {
             Position { x: -3000, y: 400 },
             (-1920, 0),
             (1920, 1080)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_rejects_zero_size() {
+        assert!(!point_in_rect(
+            Position { x: 0, y: 0 },
+            (0, 0),
+            (0, 0)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_handles_u32_max_size() {
+        // Saturating conversion keeps the rect well-formed when the OS
+        // reports a u32 dimension larger than i32::MAX.
+        assert!(point_in_rect(
+            Position { x: i32::MAX - 1, y: 0 },
+            (0, 0),
+            (u32::MAX, u32::MAX)
         ));
     }
 }
