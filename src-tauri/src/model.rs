@@ -8,6 +8,20 @@ use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+const FALLBACK_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
+
+/// Format an `OffsetDateTime` as an RFC 3339 string, falling back to the epoch
+/// when the formatter rejects the value (cannot reasonably happen for
+/// `now_utc()` but keeps the call sites infallible).
+pub fn format_rfc3339(dt: &OffsetDateTime) -> String {
+    dt.format(&Rfc3339)
+        .unwrap_or_else(|_| FALLBACK_TIMESTAMP.to_string())
+}
+
+pub fn now_rfc3339() -> String {
+    format_rfc3339(&OffsetDateTime::now_utc())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderKind {
@@ -176,9 +190,7 @@ pub fn snapshot_from_manual_row(
     warn_pct: f64,
     crit_pct: f64,
 ) -> UsageSnapshot {
-    let observed_at = now
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"));
+    let observed_at = format_rfc3339(now);
     let remaining_percent = compute_remaining_percent(row.limit, row.remaining, None);
     let status = classify_status(row.limit, row.remaining, remaining_percent, warn_pct, crit_pct);
     UsageSnapshot {
@@ -209,9 +221,7 @@ pub fn error_snapshot(
     now: &OffsetDateTime,
     message: impl Into<String>,
 ) -> UsageSnapshot {
-    let observed_at = now
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"));
+    let observed_at = format_rfc3339(now);
     UsageSnapshot {
         provider_id: provider_id.to_string(),
         provider_kind,

@@ -54,13 +54,10 @@ afterEach(() => {
 });
 
 describe("createManualRowAtom", () => {
-  it("creates the row and refetches the list", async () => {
+  it("appends the returned row without a follow-up list_manual_rows fetch", async () => {
     mockedInvoke.mockImplementation(async (command) => {
       if (command === "create_manual_row") {
         return sampleRow();
-      }
-      if (command === "list_manual_rows") {
-        return [sampleRow()];
       }
       return undefined;
     });
@@ -72,22 +69,35 @@ describe("createManualRowAtom", () => {
     expect(mockedInvoke).toHaveBeenCalledWith("create_manual_row", {
       input: sampleInput(),
     });
-    expect(mockedInvoke).toHaveBeenCalledWith("list_manual_rows");
+    expect(
+      mockedInvoke.mock.calls.find(([cmd]) => cmd === "list_manual_rows"),
+    ).toBeUndefined();
+  });
+
+  it("leaves the list untouched when the create call fails", async () => {
+    mockedInvoke.mockImplementation((command) => {
+      if (command === "create_manual_row") {
+        return Promise.reject(new Error("boom"));
+      }
+      return Promise.resolve(undefined);
+    });
+    const store = createStore();
+    store.set(manualRowsAtom, []);
+    await store.set(createManualRowAtom, sampleInput());
+    expect(store.get(manualRowsAtom)).toEqual([]);
   });
 });
 
 describe("updateManualRowAtom", () => {
-  it("updates the row and refetches the list", async () => {
+  it("replaces the matching row with the returned payload", async () => {
     mockedInvoke.mockImplementation(async (command) => {
       if (command === "update_manual_row") {
         return sampleRow({ note: "edited" });
       }
-      if (command === "list_manual_rows") {
-        return [sampleRow({ note: "edited" })];
-      }
       return undefined;
     });
     const store = createStore();
+    store.set(manualRowsAtom, [sampleRow()]);
     await store.set(updateManualRowAtom, {
       id: "row-1",
       input: sampleInput({ note: "edited" }),
@@ -102,39 +112,37 @@ describe("updateManualRowAtom", () => {
 });
 
 describe("deleteManualRowAtom", () => {
-  it("deletes the row and refetches an empty list", async () => {
+  it("removes the row locally without a follow-up list fetch", async () => {
     mockedInvoke.mockImplementation(async (command) => {
       if (command === "delete_manual_row") {
         return undefined;
       }
-      if (command === "list_manual_rows") {
-        return [];
-      }
       return undefined;
     });
     const store = createStore();
-    store.set(manualRowsAtom, [sampleRow()]);
+    store.set(manualRowsAtom, [
+      sampleRow({ id: "row-1" }),
+      sampleRow({ id: "row-2", accountLabel: "work" }),
+    ]);
     await store.set(deleteManualRowAtom, "row-1");
-    expect(store.get(manualRowsAtom)).toHaveLength(0);
-    expect(mockedInvoke).toHaveBeenCalledWith("delete_manual_row", {
-      id: "row-1",
-    });
+    const rows = store.get(manualRowsAtom);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe("row-2");
+    expect(
+      mockedInvoke.mock.calls.find(([cmd]) => cmd === "list_manual_rows"),
+    ).toBeUndefined();
   });
-});
 
-describe("manualRowsAtom failure tolerance", () => {
-  it("falls back to an empty list when refetch errors out", async () => {
+  it("keeps the row when delete fails", async () => {
     mockedInvoke.mockImplementation((command) => {
-      if (command === "create_manual_row") {
-        return Promise.resolve(sampleRow());
-      }
-      if (command === "list_manual_rows") {
-        return Promise.reject(new Error("backend down"));
+      if (command === "delete_manual_row") {
+        return Promise.reject(new Error("boom"));
       }
       return Promise.resolve(undefined);
     });
     const store = createStore();
-    await store.set(createManualRowAtom, sampleInput());
-    expect(store.get(manualRowsAtom)).toEqual([]);
+    store.set(manualRowsAtom, [sampleRow({ id: "row-1" })]);
+    await store.set(deleteManualRowAtom, "row-1");
+    expect(store.get(manualRowsAtom)).toHaveLength(1);
   });
 });

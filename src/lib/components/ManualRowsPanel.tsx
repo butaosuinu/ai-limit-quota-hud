@@ -1,11 +1,10 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useState } from "react";
 
 import {
   createManualRowAtom,
   deleteManualRowAtom,
   manualRowsAtom,
-  selectedManualRowIdAtom,
   updateManualRowAtom,
 } from "../atoms/manualAtoms";
 import type {
@@ -94,7 +93,7 @@ function formToInput(state: FormState): ManualRowInput {
 
 export function ManualRowsPanel() {
   const rows = useAtomValue(manualRowsAtom);
-  const [selectedId, setSelectedId] = useAtom(selectedManualRowIdAtom);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const createRow = useSetAtom(createManualRowAtom);
   const updateRow = useSetAtom(updateManualRowAtom);
   const deleteRow = useSetAtom(deleteManualRowAtom);
@@ -145,7 +144,10 @@ export function ManualRowsPanel() {
     };
 
   return (
-    <div className="manual-rows" data-testid="manual-rows-panel">
+    <section
+      className="settings__group manual-rows"
+      data-testid="manual-rows-panel"
+    >
       <header className="manual-rows__header">
         <h3>Manual rows</h3>
         <p className="manual-rows__hint">
@@ -327,6 +329,6 @@ export function ManualRowsPanel() {
           )}
         </div>
       </form>
-    </div>
+    </section>
   );
 }

@@ -1,5 +1,4 @@
 import { atom } from "jotai";
-import { atomFamily } from "jotai/utils";
 import { listen } from "@tauri-apps/api/event";
 
 import { listSnapshots } from "../api";
@@ -120,20 +119,22 @@ const SECONDS_PER_MINUTE = 60;
 const PADDED_SECOND_WIDTH = 2;
 const NO_RESET_LABEL = "--:--";
 
-export const resetCountdownAtomFamily = atomFamily((providerId: string) =>
-  atom((get) => {
-    const snapshot = get(snapshotsAtom).find(
-      (s) => s.providerId === providerId,
-    );
-    const resetAt = snapshot?.resetAt ?? null;
-    if (resetAt === null) return NO_RESET_LABEL;
-    const resetTime = new Date(resetAt).getTime();
-    if (Number.isNaN(resetTime)) return NO_RESET_LABEL;
-    const remainingMs = resetTime - get(nowAtom);
-    if (remainingMs <= 0) return "0:00";
-    const totalSeconds = Math.floor(remainingMs / 1000);
-    const minutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE);
-    const seconds = totalSeconds % SECONDS_PER_MINUTE;
-    return `${minutes.toString()}:${seconds.toString().padStart(PADDED_SECOND_WIDTH, "0")}`;
-  }),
-);
+/**
+ * Render a `resetAt` ISO-8601 string as `m:ss` relative to `now` ms. Inlined
+ * into `UsageRow` instead of an `atomFamily` so per-row atoms can be garbage
+ * collected when a manual row is deleted.
+ */
+export function formatResetCountdown(
+  resetAt: string | null,
+  now: number,
+): string {
+  if (resetAt === null) return NO_RESET_LABEL;
+  const resetTime = new Date(resetAt).getTime();
+  if (Number.isNaN(resetTime)) return NO_RESET_LABEL;
+  const remainingMs = resetTime - now;
+  if (remainingMs <= 0) return "0:00";
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE);
+  const seconds = totalSeconds % SECONDS_PER_MINUTE;
+  return `${minutes.toString()}:${seconds.toString().padStart(PADDED_SECOND_WIDTH, "0")}`;
+}

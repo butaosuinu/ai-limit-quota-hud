@@ -331,17 +331,18 @@ pub fn run() {
         .expect("error while running QuotaHUD");
 }
 
-const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 60;
-
 fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::{Arc, RwLock};
     use std::time::Duration;
+
+    use crate::providers::DEFAULT_REFRESH_INTERVAL_SECS;
 
     let data_dir = handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir unavailable: {e}"))?;
-    std::fs::create_dir_all(&data_dir).ok();
+    // `Storage::open` creates the parent directory itself, so no need to
+    // pre-create it here.
     let db_path = data_dir.join("providers.sqlite3");
 
     let storage = Arc::new(storage::Storage::open(db_path)?);

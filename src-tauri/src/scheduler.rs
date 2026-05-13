@@ -188,8 +188,9 @@ async fn refresh_once(
     if per_provider.is_empty() {
         return;
     }
-    let combined = {
+    let (combined, changed) = {
         let mut guard = latest.write().expect("latest snapshots lock poisoned");
+        let prev = guard.clone();
         // Replace only the refreshed providers' rows so unmodified providers
         // keep showing their last good snapshots.
         let touched: std::collections::HashSet<&str> =
@@ -201,11 +202,43 @@ async fn refresh_once(
         for snapshots in per_provider.into_values() {
             guard.extend(snapshots);
         }
-        guard.clone()
+        let changed = !snapshots_equivalent(&prev, &guard);
+        (guard.clone(), changed)
     };
+    // Skip the emit when nothing meaningful changed — providers refresh on a
+    // 60s tick and would otherwise hand the frontend a fresh array reference
+    // every cycle, re-rendering the overlay for no reason.
+    if !changed {
+        return;
+    }
     if let Err(err) = app.emit(USAGE_UPDATED_EVENT, &combined) {
         log::warn!("emit `{USAGE_UPDATED_EVENT}` failed: {err}");
     }
+}
+
+/// Compare two snapshot lists ignoring `observed_at`. That field ticks every
+/// refresh even when nothing else changed, so a naive `==` would defeat the
+/// change-detection guard.
+fn snapshots_equivalent(a: &[UsageSnapshot], b: &[UsageSnapshot]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).all(|(x, y)| {
+        x.provider_id == y.provider_id
+            && x.provider_kind == y.provider_kind
+            && x.account_label == y.account_label
+            && x.window == y.window
+            && x.metric == y.metric
+            && x.limit == y.limit
+            && x.used == y.used
+            && x.remaining == y.remaining
+            && x.remaining_percent == y.remaining_percent
+            && x.reset_at == y.reset_at
+            && x.source == y.source
+            && x.confidence == y.confidence
+            && x.status == y.status
+            && x.message == y.message
+    })
 }
 
 /// Snapshot provider IDs may be namespaced like `manual:<uuid>`. The first

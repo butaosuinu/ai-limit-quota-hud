@@ -3,8 +3,7 @@ import { createStore } from "jotai";
 
 import type { UsageSnapshot } from "../types";
 import {
-  nowAtom,
-  resetCountdownAtomFamily,
+  formatResetCountdown,
   snapshotsAtom,
   sortedSnapshotsAtom,
   statusCountsAtom,
@@ -89,44 +88,26 @@ describe("statusCountsAtom", () => {
   });
 });
 
-describe("resetCountdownAtomFamily", () => {
+describe("formatResetCountdown", () => {
+  const now = Date.UTC(2026, 4, 13, 12, 0, 0);
+
   it("returns --:-- when resetAt is null", () => {
-    const store = createStore();
-    store.set(snapshotsAtom, [
-      baseSnapshot({ providerId: "a", resetAt: null }),
-    ]);
-    expect(store.get(resetCountdownAtomFamily("a"))).toBe("--:--");
+    expect(formatResetCountdown(null, now)).toBe("--:--");
   });
 
-  it("returns --:-- for an unknown provider id", () => {
-    const store = createStore();
-    store.set(snapshotsAtom, []);
-    expect(store.get(resetCountdownAtomFamily("missing"))).toBe("--:--");
+  it("returns --:-- when resetAt is unparseable", () => {
+    expect(formatResetCountdown("not a date", now)).toBe("--:--");
   });
 
   it("renders mm:ss when resetAt is in the future", () => {
-    const store = createStore();
-    const now = Date.UTC(2026, 4, 13, 12, 0, 0);
-    store.set(nowAtom, now);
-    store.set(snapshotsAtom, [
-      baseSnapshot({
-        providerId: "a",
-        resetAt: new Date(now + 125_000).toISOString(),
-      }),
-    ]);
-    expect(store.get(resetCountdownAtomFamily("a"))).toBe("2:05");
+    expect(
+      formatResetCountdown(new Date(now + 125_000).toISOString(), now),
+    ).toBe("2:05");
   });
 
   it("returns 0:00 when the reset time has passed", () => {
-    const store = createStore();
-    const now = Date.UTC(2026, 4, 13, 12, 0, 0);
-    store.set(nowAtom, now);
-    store.set(snapshotsAtom, [
-      baseSnapshot({
-        providerId: "a",
-        resetAt: new Date(now - 10_000).toISOString(),
-      }),
-    ]);
-    expect(store.get(resetCountdownAtomFamily("a"))).toBe("0:00");
+    expect(
+      formatResetCountdown(new Date(now - 10_000).toISOString(), now),
+    ).toBe("0:00");
   });
 });

@@ -10,10 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use thiserror::Error;
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
 
-use crate::model::{ManualRow, ManualRowInput, UsageMetric, UsageWindow};
+use crate::model::{now_rfc3339, ManualRow, ManualRowInput, UsageMetric, UsageWindow};
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -222,12 +220,6 @@ impl Storage {
     }
 }
 
-fn now_rfc3339() -> String {
-    OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| String::from("1970-01-01T00:00:00Z"))
-}
-
 fn row_to_manual_row(row: &Row<'_>) -> rusqlite::Result<ManualRow> {
     let window_str: String = row.get(3)?;
     let metric_str: String = row.get(4)?;
@@ -327,6 +319,49 @@ pub fn open_temp(dir: &Path) -> Result<Storage, StorageError> {
 mod tests {
     use super::*;
     use crate::model::{UsageMetric, UsageWindow};
+
+    /// Guard against drift between the hand-written enum mappers and the
+    /// serde kebab-case rename used everywhere else. If serde grows a new
+    /// variant, this test fails until the mapper is updated to match.
+    #[test]
+    fn enum_string_representations_match_serde() {
+        for variant in [
+            UsageWindow::OneMinute,
+            UsageWindow::FiveHours,
+            UsageWindow::Daily,
+            UsageWindow::Weekly,
+            UsageWindow::Monthly,
+            UsageWindow::Api,
+            UsageWindow::Unknown,
+        ] {
+            let serde_value = serde_json::to_value(variant).unwrap();
+            let serde_str = serde_value.as_str().unwrap();
+            assert_eq!(
+                window_to_str(variant),
+                serde_str,
+                "window mapper drift for {variant:?}"
+            );
+            assert_eq!(window_from_str(serde_str).unwrap(), variant);
+        }
+        for variant in [
+            UsageMetric::Requests,
+            UsageMetric::Tokens,
+            UsageMetric::InputTokens,
+            UsageMetric::OutputTokens,
+            UsageMetric::Messages,
+            UsageMetric::Percent,
+            UsageMetric::Unknown,
+        ] {
+            let serde_value = serde_json::to_value(variant).unwrap();
+            let serde_str = serde_value.as_str().unwrap();
+            assert_eq!(
+                metric_to_str(variant),
+                serde_str,
+                "metric mapper drift for {variant:?}"
+            );
+            assert_eq!(metric_from_str(serde_str).unwrap(), variant);
+        }
+    }
 
     fn sample_input(label: &str) -> ManualRowInput {
         ManualRowInput {

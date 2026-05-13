@@ -1,6 +1,6 @@
 import { useAtomValue } from "jotai";
 
-import { resetCountdownAtomFamily } from "../atoms/usageAtoms";
+import { formatResetCountdown, nowAtom } from "../atoms/usageAtoms";
 import type { UsageMetric, UsageSnapshot } from "../types";
 import { ErrorBadge } from "./ErrorBadge";
 
@@ -40,7 +40,8 @@ function formatDetail(snapshot: UsageSnapshot): string {
 }
 
 export function UsageRow({ snapshot, compact }: Props) {
-  const reset = useAtomValue(resetCountdownAtomFamily(snapshot.providerId));
+  const now = useAtomValue(nowAtom);
+  const reset = formatResetCountdown(snapshot.resetAt, now);
   const detail = formatDetail(snapshot);
   return (
     <li

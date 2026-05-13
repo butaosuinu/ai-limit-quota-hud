@@ -98,9 +98,7 @@ export function SettingsPanel() {
         </p>
       </section>
 
-      <section className="settings__group settings__group--manual">
-        <ManualRowsPanel />
-      </section>
+      <ManualRowsPanel />
 
       <footer className="settings__footer">
         <button
