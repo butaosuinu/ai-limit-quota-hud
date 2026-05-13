@@ -34,23 +34,30 @@ async function bootstrapOverlaySync(
   set: (next: OverlaySettings) => void,
   lifecycle: Lifecycle,
 ): Promise<void> {
-  const [initial, unlisten] = await Promise.all([
-    invoke<OverlaySettings>("get_overlay_settings").catch((err: unknown) => {
+  // Apply the initial snapshot BEFORE subscribing so a fast `settings-changed`
+  // event from Rust startup can't be overwritten by an older `invoke` reply.
+  const initial = await invoke<OverlaySettings>("get_overlay_settings").catch(
+    (err: unknown) => {
       console.warn("get_overlay_settings failed; staying on defaults", err);
       return null;
-    }),
-    listen<SettingsChangedPayload>(OVERLAY_SETTINGS_CHANGED_EVENT, (event) => {
+    },
+  );
+  if (lifecycle.cancelled) return;
+  if (initial !== null) set(initial);
+
+  const unlisten = await listen<SettingsChangedPayload>(
+    OVERLAY_SETTINGS_CHANGED_EVENT,
+    (event) => {
       set(event.payload.settings);
-    }).catch((err: unknown) => {
-      console.warn("overlay settings event subscription failed", err);
-      return null;
-    }),
-  ]);
+    },
+  ).catch((err: unknown) => {
+    console.warn("overlay settings event subscription failed", err);
+    return null;
+  });
   if (lifecycle.cancelled) {
     if (unlisten !== null) unlisten();
     return;
   }
-  if (initial !== null) set(initial);
   lifecycle.unlisten = unlisten;
 }
 

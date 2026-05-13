@@ -245,6 +245,9 @@ fn persist_position(app: &AppHandle, x: i32, y: i32) {
     if let Err(err) = settings::save(app, &stored) {
         log::warn!("failed to persist overlay position: {err}");
     }
+    // Frontends (especially the Settings window) need the fresh position so a
+    // later `update_overlay_settings` doesn't ship a stale value back.
+    emit_settings_changed(app, &stored);
 }
 
 pub fn run() {
