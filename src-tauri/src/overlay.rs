@@ -26,9 +26,7 @@ pub fn apply_to_window(
     let _ = window.set_always_on_top(settings.always_on_top);
     let _ = window.set_ignore_cursor_events(settings.click_through);
 
-    let target = settings
-        .position
-        .or_else(|| corner_position(window, settings));
+    let target = resolve_target_position(window, settings);
     if let Some(position) = target {
         let _ = window.set_position(PhysicalPosition {
             x: position.x,
@@ -43,6 +41,48 @@ pub fn apply_to_window(
     }
 
     target
+}
+
+/// Decide where the overlay should land. A saved `position` is honored only
+/// when it's still on a connected monitor — a position carried over from an
+/// unplugged display or higher resolution would otherwise leave the overlay
+/// stranded off-screen with no obvious way to recover.
+fn resolve_target_position(
+    window: &WebviewWindow,
+    settings: &OverlaySettings,
+) -> Option<Position> {
+    if let Some(saved) = settings.position {
+        if position_visible_on_any_monitor(window, saved) {
+            return Some(saved);
+        }
+        log::info!(
+            "saved overlay position ({}, {}) is off-screen; falling back to corner",
+            saved.x,
+            saved.y
+        );
+    }
+    corner_position(window, settings)
+}
+
+fn position_visible_on_any_monitor(window: &WebviewWindow, position: Position) -> bool {
+    let monitors = match window.available_monitors() {
+        Ok(m) if !m.is_empty() => m,
+        // No monitor info — be permissive so we don't refuse a perfectly fine
+        // position on a platform where this API misbehaves.
+        _ => return true,
+    };
+    monitors.iter().any(|m| {
+        let pos = m.position();
+        let size = m.size();
+        point_in_rect(position, (pos.x, pos.y), (size.width, size.height))
+    })
+}
+
+fn point_in_rect(point: Position, origin: (i32, i32), size: (u32, u32)) -> bool {
+    let (ox, oy) = origin;
+    let right = ox.saturating_add(i32::try_from(size.0).unwrap_or(i32::MAX));
+    let bottom = oy.saturating_add(i32::try_from(size.1).unwrap_or(i32::MAX));
+    point.x >= ox && point.x < right && point.y >= oy && point.y < bottom
 }
 
 fn corner_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option<Position> {
@@ -96,7 +136,8 @@ pub fn settings_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 #[cfg(test)]
 mod tests {
-    use crate::settings::clamp_opacity;
+    use super::point_in_rect;
+    use crate::settings::{clamp_opacity, Position};
 
     #[test]
     fn clamp_keeps_visible_floor() {
@@ -106,5 +147,74 @@ mod tests {
     #[test]
     fn clamp_keeps_visible_ceiling() {
         assert!((clamp_opacity(2.0) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn point_in_rect_accepts_interior() {
+        assert!(point_in_rect(
+            Position { x: 100, y: 100 },
+            (0, 0),
+            (1920, 1080)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_accepts_origin_corner() {
+        assert!(point_in_rect(
+            Position { x: 0, y: 0 },
+            (0, 0),
+            (1920, 1080)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_rejects_right_edge() {
+        // right/bottom are exclusive — a point flush with the far edge is
+        // considered outside, since `set_position` with (width, _) would
+        // place a 1×1 window just off the monitor.
+        assert!(!point_in_rect(
+            Position { x: 1920, y: 500 },
+            (0, 0),
+            (1920, 1080)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_rejects_negative_outside() {
+        assert!(!point_in_rect(
+            Position { x: -1, y: 500 },
+            (0, 0),
+            (1920, 1080)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_handles_offset_monitor() {
+        // Second monitor at +1920,0 (typical right-hand sidecar)
+        assert!(point_in_rect(
+            Position { x: 2500, y: 600 },
+            (1920, 0),
+            (1280, 800)
+        ));
+        assert!(!point_in_rect(
+            Position { x: 100, y: 600 },
+            (1920, 0),
+            (1280, 800)
+        ));
+    }
+
+    #[test]
+    fn point_in_rect_rejects_negative_offset_left() {
+        // Monitor to the left of the primary (origin at -1920,0)
+        assert!(point_in_rect(
+            Position { x: -1000, y: 400 },
+            (-1920, 0),
+            (1920, 1080)
+        ));
+        assert!(!point_in_rect(
+            Position { x: -3000, y: 400 },
+            (-1920, 0),
+            (1920, 1080)
+        ));
     }
 }
