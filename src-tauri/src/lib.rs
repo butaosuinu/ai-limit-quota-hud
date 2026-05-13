@@ -1,6 +1,12 @@
+mod commands;
+mod model;
 mod overlay;
 mod platform;
+mod providers;
+mod scheduler;
 mod settings;
+mod state;
+mod storage;
 
 use std::sync::Mutex;
 
@@ -286,6 +292,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
             update_overlay_settings,
+            commands::list_snapshots,
+            commands::refresh_now,
+            commands::list_manual_rows,
+            commands::create_manual_row,
+            commands::update_manual_row,
+            commands::delete_manual_row,
+            commands::get_refresh_interval,
+            commands::set_refresh_interval,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -309,8 +323,42 @@ pub fn run() {
             attach_window_listeners(&handle);
             emit_settings_changed(&handle, &initial);
 
+            init_provider_runtime(&handle)?;
+
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running QuotaHUD");
+}
+
+const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 60;
+
+fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::{Arc, RwLock};
+    use std::time::Duration;
+
+    let data_dir = handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir unavailable: {e}"))?;
+    std::fs::create_dir_all(&data_dir).ok();
+    let db_path = data_dir.join("providers.sqlite3");
+
+    let storage = Arc::new(storage::Storage::open(db_path)?);
+    let latest = Arc::new(RwLock::new(Vec::new()));
+    let providers = providers::default_providers(Arc::clone(&storage));
+    let scheduler_handle = scheduler::spawn(
+        handle.clone(),
+        providers,
+        Arc::clone(&storage),
+        Arc::clone(&latest),
+        Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS),
+    );
+    handle.manage(state::ProviderState::new(
+        storage,
+        latest,
+        scheduler_handle,
+        DEFAULT_REFRESH_INTERVAL_SECS,
+    ));
+    Ok(())
 }

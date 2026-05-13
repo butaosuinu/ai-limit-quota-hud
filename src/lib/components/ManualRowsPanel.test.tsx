@@ -1,0 +1,126 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Provider, createStore } from "jotai";
+
+import { manualRowsAtom } from "../atoms/manualAtoms";
+import type { ManualRow } from "../types";
+import { ManualRowsPanel } from "./ManualRowsPanel";
+
+const mockedInvoke = vi.mocked(invoke);
+
+const sampleRow = (overrides: Partial<ManualRow> = {}): ManualRow => ({
+  id: "row-1",
+  providerLabel: "ChatGPT",
+  accountLabel: "personal",
+  window: "five-hours",
+  metric: "messages",
+  limit: 40,
+  used: 10,
+  remaining: 30,
+  resetAt: null,
+  note: null,
+  createdAt: "2026-05-01T00:00:00Z",
+  updatedAt: "2026-05-13T12:00:00Z",
+  ...overrides,
+});
+
+function renderPanel(initialRows: ManualRow[] = []) {
+  const store = createStore();
+  store.set(manualRowsAtom, initialRows);
+  return {
+    store,
+    ...render(
+      <Provider store={store}>
+        <ManualRowsPanel />
+      </Provider>,
+    ),
+  };
+}
+
+beforeEach(() => {
+  mockedInvoke.mockReset();
+  mockedInvoke.mockImplementation(async () => undefined);
+});
+
+afterEach(() => {
+  mockedInvoke.mockReset();
+  mockedInvoke.mockImplementation(async () => undefined);
+});
+
+describe("ManualRowsPanel", () => {
+  it("shows the empty placeholder when no rows are stored", () => {
+    renderPanel();
+    expect(screen.getByTestId("manual-rows-empty")).toBeTruthy();
+  });
+
+  it("lists existing rows", () => {
+    renderPanel([
+      sampleRow({ id: "row-a", accountLabel: "alice" }),
+      sampleRow({ id: "row-b", accountLabel: "bob" }),
+    ]);
+    expect(screen.getByTestId("manual-row-row-a")).toBeTruthy();
+    expect(screen.getByTestId("manual-row-row-b")).toBeTruthy();
+  });
+
+  it("calls create_manual_row when submitting the add form", async () => {
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "create_manual_row") return sampleRow();
+      if (command === "list_manual_rows") return [sampleRow()];
+      return undefined;
+    });
+    renderPanel();
+    fireEvent.change(screen.getByTestId("manual-form-provider-label"), {
+      target: { value: "ChatGPT" },
+    });
+    fireEvent.change(screen.getByTestId("manual-form-account-label"), {
+      target: { value: "personal" },
+    });
+    fireEvent.change(screen.getByTestId("manual-form-limit"), {
+      target: { value: "40" },
+    });
+    fireEvent.click(screen.getByTestId("manual-form-submit"));
+    await waitFor(() => {
+      expect(
+        mockedInvoke.mock.calls.find(([cmd]) => cmd === "create_manual_row"),
+      ).toBeTruthy();
+    });
+    const createCall = mockedInvoke.mock.calls.find(
+      ([cmd]) => cmd === "create_manual_row",
+    );
+    expect(createCall?.[1]).toMatchObject({
+      input: { providerLabel: "ChatGPT", accountLabel: "personal", limit: 40 },
+    });
+  });
+
+  it("ignores submissions with empty required fields", () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId("manual-form-submit"));
+    expect(
+      mockedInvoke.mock.calls.find(([cmd]) => cmd === "create_manual_row"),
+    ).toBeUndefined();
+  });
+
+  it("calls delete_manual_row when the Delete button is clicked", async () => {
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "delete_manual_row") return undefined;
+      if (command === "list_manual_rows") return [];
+      return undefined;
+    });
+    renderPanel([sampleRow({ id: "row-x" })]);
+    const deleteButton = screen
+      .getByTestId("manual-row-row-x")
+      .querySelector("button:last-of-type");
+    expect(deleteButton).toBeTruthy();
+    fireEvent.click(deleteButton as HTMLButtonElement);
+    await waitFor(() => {
+      expect(
+        mockedInvoke.mock.calls.find(([cmd]) => cmd === "delete_manual_row"),
+      ).toBeTruthy();
+    });
+    const deleteCall = mockedInvoke.mock.calls.find(
+      ([cmd]) => cmd === "delete_manual_row",
+    );
+    expect(deleteCall?.[1]).toEqual({ id: "row-x" });
+  });
+});

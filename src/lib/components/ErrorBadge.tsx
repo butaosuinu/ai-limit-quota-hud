@@ -1,7 +1,10 @@
-import type { SnapshotStatus } from "../types";
+import type { Confidence, SnapshotStatus, UsageSource } from "../types";
 
 type Props = {
   status: SnapshotStatus;
+  confidence?: Confidence;
+  source?: UsageSource;
+  message?: string | null;
 };
 
 const STATUS_LABEL: Record<SnapshotStatus, string | null> = {
@@ -12,15 +15,64 @@ const STATUS_LABEL: Record<SnapshotStatus, string | null> = {
   error: "err",
 };
 
-export function ErrorBadge({ status }: Props) {
-  const label = STATUS_LABEL[status];
-  if (label === null) return null;
+const SOURCE_LABEL: Record<UsageSource, string> = {
+  "official-api": "official",
+  "response-header": "header",
+  "local-log": "log",
+  manual: "manual",
+  estimate: "estimate",
+  unavailable: "n/a",
+};
+
+const SHOWN_SOURCES: ReadonlySet<UsageSource> = new Set([
+  "manual",
+  "estimate",
+  "unavailable",
+]);
+
+function shouldShowConfidence(confidence: Confidence | undefined): boolean {
+  return confidence !== undefined && confidence === "low";
+}
+
+function shouldShowSource(source: UsageSource | undefined): boolean {
+  return source !== undefined && SHOWN_SOURCES.has(source);
+}
+
+export function ErrorBadge({ status, confidence, source, message }: Props) {
+  const statusLabel = STATUS_LABEL[status];
+  const tooltip = message ?? undefined;
+  const showStatusBadge = statusLabel !== null;
+  const showConfidence = shouldShowConfidence(confidence);
+  const showSource = shouldShowSource(source);
+
+  if (!showStatusBadge && !showConfidence && !showSource) return null;
+
   return (
-    <span
-      className={`error-badge error-badge--${status}`}
-      data-testid={`error-badge-${status}`}
-    >
-      {label}
+    <span className="error-badge-group" title={tooltip}>
+      {showStatusBadge && (
+        <span
+          className={`error-badge error-badge--${status}`}
+          data-testid={`error-badge-${status}`}
+        >
+          {statusLabel}
+        </span>
+      )}
+      {showConfidence && confidence !== undefined && (
+        <span
+          className={`error-badge error-badge--confidence error-badge--confidence-${confidence}`}
+          data-testid={`error-badge-confidence-${confidence}`}
+        >
+          {confidence}
+        </span>
+      )}
+      {showSource && source !== undefined && (
+        <span
+          className={`error-badge error-badge--source error-badge--source-${source}`}
+          data-testid={`error-badge-source-${source}`}
+        >
+          {SOURCE_LABEL[source]}
+        </span>
+      )}
     </span>
   );
 }
