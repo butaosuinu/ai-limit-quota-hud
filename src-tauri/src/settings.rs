@@ -1,7 +1,5 @@
-//! Overlay settings persistence (Phase 1).
-//!
-//! Lives as a small JSON file under the app config dir. No secrets here —
-//! provider tokens go to OS credential storage in later phases.
+//! Overlay settings persistence — a small JSON file under the app config dir.
+//! No secrets here; provider tokens go through the OS credential store.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -80,12 +78,8 @@ pub fn clamp_opacity(value: f64) -> f64 {
     const MAX: f64 = 1.0;
     if value.is_nan() {
         DEFAULT_OPACITY
-    } else if value < MIN {
-        MIN
-    } else if value > MAX {
-        MAX
     } else {
-        value
+        value.clamp(MIN, MAX)
     }
 }
 
@@ -120,7 +114,7 @@ pub fn save_to_path(path: &Path, settings: &OverlaySettings) -> anyhow::Result<(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(settings)?;
+    let json = serde_json::to_string(settings)?;
     fs::write(path, json)?;
     Ok(())
 }

@@ -15,9 +15,7 @@ export function Overlay() {
       data-testid="overlay-root"
       style={{ opacity: settings.opacity }}
     >
-      <header className="overlay__title" {...dragProps}>
-        QuotaHUD
-      </header>
+      <header className="overlay__title">QuotaHUD</header>
       <ul className="overlay__rows">
         {SAMPLE_ROWS.map((row) => (
           <UsageRow key={row.id} row={row} compact={settings.compact} />

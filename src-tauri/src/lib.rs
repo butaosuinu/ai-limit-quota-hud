@@ -11,9 +11,9 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::overlay::{
     apply_to_window, emit_settings_changed, overlay_window, settings_window,
-    OVERLAY_WINDOW_LABEL, SETTINGS_WINDOW_LABEL,
+    OVERLAY_WINDOW_LABEL,
 };
-use crate::settings::{clamp_opacity, OverlaySettings, Position};
+use crate::settings::{OverlaySettings, Position};
 
 const MENU_ID_SHOW_HIDE: &str = "show_hide";
 const MENU_ID_CLICK_THROUGH: &str = "click_through";
@@ -23,8 +23,6 @@ const MENU_ID_QUIT: &str = "quit";
 
 const CLICK_THROUGH_SHORTCUT: &str = "CommandOrControl+Shift+Backslash";
 
-/// Shared overlay state behind a Mutex. Phase 1 only stores `OverlaySettings`;
-/// later phases extend this with provider snapshots and the scheduler handle.
 struct AppState {
     settings: Mutex<OverlaySettings>,
 }
@@ -32,7 +30,7 @@ struct AppState {
 impl AppState {
     fn new(initial: OverlaySettings) -> Self {
         Self {
-            settings: Mutex::new(initial),
+            settings: Mutex::new(initial.normalized()),
         }
     }
 
@@ -44,11 +42,12 @@ impl AppState {
     }
 
     fn replace(&self, next: OverlaySettings) -> OverlaySettings {
+        let normalized = next.normalized();
         let mut guard = self
             .settings
             .lock()
             .expect("overlay settings mutex poisoned");
-        *guard = next;
+        *guard = normalized;
         guard.clone()
     }
 }
@@ -63,57 +62,24 @@ fn update_overlay_settings(
     app: AppHandle,
     settings: OverlaySettings,
 ) -> Result<OverlaySettings, String> {
-    let normalized = settings.normalized();
-    let stored = app.state::<AppState>().replace(normalized);
-    persist_and_apply(&app, &stored);
+    let state = app.state::<AppState>();
+    let prev = state.snapshot();
+    let stored = state.replace(settings);
+    if stored != prev {
+        persist_and_apply(&app, &stored);
+    }
     Ok(stored)
-}
-
-#[tauri::command]
-fn set_overlay_visible(app: AppHandle, visible: bool) {
-    apply_mutation(&app, |s| s.visible = visible);
-}
-
-#[tauri::command]
-fn set_click_through(app: AppHandle, enabled: bool) {
-    apply_mutation(&app, |s| s.click_through = enabled);
-}
-
-#[tauri::command]
-fn set_locked(app: AppHandle, locked: bool) {
-    apply_mutation(&app, |s| s.locked = locked);
-}
-
-#[tauri::command]
-fn set_opacity(app: AppHandle, opacity: f64) {
-    apply_mutation(&app, |s| s.opacity = clamp_opacity(opacity));
-}
-
-#[tauri::command]
-fn show_settings_window(app: AppHandle) -> Result<(), String> {
-    open_settings_window(&app);
-    Ok(())
 }
 
 fn apply_mutation<F: FnOnce(&mut OverlaySettings)>(app: &AppHandle, mutator: F) {
     let state = app.state::<AppState>();
-    let mut current = state.snapshot();
-    mutator(&mut current);
-    let normalized = current.normalized();
-    let stored = state.replace(normalized);
-    persist_and_apply(app, &stored);
-}
-
-fn toggle_visibility(app: &AppHandle) {
-    apply_mutation(app, |s| s.visible = !s.visible);
-}
-
-fn toggle_click_through(app: &AppHandle) {
-    apply_mutation(app, |s| s.click_through = !s.click_through);
-}
-
-fn toggle_locked(app: &AppHandle) {
-    apply_mutation(app, |s| s.locked = !s.locked);
+    let prev = state.snapshot();
+    let mut next = prev.clone();
+    mutator(&mut next);
+    let stored = state.replace(next);
+    if stored != prev {
+        persist_and_apply(app, &stored);
+    }
 }
 
 fn persist_and_apply(app: &AppHandle, settings: &OverlaySettings) {
@@ -137,8 +103,8 @@ fn open_settings_window(app: &AppHandle) {
     }
 }
 
-/// Tray menu items we keep handles to so check states stay in sync with
-/// settings changes coming from anywhere (shortcut, command, settings panel).
+/// Tray menu items are kept around so check states can be updated when
+/// settings change from any source (tray, shortcut, settings panel).
 struct TrayMenuItems {
     click_through: CheckMenuItem<tauri::Wry>,
     lock: CheckMenuItem<tauri::Wry>,
@@ -221,9 +187,9 @@ fn build_tray(app: &AppHandle, initial: &OverlaySettings) -> tauri::Result<()> {
 
 fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id.as_ref() {
-        MENU_ID_SHOW_HIDE => toggle_visibility(app),
-        MENU_ID_CLICK_THROUGH => toggle_click_through(app),
-        MENU_ID_LOCK => toggle_locked(app),
+        MENU_ID_SHOW_HIDE => apply_mutation(app, |s| s.visible = !s.visible),
+        MENU_ID_CLICK_THROUGH => apply_mutation(app, |s| s.click_through = !s.click_through),
+        MENU_ID_LOCK => apply_mutation(app, |s| s.locked = !s.locked),
         MENU_ID_SETTINGS => open_settings_window(app),
         MENU_ID_QUIT => app.exit(0),
         other => log::debug!("unhandled tray menu id: {other}"),
@@ -238,7 +204,7 @@ fn register_click_through_shortcut(app: &AppHandle) {
                 if event.state()
                     == tauri_plugin_global_shortcut::ShortcutState::Pressed
                 {
-                    toggle_click_through(&app_for_handler);
+                    apply_mutation(&app_for_handler, |s| s.click_through = !s.click_through);
                 }
             });
     if let Err(err) = result {
@@ -257,12 +223,10 @@ fn attach_window_listeners(app: &AppHandle) {
     }
 
     if let Some(settings) = settings_window(app) {
-        let app_for_event = app.clone();
+        let window = settings.clone();
         settings.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if let Some(window) = settings_window(&app_for_event) {
-                    let _ = window.hide();
-                }
+                let _ = window.hide();
                 api.prevent_close();
             }
         });
@@ -289,15 +253,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
             update_overlay_settings,
-            set_overlay_visible,
-            set_click_through,
-            set_locked,
-            set_opacity,
-            show_settings_window
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            let initial = settings::load(&handle).normalized();
+            let initial = settings::load(&handle);
             handle.manage(AppState::new(initial.clone()));
 
             if let Some(window) = handle.get_webview_window(OVERLAY_WINDOW_LABEL) {
@@ -307,10 +266,6 @@ pub fn run() {
                 log::error!(
                     "overlay window `{OVERLAY_WINDOW_LABEL}` missing from tauri.conf.json"
                 );
-            }
-
-            if let Some(window) = handle.get_webview_window(SETTINGS_WINDOW_LABEL) {
-                let _ = window.hide();
             }
 
             build_tray(&handle, &initial)?;

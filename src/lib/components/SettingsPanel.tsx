@@ -1,14 +1,11 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { useEffect, useState } from "react";
 
 import {
-  clickThroughAtom,
-  compactAtom,
-  lockedAtom,
-  opacityAtom,
   overlaySettingsAtom,
-  resetSettingsAtom,
-  visibleAtom,
+  updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
+import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
 
 const OPACITY_STEP = 0.01;
 const OPACITY_MIN = 0.15;
@@ -16,12 +13,24 @@ const OPACITY_MAX = 1;
 
 export function SettingsPanel() {
   const settings = useAtomValue(overlaySettingsAtom);
-  const [opacity, setOpacity] = useAtom(opacityAtom);
-  const [compact, setCompact] = useAtom(compactAtom);
-  const [clickThrough, setClickThrough] = useAtom(clickThroughAtom);
-  const [locked, setLocked] = useAtom(lockedAtom);
-  const [visible, setVisible] = useAtom(visibleAtom);
-  const resetSettings = useSetAtom(resetSettingsAtom);
+  const updateSettings = useSetAtom(updateOverlaySettingsAtom);
+
+  // Slider drives a local value during drag so the IPC fires only on release.
+  const [draftOpacity, setDraftOpacity] = useState(settings.opacity);
+  useEffect(() => {
+    setDraftOpacity(settings.opacity);
+  }, [settings.opacity]);
+
+  const commitOpacity = () => {
+    if (draftOpacity !== settings.opacity) {
+      void updateSettings({ opacity: draftOpacity });
+    }
+  };
+
+  const toggle = (field: keyof OverlaySettings) => (value: boolean) => {
+    const partial: Partial<OverlaySettings> = { [field]: value };
+    void updateSettings(partial);
+  };
 
   return (
     <main className="settings" data-testid="settings-root">
@@ -35,7 +44,7 @@ export function SettingsPanel() {
 
       <section className="settings__group">
         <label className="settings__label" htmlFor="opacity">
-          不透明度 ({Math.round(opacity * 100)}%)
+          不透明度 ({Math.round(draftOpacity * 100)}%)
         </label>
         <input
           id="opacity"
@@ -43,8 +52,12 @@ export function SettingsPanel() {
           min={OPACITY_MIN}
           max={OPACITY_MAX}
           step={OPACITY_STEP}
-          value={opacity}
-          onChange={(event) => setOpacity(Number(event.currentTarget.value))}
+          value={draftOpacity}
+          onChange={(event) =>
+            setDraftOpacity(Number(event.currentTarget.value))
+          }
+          onPointerUp={commitOpacity}
+          onKeyUp={commitOpacity}
         />
       </section>
 
@@ -52,26 +65,26 @@ export function SettingsPanel() {
         <SettingToggle
           id="compact"
           label="Compact モード"
-          checked={compact}
-          onChange={setCompact}
+          checked={settings.compact}
+          onChange={toggle("compact")}
         />
         <SettingToggle
           id="locked"
           label="位置をロック"
-          checked={locked}
-          onChange={setLocked}
+          checked={settings.locked}
+          onChange={toggle("locked")}
         />
         <SettingToggle
           id="click-through"
           label="クリックスルー"
-          checked={clickThrough}
-          onChange={setClickThrough}
+          checked={settings.clickThrough}
+          onChange={toggle("clickThrough")}
         />
         <SettingToggle
           id="visible"
           label="Overlay を表示"
-          checked={visible}
-          onChange={setVisible}
+          checked={settings.visible}
+          onChange={toggle("visible")}
         />
       </section>
 
@@ -85,7 +98,12 @@ export function SettingsPanel() {
       </section>
 
       <footer className="settings__footer">
-        <button type="button" onClick={() => resetSettings()}>
+        <button
+          type="button"
+          onClick={() => {
+            void updateSettings(DEFAULT_OVERLAY_SETTINGS);
+          }}
+        >
           Reset to defaults
         </button>
         <p className="settings__shortcut-hint">
@@ -113,7 +131,7 @@ function SettingToggle({ id, label, checked, onChange }: ToggleProps) {
         checked={checked}
         onChange={(event) => onChange(event.currentTarget.checked)}
       />
-      <span>{label}</span>
+      {label}
     </label>
   );
 }
