@@ -7,7 +7,14 @@ if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*tr
   exit 0
 fi
 
-cd "${CLAUDE_PROJECT_DIR:?CLAUDE_PROJECT_DIR not set}" || exit 0
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
+  echo "Stop hook: CLAUDE_PROJECT_DIR is not set" >&2
+  exit 2
+fi
+cd "$CLAUDE_PROJECT_DIR" || {
+  echo "Stop hook: failed to cd to CLAUDE_PROJECT_DIR=$CLAUDE_PROJECT_DIR" >&2
+  exit 2
+}
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
