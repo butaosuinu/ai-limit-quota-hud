@@ -8,6 +8,7 @@
 //! - `trigger_tx.try_send(())` debounces manual nudges (channel capacity = 1).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -29,37 +30,37 @@ pub struct SchedulerHandle {
     pub trigger_tx: mpsc::Sender<()>,
 }
 
+pub struct SchedulerDeps {
+    pub app: AppHandle,
+    pub providers: Vec<Arc<dyn UsageProvider>>,
+    pub storage: Arc<Storage>,
+    pub latest: Arc<RwLock<Vec<UsageSnapshot>>>,
+    /// Shared with `ProviderState::refresh_interval_seconds` so that
+    /// `set_refresh_interval` is picked up on the next iteration without
+    /// needing to respawn the scheduler.
+    pub interval_seconds: Arc<AtomicU64>,
+}
+
 /// Spawn the refresh loop on the Tauri-managed tokio runtime.
-pub fn spawn(
-    app: AppHandle,
-    providers: Vec<Arc<dyn UsageProvider>>,
-    storage: Arc<Storage>,
-    latest: Arc<RwLock<Vec<UsageSnapshot>>>,
-    global_interval: Duration,
-) -> SchedulerHandle {
+pub fn spawn(deps: SchedulerDeps) -> SchedulerHandle {
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-    tauri::async_runtime::spawn(run_loop(
-        app,
-        providers,
-        storage,
-        latest,
-        clock,
-        global_interval,
-        trigger_rx,
-    ));
+    tauri::async_runtime::spawn(run_loop(deps, clock, trigger_rx));
     SchedulerHandle { trigger_tx }
 }
 
 async fn run_loop(
-    app: AppHandle,
-    providers: Vec<Arc<dyn UsageProvider>>,
-    storage: Arc<Storage>,
-    latest: Arc<RwLock<Vec<UsageSnapshot>>>,
+    deps: SchedulerDeps,
     clock: Arc<dyn Clock>,
-    global_interval: Duration,
     mut trigger_rx: mpsc::Receiver<()>,
 ) {
+    let SchedulerDeps {
+        app,
+        providers,
+        storage,
+        latest,
+        interval_seconds,
+    } = deps;
     let mut state = SchedulerState::default();
     // Tick once immediately so a fresh app shows snapshots without waiting
     // 60 seconds for the first interval to elapse.
@@ -74,15 +75,18 @@ async fn run_loop(
     )
     .await;
     loop {
+        let interval = Duration::from_secs(interval_seconds.load(Ordering::Relaxed));
         tokio::select! {
-            _ = tokio::time::sleep(global_interval) => {}
+            _ = tokio::time::sleep(interval) => {}
             recv = trigger_rx.recv() => {
                 if recv.is_none() {
-                    // Sender dropped — exit quietly.
                     return;
                 }
                 // Drain any extra triggers that arrived while we were sleeping.
                 while trigger_rx.try_recv().is_ok() {}
+                // Manual nudges (CRUD mutations) must bypass the per-provider
+                // throttle so newly written rows surface immediately.
+                state.force_next = true;
             }
         }
         let forced = state.consume_force_flag();
@@ -199,8 +203,14 @@ async fn refresh_once(
             let provider_id = provider_root_id(&snap.provider_id);
             !touched.contains(provider_id)
         });
-        for snapshots in per_provider.into_values() {
-            guard.extend(snapshots);
+        // Extend in provider declaration order (HashMap iteration is not
+        // stable, so iterating the providers slice keeps the row order
+        // deterministic across refreshes — otherwise the change-detection
+        // comparison below would flip-flop on unchanged data).
+        for provider in providers {
+            if let Some(snapshots) = per_provider.remove(provider.id()) {
+                guard.extend(snapshots);
+            }
         }
         let changed = !snapshots_equivalent(&prev, &guard);
         (guard.clone(), changed)

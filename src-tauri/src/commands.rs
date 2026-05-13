@@ -4,6 +4,7 @@
 //! must not occupy the async runtime. Each mutation wakes the scheduler so
 //! the UI sees the change without waiting for the next refresh tick.
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -101,11 +102,7 @@ pub async fn delete_manual_row(
 pub async fn get_refresh_interval(
     state: tauri::State<'_, ProviderState>,
 ) -> Result<u64, AppError> {
-    let guard = state
-        .refresh_interval_seconds
-        .read()
-        .map_err(|_| AppError::Internal("interval lock poisoned".into()))?;
-    Ok(*guard)
+    Ok(state.refresh_interval_seconds.load(Ordering::Relaxed))
 }
 
 #[tauri::command]
@@ -114,10 +111,11 @@ pub async fn set_refresh_interval(
     state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
     let clamped = seconds.max(DEFAULT_REFRESH_INTERVAL_SECS);
-    let mut guard = state
+    state
         .refresh_interval_seconds
-        .write()
-        .map_err(|_| AppError::Internal("interval lock poisoned".into()))?;
-    *guard = clamped;
+        .store(clamped, Ordering::Relaxed);
+    // Wake the scheduler so it picks up the new interval on its next sleep
+    // boundary rather than waiting out the previous one.
+    scheduler::trigger(&state.scheduler);
     Ok(())
 }

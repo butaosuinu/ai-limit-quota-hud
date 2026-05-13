@@ -182,6 +182,24 @@ pub fn classify_status(
     }
 }
 
+/// Derive the effective remaining count: prefer an explicit `remaining`,
+/// otherwise compute `limit - used` so manual rows that only specify
+/// `limit + used` still classify correctly (and don't fall through to
+/// `NoData`).
+fn derive_remaining(
+    limit: Option<i64>,
+    used: Option<i64>,
+    remaining: Option<i64>,
+) -> Option<i64> {
+    if let Some(r) = remaining {
+        return Some(r);
+    }
+    match (limit, used) {
+        (Some(l), Some(u)) => Some((l - u).max(0)),
+        _ => None,
+    }
+}
+
 /// Convert a stored manual row into a snapshot. Always tagged as
 /// `source = Manual` and `confidence = Low` per spec §8.1.
 pub fn snapshot_from_manual_row(
@@ -191,8 +209,15 @@ pub fn snapshot_from_manual_row(
     crit_pct: f64,
 ) -> UsageSnapshot {
     let observed_at = format_rfc3339(now);
-    let remaining_percent = compute_remaining_percent(row.limit, row.remaining, None);
-    let status = classify_status(row.limit, row.remaining, remaining_percent, warn_pct, crit_pct);
+    let effective_remaining = derive_remaining(row.limit, row.used, row.remaining);
+    let remaining_percent = compute_remaining_percent(row.limit, effective_remaining, None);
+    let status = classify_status(
+        row.limit,
+        effective_remaining,
+        remaining_percent,
+        warn_pct,
+        crit_pct,
+    );
     UsageSnapshot {
         provider_id: format!("manual:{}", row.id),
         provider_kind: ProviderKind::Manual,
@@ -345,6 +370,67 @@ mod tests {
         assert_eq!(snap.status, SnapshotStatus::Ok);
         assert_eq!(snap.provider_id, "manual:abc");
         assert_eq!(snap.message.as_deref(), Some("plus plan"));
+    }
+
+    #[test]
+    fn snapshot_from_manual_row_derives_remaining_from_used() {
+        // The user filled limit + used (40 quota, 35 consumed) and left
+        // remaining blank. Without the limit-minus-used fallback this would
+        // collapse to `NoData`; with it the snapshot should classify as
+        // Critical (5/40 = 12.5% → below the 30% warn threshold and the
+        // 10% critical threshold is not yet crossed → Warning at 12.5%).
+        let row = ManualRow {
+            id: "deriv".into(),
+            provider_label: "ChatGPT".into(),
+            account_label: "personal".into(),
+            window: UsageWindow::FiveHours,
+            metric: UsageMetric::Messages,
+            limit: Some(40),
+            used: Some(35),
+            remaining: None,
+            reset_at: None,
+            note: None,
+            created_at: "2026-05-01T00:00:00Z".into(),
+            updated_at: "2026-05-13T12:00:00Z".into(),
+        };
+        let snap = snapshot_from_manual_row(
+            &row,
+            &now_fixture(),
+            DEFAULT_WARN_PCT,
+            DEFAULT_CRITICAL_PCT,
+        );
+        assert_eq!(snap.remaining_percent, Some(12.5));
+        assert_eq!(snap.status, SnapshotStatus::Warning);
+        // The DB-backed `remaining` field stays as the user entered it.
+        assert_eq!(snap.remaining, None);
+        assert_eq!(snap.used, Some(35));
+    }
+
+    #[test]
+    fn snapshot_from_manual_row_derives_critical_from_used() {
+        let row = ManualRow {
+            id: "deriv2".into(),
+            provider_label: "ChatGPT".into(),
+            account_label: "personal".into(),
+            window: UsageWindow::FiveHours,
+            metric: UsageMetric::Messages,
+            limit: Some(40),
+            used: Some(38),
+            remaining: None,
+            reset_at: None,
+            note: None,
+            created_at: "2026-05-01T00:00:00Z".into(),
+            updated_at: "2026-05-13T12:00:00Z".into(),
+        };
+        let snap = snapshot_from_manual_row(
+            &row,
+            &now_fixture(),
+            DEFAULT_WARN_PCT,
+            DEFAULT_CRITICAL_PCT,
+        );
+        // 2/40 = 5% → Critical.
+        assert_eq!(snap.remaining_percent, Some(5.0));
+        assert_eq!(snap.status, SnapshotStatus::Critical);
     }
 
     #[test]

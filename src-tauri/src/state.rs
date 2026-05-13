@@ -4,6 +4,7 @@
 //! its own state struct so the two don't collide — Tauri's typed `State<T>`
 //! retrieves each one independently.
 
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
 use crate::model::UsageSnapshot;
@@ -16,10 +17,10 @@ pub struct ProviderState {
     pub storage: Arc<Storage>,
     pub latest: Arc<RwLock<Vec<UsageSnapshot>>>,
     pub scheduler: SchedulerHandle,
-    /// Refresh interval in seconds. Phase 2 keeps this in memory only —
-    /// persisting requires extending Phase 1's settings.json schema, deferred
-    /// to a follow-up.
-    pub refresh_interval_seconds: RwLock<u64>,
+    /// Refresh interval in seconds. Shared with the scheduler so
+    /// `set_refresh_interval` updates take effect on the next iteration
+    /// without respawning the loop.
+    pub refresh_interval_seconds: Arc<AtomicU64>,
 }
 
 impl ProviderState {
@@ -27,13 +28,13 @@ impl ProviderState {
         storage: Arc<Storage>,
         latest: Arc<RwLock<Vec<UsageSnapshot>>>,
         scheduler: SchedulerHandle,
-        refresh_interval_seconds: u64,
+        refresh_interval_seconds: Arc<AtomicU64>,
     ) -> Self {
         Self {
             storage,
             latest,
             scheduler,
-            refresh_interval_seconds: RwLock::new(refresh_interval_seconds),
+            refresh_interval_seconds,
         }
     }
 }

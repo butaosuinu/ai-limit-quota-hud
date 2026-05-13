@@ -332,8 +332,8 @@ pub fn run() {
 }
 
 fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::atomic::AtomicU64;
     use std::sync::{Arc, RwLock};
-    use std::time::Duration;
 
     use crate::providers::DEFAULT_REFRESH_INTERVAL_SECS;
 
@@ -347,19 +347,20 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
 
     let storage = Arc::new(storage::Storage::open(db_path)?);
     let latest = Arc::new(RwLock::new(Vec::new()));
+    let interval_seconds = Arc::new(AtomicU64::new(DEFAULT_REFRESH_INTERVAL_SECS));
     let providers = providers::default_providers(Arc::clone(&storage));
-    let scheduler_handle = scheduler::spawn(
-        handle.clone(),
+    let scheduler_handle = scheduler::spawn(scheduler::SchedulerDeps {
+        app: handle.clone(),
         providers,
-        Arc::clone(&storage),
-        Arc::clone(&latest),
-        Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS),
-    );
+        storage: Arc::clone(&storage),
+        latest: Arc::clone(&latest),
+        interval_seconds: Arc::clone(&interval_seconds),
+    });
     handle.manage(state::ProviderState::new(
         storage,
         latest,
         scheduler_handle,
-        DEFAULT_REFRESH_INTERVAL_SECS,
+        interval_seconds,
     ));
     Ok(())
 }
