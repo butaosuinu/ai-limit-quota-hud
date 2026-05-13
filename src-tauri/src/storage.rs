@@ -4,7 +4,7 @@
 //! Phase 1 introduced (`app_config_dir/settings.json`). Secrets never touch
 //! either store; OS credential storage will host them when Phase 3 lands.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -21,8 +21,6 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("manual row not found: {0}")]
     NotFound(String),
-    #[error("invalid value: {0}")]
-    InvalidValue(String),
 }
 
 impl Serialize for StorageError {
@@ -48,7 +46,8 @@ impl Storage {
         Self::initialize(conn)
     }
 
-    /// Open an in-memory database — used by tests.
+    /// Open an in-memory database — used by tests only.
+    #[cfg(test)]
     pub fn open_in_memory() -> Result<Self, StorageError> {
         let conn = Connection::open_in_memory()?;
         Self::initialize(conn)
@@ -311,7 +310,7 @@ fn metric_from_str(s: &str) -> Result<UsageMetric, EnumParseError> {
 /// Test-only helper to build a storage backed by a freshly-created file in a
 /// temp directory. Lives behind `cfg(test)` so it never appears in production.
 #[cfg(test)]
-pub fn open_temp(dir: &Path) -> Result<Storage, StorageError> {
+pub fn open_temp(dir: &std::path::Path) -> Result<Storage, StorageError> {
     Storage::open(dir.join("test.sqlite3"))
 }
 

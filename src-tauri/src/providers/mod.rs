@@ -46,6 +46,9 @@ impl Clock for SystemClock {
 /// Abstraction over the OS credential store. Phase 2 only carries the
 /// no-op implementation; Phase 3 will swap in a `keyring`-backed one.
 pub trait CredentialGetter: Send + Sync {
+    // Unused in Phase 2 — manual provider needs no secrets — but kept on the
+    // trait so Phase 3 header providers slot in without an API churn.
+    #[allow(dead_code)]
     fn get(&self, key: &str) -> Option<String>;
 }
 
@@ -57,6 +60,10 @@ impl CredentialGetter for NoopCredentialGetter {
     }
 }
 
+// `storage` and `credentials` are unused by the manual provider but are
+// part of the Phase 3 contract — header providers need to look up cached
+// snapshots and API keys through this struct.
+#[allow(dead_code)]
 pub struct ProviderContext {
     pub storage: Arc<Storage>,
     pub clock: Arc<dyn Clock>,
@@ -66,6 +73,7 @@ pub struct ProviderContext {
 }
 
 impl ProviderContext {
+    #[allow(dead_code)]
     pub fn new(storage: Arc<Storage>) -> Self {
         Self {
             storage,

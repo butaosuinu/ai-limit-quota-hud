@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 
-import { manualRowsAtom } from "../atoms/manualAtoms";
+import { manualRowsAtom, manualRowsErrorAtom } from "../atoms/manualAtoms";
 import type { ManualRow } from "../types";
 import { ManualRowsPanel } from "./ManualRowsPanel";
 
@@ -122,5 +122,35 @@ describe("ManualRowsPanel", () => {
       ([cmd]) => cmd === "delete_manual_row",
     );
     expect(deleteCall?.[1]).toEqual({ id: "row-x" });
+  });
+
+  it("rejects non-integer numeric input and shows a form error", () => {
+    renderPanel();
+    fireEvent.change(screen.getByTestId("manual-form-provider-label"), {
+      target: { value: "ChatGPT" },
+    });
+    fireEvent.change(screen.getByTestId("manual-form-account-label"), {
+      target: { value: "personal" },
+    });
+    fireEvent.change(screen.getByTestId("manual-form-limit"), {
+      target: { value: "12.9" },
+    });
+    fireEvent.click(screen.getByTestId("manual-form-submit"));
+    expect(screen.getByTestId("manual-rows-form-error")).toBeTruthy();
+    expect(
+      mockedInvoke.mock.calls.find(([cmd]) => cmd === "create_manual_row"),
+    ).toBeUndefined();
+  });
+
+  it("surfaces backend errors from manualRowsErrorAtom", () => {
+    const store = createStore();
+    store.set(manualRowsErrorAtom, "行の追加に失敗: sqlite is locked");
+    render(
+      <Provider store={store}>
+        <ManualRowsPanel />
+      </Provider>,
+    );
+    const banner = screen.getByTestId("manual-rows-error");
+    expect(banner.textContent).toContain("sqlite is locked");
   });
 });

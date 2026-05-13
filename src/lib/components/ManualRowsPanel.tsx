@@ -5,6 +5,7 @@ import {
   createManualRowAtom,
   deleteManualRowAtom,
   manualRowsAtom,
+  manualRowsErrorAtom,
   updateManualRowAtom,
 } from "../atoms/manualAtoms";
 import type {
@@ -72,32 +73,49 @@ function rowToForm(row: ManualRow): FormState {
   };
 }
 
+/**
+ * Accept whole integers only — reject scientific notation and fractions so
+ * the saved value matches what the user typed instead of silently truncating
+ * `12.9` to `12` or `1e2` to `1`. Returns `null` for non-integer input so
+ * downstream validation can surface the problem.
+ */
+function parseStrictInteger(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  if (!/^-?\d+$/u.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 function formToInput(state: FormState): ManualRowInput {
-  const parseInteger = (raw: string): number | null => {
-    if (raw.trim() === "") return null;
-    const value = Number.parseInt(raw, 10);
-    return Number.isNaN(value) ? null : value;
-  };
   return {
     providerLabel: state.providerLabel.trim(),
     accountLabel: state.accountLabel.trim(),
     window: state.window,
     metric: state.metric,
-    limit: parseInteger(state.limit),
-    used: parseInteger(state.used),
-    remaining: parseInteger(state.remaining),
+    limit: parseStrictInteger(state.limit),
+    used: parseStrictInteger(state.used),
+    remaining: parseStrictInteger(state.remaining),
     resetAt: state.resetAt.trim() === "" ? null : state.resetAt,
     note: state.note.trim() === "" ? null : state.note,
   };
 }
 
+function hasInvalidIntegerField(state: FormState): boolean {
+  return [state.limit, state.used, state.remaining].some(
+    (raw) => raw.trim() !== "" && parseStrictInteger(raw) === null,
+  );
+}
+
 export function ManualRowsPanel() {
   const rows = useAtomValue(manualRowsAtom);
+  const backendError = useAtomValue(manualRowsErrorAtom);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const createRow = useSetAtom(createManualRowAtom);
   const updateRow = useSetAtom(updateManualRowAtom);
   const deleteRow = useSetAtom(deleteManualRowAtom);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedId === null) {
@@ -112,6 +130,13 @@ export function ManualRowsPanel() {
 
   const submit = (event: React.SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (hasInvalidIntegerField(form)) {
+      setFormError(
+        "limit / used / remaining は整数で入力してください (1e2 や 12.5 は無効)",
+      );
+      return;
+    }
+    setFormError(null);
     const input = formToInput(form);
     if (input.providerLabel === "" || input.accountLabel === "") return;
     if (selectedId === null) {
@@ -155,6 +180,25 @@ export function ManualRowsPanel() {
           <code>low</code> です。
         </p>
       </header>
+
+      {backendError !== null && (
+        <p
+          className="manual-rows__error"
+          data-testid="manual-rows-error"
+          role="alert"
+        >
+          {backendError}
+        </p>
+      )}
+      {formError !== null && (
+        <p
+          className="manual-rows__error"
+          data-testid="manual-rows-form-error"
+          role="alert"
+        >
+          {formError}
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="manual-rows__empty" data-testid="manual-rows-empty">

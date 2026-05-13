@@ -15,7 +15,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
-use crate::model::{error_snapshot, ProviderKind, UsageSnapshot};
+use crate::model::{error_snapshot, UsageSnapshot};
 use crate::providers::{Clock, ProviderContext, SystemClock, UsageProvider};
 use crate::state::USAGE_UPDATED_EVENT;
 use crate::storage::Storage;

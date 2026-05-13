@@ -7,6 +7,7 @@ import {
   createManualRowAtom,
   deleteManualRowAtom,
   manualRowsAtom,
+  manualRowsErrorAtom,
   updateManualRowAtom,
 } from "./manualAtoms";
 
@@ -66,6 +67,7 @@ describe("createManualRowAtom", () => {
     const rows = store.get(manualRowsAtom);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe("row-1");
+    expect(store.get(manualRowsErrorAtom)).toBeNull();
     expect(mockedInvoke).toHaveBeenCalledWith("create_manual_row", {
       input: sampleInput(),
     });
@@ -74,10 +76,10 @@ describe("createManualRowAtom", () => {
     ).toBeUndefined();
   });
 
-  it("leaves the list untouched when the create call fails", async () => {
+  it("surfaces the failure into manualRowsErrorAtom on create failure", async () => {
     mockedInvoke.mockImplementation((command) => {
       if (command === "create_manual_row") {
-        return Promise.reject(new Error("boom"));
+        return Promise.reject(new Error("sqlite is locked"));
       }
       return Promise.resolve(undefined);
     });
@@ -85,6 +87,22 @@ describe("createManualRowAtom", () => {
     store.set(manualRowsAtom, []);
     await store.set(createManualRowAtom, sampleInput());
     expect(store.get(manualRowsAtom)).toEqual([]);
+    expect(store.get(manualRowsErrorAtom)).toMatchInlineSnapshot(
+      `"行の追加に失敗: sqlite is locked"`,
+    );
+  });
+
+  it("clears a prior error after a successful create", async () => {
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "create_manual_row") {
+        return sampleRow();
+      }
+      return undefined;
+    });
+    const store = createStore();
+    store.set(manualRowsErrorAtom, "stale error");
+    await store.set(createManualRowAtom, sampleInput());
+    expect(store.get(manualRowsErrorAtom)).toBeNull();
   });
 });
 
@@ -109,6 +127,24 @@ describe("updateManualRowAtom", () => {
       input: sampleInput({ note: "edited" }),
     });
   });
+
+  it("surfaces the failure into manualRowsErrorAtom on update failure", async () => {
+    mockedInvoke.mockImplementation((command) => {
+      if (command === "update_manual_row") {
+        return Promise.reject(new Error("not found"));
+      }
+      return Promise.resolve(undefined);
+    });
+    const store = createStore();
+    store.set(manualRowsAtom, [sampleRow()]);
+    await store.set(updateManualRowAtom, {
+      id: "row-1",
+      input: sampleInput(),
+    });
+    expect(store.get(manualRowsErrorAtom)).toMatchInlineSnapshot(
+      `"行の更新に失敗: not found"`,
+    );
+  });
 });
 
 describe("deleteManualRowAtom", () => {
@@ -128,15 +164,16 @@ describe("deleteManualRowAtom", () => {
     const rows = store.get(manualRowsAtom);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe("row-2");
+    expect(store.get(manualRowsErrorAtom)).toBeNull();
     expect(
       mockedInvoke.mock.calls.find(([cmd]) => cmd === "list_manual_rows"),
     ).toBeUndefined();
   });
 
-  it("keeps the row when delete fails", async () => {
+  it("keeps the row and surfaces the failure when delete fails", async () => {
     mockedInvoke.mockImplementation((command) => {
       if (command === "delete_manual_row") {
-        return Promise.reject(new Error("boom"));
+        return Promise.reject(new Error("sqlite is busy"));
       }
       return Promise.resolve(undefined);
     });
@@ -144,5 +181,8 @@ describe("deleteManualRowAtom", () => {
     store.set(manualRowsAtom, [sampleRow({ id: "row-1" })]);
     await store.set(deleteManualRowAtom, "row-1");
     expect(store.get(manualRowsAtom)).toHaveLength(1);
+    expect(store.get(manualRowsErrorAtom)).toMatchInlineSnapshot(
+      `"行の削除に失敗: sqlite is busy"`,
+    );
   });
 });
