@@ -1,0 +1,74 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: #f5f5f5;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  height: 100%;
+}
+
+.overlay {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(20, 20, 22, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.overlay__title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 245, 0.55);
+}
+
+.overlay__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.overlay__row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.overlay__row-label {
+  font-weight: 500;
+}
+
+.overlay__row-detail {
+  color: #9be7a4;
+}
+
+.overlay__row-reset {
+  color: rgba(245, 245, 245, 0.55);
+  font-size: 11px;
+}
+
+.overlay__footer {
+  margin-top: auto;
+  font-size: 10px;
+  color: rgba(245, 245, 245, 0.4);
+}
