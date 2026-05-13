@@ -16,16 +16,20 @@ struct SettingsPayload<'a> {
     settings: &'a OverlaySettings,
 }
 
-pub fn apply_to_window(window: &WebviewWindow, settings: &OverlaySettings) {
+/// Apply the window-controllable bits of `settings` to the overlay window.
+/// Returns the position the window was moved to (if any), so the caller can
+/// distinguish a programmatic Moved event from a real user drag.
+pub fn apply_to_window(
+    window: &WebviewWindow,
+    settings: &OverlaySettings,
+) -> Option<Position> {
     let _ = window.set_always_on_top(settings.always_on_top);
     let _ = window.set_ignore_cursor_events(settings.click_through);
 
-    if let Some(position) = settings.position {
-        let _ = window.set_position(PhysicalPosition {
-            x: position.x,
-            y: position.y,
-        });
-    } else if let Some(position) = corner_position(window, settings) {
+    let target = settings
+        .position
+        .or_else(|| corner_position(window, settings));
+    if let Some(position) = target {
         let _ = window.set_position(PhysicalPosition {
             x: position.x,
             y: position.y,
@@ -37,6 +41,8 @@ pub fn apply_to_window(window: &WebviewWindow, settings: &OverlaySettings) {
     } else {
         let _ = window.hide();
     }
+
+    target
 }
 
 fn corner_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option<Position> {

@@ -25,12 +25,18 @@ const CLICK_THROUGH_SHORTCUT: &str = "CommandOrControl+Shift+Backslash";
 
 struct AppState {
     settings: Mutex<OverlaySettings>,
+    // The position `apply_to_window` just sent to the OS, if any. The Moved
+    // event listener consumes this on the next event so a programmatic move
+    // (e.g. Reset to defaults landing the overlay on the corner) is not
+    // re-persisted as if the user had dragged the window.
+    expected_programmatic_move: Mutex<Option<Position>>,
 }
 
 impl AppState {
     fn new(initial: OverlaySettings) -> Self {
         Self {
             settings: Mutex::new(initial.normalized()),
+            expected_programmatic_move: Mutex::new(None),
         }
     }
 
@@ -49,6 +55,20 @@ impl AppState {
             .expect("overlay settings mutex poisoned");
         *guard = normalized;
         guard.clone()
+    }
+
+    fn expect_programmatic_move(&self, position: Option<Position>) {
+        *self
+            .expected_programmatic_move
+            .lock()
+            .expect("programmatic-move mutex poisoned") = position;
+    }
+
+    fn take_expected_programmatic_move(&self) -> Option<Position> {
+        self.expected_programmatic_move
+            .lock()
+            .expect("programmatic-move mutex poisoned")
+            .take()
     }
 }
 
@@ -87,7 +107,8 @@ fn persist_and_apply(app: &AppHandle, settings: &OverlaySettings) {
         log::warn!("failed to persist overlay settings: {err}");
     }
     if let Some(window) = overlay_window(app) {
-        apply_to_window(&window, settings);
+        let moved_to = apply_to_window(&window, settings);
+        app.state::<AppState>().expect_programmatic_move(moved_to);
     }
     emit_settings_changed(app, settings);
     refresh_tray_menu(app, settings);
@@ -235,8 +256,17 @@ fn attach_window_listeners(app: &AppHandle) {
 
 fn persist_position(app: &AppHandle, x: i32, y: i32) {
     let state = app.state::<AppState>();
-    let mut current = state.snapshot();
     let next = Position { x, y };
+
+    // If the OS Moved event matches a position we just programmatically set
+    // via `apply_to_window`, treat it as backend-initiated and skip persistence
+    // so Reset-to-defaults / corner placement isn't immediately recorded as an
+    // explicit user position.
+    if state.take_expected_programmatic_move() == Some(next) {
+        return;
+    }
+
+    let mut current = state.snapshot();
     if current.position == Some(next) {
         return;
     }
@@ -264,7 +294,10 @@ pub fn run() {
 
             if let Some(window) = handle.get_webview_window(OVERLAY_WINDOW_LABEL) {
                 platform::apply_overlay_traits(&window);
-                apply_to_window(&window, &initial);
+                let moved_to = apply_to_window(&window, &initial);
+                handle
+                    .state::<AppState>()
+                    .expect_programmatic_move(moved_to);
             } else {
                 log::error!(
                     "overlay window `{OVERLAY_WINDOW_LABEL}` missing from tauri.conf.json"
