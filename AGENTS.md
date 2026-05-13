@@ -1,11 +1,13 @@
 # AGENTS.md — AI Quota Overlay / QuotaHUD
 
 ## Mission
+
 Build a small cross-platform Tauri 2 desktop app that shows remaining AI usage/rate-limit information for multiple providers in a transparent, always-visible overlay.
 
 The app is tentatively named `QuotaHUD`. Rename only if the repository already has a different name.
 
 ## Hard requirements
+
 - Use Tauri 2 for the desktop app.
 - Produce distributable binaries/installers for macOS, Windows, and Linux.
 - Do not require Python at runtime, during normal development, in tests, in build scripts, or in CI.
@@ -16,12 +18,15 @@ The app is tentatively named `QuotaHUD`. Rename only if the repository already h
 - Do not implement fragile private-endpoint scraping as the default path. Clearly label any estimated or unofficial data source.
 
 ## Before editing
+
 Read these files first:
+
 1. `docs/PROJECT_SPEC.md`
 2. `docs/ACCEPTANCE_CHECKLIST.md`
 3. `docs/IMPLEMENTATION_PROMPTS.md` when you need task-by-task prompts
 
 ## Default stack
+
 - Package manager: `pnpm`
 - Frontend: TypeScript, React, Vite
 - Frontend state: Jotai for shared state when needed; React local state for component-local concerns
@@ -33,6 +38,7 @@ Read these files first:
 - Tests: `cargo test`, `vitest`, small deterministic fixtures
 
 ## Commands the project should support
+
 Use these exact scripts unless the repository has a strong reason not to:
 
 ```bash
@@ -47,6 +53,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 ## Coding rules
+
 - Keep provider collection code isolated from UI rendering.
 - Use React function components and hooks. Keep component-local state with `useState`/`useReducer`; use Jotai atoms only for shared UI/app state such as overlay settings, provider snapshots, connection status, and selected provider/account.
 - Keep Jotai atoms small and typed. Put atoms under `src/lib/atoms/` or `src/state/`, and avoid storing secrets in frontend atoms.
@@ -59,10 +66,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Make platform-specific overlay behavior explicit in `src-tauri/src/platform/`.
 
 ## Review expectations
+
 Before considering work complete:
+
 - Run relevant Rust and frontend tests.
 - Run format/lint where configured.
 - Verify the app starts with `pnpm tauri dev`.
 - Update docs when architecture, limitations, or build commands change.
 - If an OS-specific feature is unsupported or flaky, document the limitation and leave the code path safe rather than pretending it works.
-

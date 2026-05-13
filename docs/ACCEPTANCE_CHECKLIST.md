@@ -101,4 +101,3 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] README explains unsigned-app warnings if signing is not configured.
 - [ ] README explains exact vs estimated providers.
 - [ ] README explains privacy model.
-
