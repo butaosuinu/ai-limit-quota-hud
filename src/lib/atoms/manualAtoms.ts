@@ -13,13 +13,27 @@ import type { ManualRow, ManualRowInput } from "../types";
  * settings UI never sees a stale rows-list paired with a no-longer-relevant
  * error message, and so transient list_manual_rows failures don't blow away
  * the rows we already have.
+ *
+ * `generation` increments on every user-triggered write so a slow bootstrap
+ * fetch that resolves after the user has already mutated state can tell that
+ * the in-memory state is fresher than the fetched payload. Inferring
+ * freshness from `rows.length === 0` is not enough because a user can
+ * legitimately create-then-delete down to an empty list while the initial
+ * fetch is still in flight.
  */
 type ManualRowsState = {
   rows: readonly ManualRow[];
   error: string | null;
+  generation: number;
 };
 
-const stateAtom = atom<ManualRowsState>({ rows: [], error: null });
+const INITIAL_GENERATION = 0;
+
+const stateAtom = atom<ManualRowsState>({
+  rows: [],
+  error: null,
+  generation: INITIAL_GENERATION,
+});
 
 type Lifecycle = { cancelled: boolean };
 
@@ -57,50 +71,68 @@ async function bootstrap(
   );
   if (lifecycle.cancelled) return;
   if (isFailure(result)) {
-    // Record the load failure but never clobber rows the user has already
-    // mutated in the meantime.
-    setState((prev) => ({ rows: prev.rows, error: result.message }));
+    setState((prev) => {
+      // A user mutation happened during the fetch. Don't paper over their
+      // latest action with the bootstrap-time error; surface it via console
+      // and let the next refetch attempt re-surface if still broken.
+      if (prev.generation !== INITIAL_GENERATION) return prev;
+      return {
+        rows: prev.rows,
+        error: result.message,
+        generation: prev.generation,
+      };
+    });
     return;
   }
-  // Defensive: backend should return an array but tests use a generic mock
-  // that resolves with `undefined`. Treat a non-array as empty rather than
-  // letting `rows: undefined` propagate into the UI.
   const fetched: readonly ManualRow[] = Array.isArray(result) ? result : [];
   setState((prev) => {
-    // If a CRUD mutation landed before the initial fetch resolved, the
-    // in-memory state is fresher than `fetched` — keep the user's edits.
-    if (prev.rows.length > 0 || prev.error !== null) return prev;
-    return { rows: fetched, error: null };
+    if (prev.generation !== INITIAL_GENERATION) return prev;
+    return { rows: fetched, error: null, generation: prev.generation };
   });
 }
 
 export const manualRowsAtom = atom(
   (get) => get(stateAtom).rows,
   (get, set, next: readonly ManualRow[]) => {
-    set(stateAtom, { ...get(stateAtom), rows: next });
+    const prev = get(stateAtom);
+    set(stateAtom, { ...prev, rows: next, generation: prev.generation + 1 });
   },
 );
 
 export const manualRowsErrorAtom = atom(
   (get) => get(stateAtom).error,
   (get, set, next: string | null) => {
-    set(stateAtom, { ...get(stateAtom), error: next });
+    const prev = get(stateAtom);
+    set(stateAtom, { ...prev, error: next, generation: prev.generation + 1 });
   },
 );
 
 export const refetchManualRowsAtom = atom(null, async (get, set) => {
+  const { generation: sentAtGeneration } = get(stateAtom);
   const result = await listManualRows().catch(
     (err: unknown): Failure => failure(describeError("行の取得に失敗", err)),
   );
   const prev = get(stateAtom);
+  if (prev.generation !== sentAtGeneration) {
+    // A CRUD mutation landed during the fetch; trust the in-memory state.
+    return;
+  }
   if (isFailure(result)) {
     // Preserve the existing rows so a transient fetch failure doesn't make
     // the UI look like everything was deleted.
-    set(stateAtom, { rows: prev.rows, error: result.message });
+    set(stateAtom, {
+      rows: prev.rows,
+      error: result.message,
+      generation: prev.generation + 1,
+    });
     return;
   }
   const fetched: readonly ManualRow[] = Array.isArray(result) ? result : [];
-  set(stateAtom, { rows: fetched, error: null });
+  set(stateAtom, {
+    rows: fetched,
+    error: null,
+    generation: prev.generation + 1,
+  });
 });
 
 export const createManualRowAtom = atom(
@@ -112,10 +144,18 @@ export const createManualRowAtom = atom(
     const prev = get(stateAtom);
     if (isFailure(result)) {
       console.warn("create_manual_row failed", result.message);
-      set(stateAtom, { rows: prev.rows, error: result.message });
+      set(stateAtom, {
+        rows: prev.rows,
+        error: result.message,
+        generation: prev.generation + 1,
+      });
       return false;
     }
-    set(stateAtom, { rows: [...prev.rows, result], error: null });
+    set(stateAtom, {
+      rows: [...prev.rows, result],
+      error: null,
+      generation: prev.generation + 1,
+    });
     return true;
   },
 );
@@ -133,12 +173,17 @@ export const updateManualRowAtom = atom(
     const prev = get(stateAtom);
     if (isFailure(result)) {
       console.warn("update_manual_row failed", result.message);
-      set(stateAtom, { rows: prev.rows, error: result.message });
+      set(stateAtom, {
+        rows: prev.rows,
+        error: result.message,
+        generation: prev.generation + 1,
+      });
       return false;
     }
     set(stateAtom, {
       rows: prev.rows.map((row) => (row.id === result.id ? result : row)),
       error: null,
+      generation: prev.generation + 1,
     });
     return true;
   },
@@ -153,12 +198,17 @@ export const deleteManualRowAtom = atom(
     const prev = get(stateAtom);
     if (isFailure(result)) {
       console.warn("delete_manual_row failed", result.message);
-      set(stateAtom, { rows: prev.rows, error: result.message });
+      set(stateAtom, {
+        rows: prev.rows,
+        error: result.message,
+        generation: prev.generation + 1,
+      });
       return false;
     }
     set(stateAtom, {
       rows: prev.rows.filter((row) => row.id !== id),
       error: null,
+      generation: prev.generation + 1,
     });
     return true;
   },

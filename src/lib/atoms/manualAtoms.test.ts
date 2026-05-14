@@ -195,6 +195,44 @@ describe("deleteManualRowAtom", () => {
 });
 
 describe("bootstrap race", () => {
+  it("ignores bootstrap result when user mutated back to an empty list", async () => {
+    // Reproduces the case the rows-length-only guard missed: list_manual_rows
+    // is in flight while the user creates a row and then deletes it, ending
+    // with rows = [] but generation != 0. The bootstrap completion must not
+    // resurrect the deleted row.
+    const resolverRef: {
+      resolve: ((rows: ManualRow[]) => void) | null;
+    } = { resolve: null };
+    mockedInvoke.mockImplementation((command) => {
+      if (command === "list_manual_rows") {
+        return new Promise<ManualRow[]>((resolve) => {
+          resolverRef.resolve = resolve;
+        });
+      }
+      if (command === "create_manual_row") {
+        return Promise.resolve(sampleRow({ id: "user-row" }));
+      }
+      if (command === "delete_manual_row") {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(undefined);
+    });
+    const store = createStore();
+    const unsub = store.sub(manualRowsAtom, () => undefined);
+    await Promise.resolve();
+    await store.set(createManualRowAtom, sampleInput());
+    await store.set(deleteManualRowAtom, "user-row");
+    expect(store.get(manualRowsAtom)).toEqual([]);
+    if (resolverRef.resolve !== null) {
+      resolverRef.resolve([sampleRow({ id: "stale" })]);
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    // Deleted row must NOT come back from the in-flight bootstrap.
+    expect(store.get(manualRowsAtom)).toEqual([]);
+    unsub();
+  });
+
   it("does not overwrite rows that a CRUD mutation wrote during the initial fetch", async () => {
     const resolverRef: {
       resolve: ((rows: ManualRow[]) => void) | null;
