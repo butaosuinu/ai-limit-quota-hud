@@ -6,6 +6,7 @@ import {
   updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
 import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
+import { ManualRowsPanel } from "./ManualRowsPanel";
 
 const OPACITY_STEP = 0.01;
 const OPACITY_MIN = 0.15;
@@ -37,8 +38,8 @@ export function SettingsPanel() {
       <header className="settings__header">
         <h1>QuotaHUD Settings</h1>
         <p className="settings__hint">
-          Phase 1 では overlay の外観と挙動のみ調整できます。プロバイダ設定は
-          Phase 2 以降で追加されます。
+          overlay の外観と挙動、および manual provider の行を編集できます。API
+          プロバイダは Phase 3 以降で追加されます。
         </p>
       </header>
 
@@ -96,6 +97,8 @@ export function SettingsPanel() {
             : "(まだ未保存。overlay をドラッグすると保存されます)"}
         </p>
       </section>
+
+      <ManualRowsPanel />
 
       <footer className="settings__footer">
         <button

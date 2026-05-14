@@ -1,11 +1,12 @@
 import { useAtomValue } from "jotai";
 
 import { overlaySettingsAtom } from "../atoms/overlayAtoms";
-import { SAMPLE_ROWS } from "../types";
+import { sortedSnapshotsAtom } from "../atoms/usageAtoms";
 import { UsageRow } from "./UsageRow";
 
 export function Overlay() {
   const settings = useAtomValue(overlaySettingsAtom);
+  const snapshots = useAtomValue(sortedSnapshotsAtom);
   const dragProps = settings.locked ? {} : { "data-tauri-drag-region": true };
   const className = `overlay${settings.compact ? " overlay--compact" : ""}`;
   return (
@@ -17,12 +18,25 @@ export function Overlay() {
     >
       <header className="overlay__title">QuotaHUD</header>
       <ul className="overlay__rows">
-        {SAMPLE_ROWS.map((row) => (
-          <UsageRow key={row.id} row={row} compact={settings.compact} />
-        ))}
+        {snapshots.length === 0 ? (
+          <li
+            className="overlay__row overlay__row--empty"
+            data-testid="overlay-empty"
+          >
+            no providers configured
+          </li>
+        ) : (
+          snapshots.map((snapshot) => (
+            <UsageRow
+              key={snapshot.providerId}
+              snapshot={snapshot}
+              compact={settings.compact}
+            />
+          ))
+        )}
       </ul>
       <footer className="overlay__footer">
-        phase 1 · sample data ·{" "}
+        phase 2 · {snapshots.length} provider rows ·{" "}
         {settings.clickThrough ? "click-through on" : "click-through off"}
         {settings.locked ? " · locked" : " · drag to move"}
       </footer>

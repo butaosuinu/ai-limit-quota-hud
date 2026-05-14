@@ -34,45 +34,87 @@ export type SnapshotStatus =
   | "no-data"
   | "error";
 
-/** Phase 1 row shape. Replaced by the real `UsageSnapshot` in Phase 2. */
-export type SampleRow = {
-  id: string;
-  label: string;
-  detail: string;
-  reset: string;
+export type ProviderKind =
+  | "open-ai-api"
+  | "anthropic-api"
+  | "claude-code-local"
+  | "codex-local"
+  | "manual";
+
+export type UsageMetric =
+  | "requests"
+  | "tokens"
+  | "input-tokens"
+  | "output-tokens"
+  | "messages"
+  | "percent"
+  | "unknown";
+
+export type UsageSource =
+  | "official-api"
+  | "response-header"
+  | "local-log"
+  | "manual"
+  | "estimate"
+  | "unavailable";
+
+export type Confidence = "high" | "medium" | "low";
+
+export type UsageWindow =
+  | "one-minute"
+  | "five-hours"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "api"
+  | "unknown";
+
+export type UsageSnapshot = {
+  providerId: string;
+  providerKind: ProviderKind;
+  accountLabel: string;
+  window: UsageWindow;
+  metric: UsageMetric;
+  limit: number | null;
+  used: number | null;
+  remaining: number | null;
+  remainingPercent: number | null;
+  resetAt: string | null;
+  observedAt: string;
+  source: UsageSource;
+  confidence: Confidence;
   status: SnapshotStatus;
+  message: string | null;
 };
 
-export const SAMPLE_ROWS: readonly SampleRow[] = [
-  {
-    id: "claude-code",
-    label: "Claude Code",
-    detail: "74%",
-    reset: "2:14",
-    status: "ok",
-  },
-  {
-    id: "anthropic-api",
-    label: "Anthropic API",
-    detail: "812k tok",
-    reset: "0:37",
-    status: "ok",
-  },
-  {
-    id: "openai-api",
-    label: "OpenAI API",
-    detail: "59 req",
-    reset: "0:01",
-    status: "warning",
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    detail: "—",
-    reset: "—",
-    status: "no-data",
-  },
-];
+export type ManualRow = {
+  id: string;
+  providerLabel: string;
+  accountLabel: string;
+  window: UsageWindow;
+  metric: UsageMetric;
+  limit: number | null;
+  used: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ManualRowInput = {
+  providerLabel: string;
+  accountLabel: string;
+  window: UsageWindow;
+  metric: UsageMetric;
+  limit: number | null;
+  used: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+  note: string | null;
+};
+
+export const USAGE_UPDATED_EVENT = "usage://updated";
 
 export const OVERLAY_SETTINGS_CHANGED_EVENT = "overlay://settings-changed";
 
