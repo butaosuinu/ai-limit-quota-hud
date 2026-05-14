@@ -8,7 +8,7 @@ The first usable version should prioritize a clean, reliable overlay and a provi
 
 ## 2. Non-goals for v0
 
-Do not start with these:
+Do not start with these in v0:
 
 - Browser-cookie scraping of ChatGPT or Claude subscription pages.
 - Password capture or embedded login flows.
@@ -17,6 +17,11 @@ Do not start with these:
 - Mobile support.
 - A pixel-perfect clone of any existing tool.
 
+From v1 onwards, browser-cookie usage and embedded login flows are permitted
+only as **opt-in WebView providers** under the conditions documented in §8.7,
+§10.2, and §14. They are explicitly not enabled by default and must be
+gated behind an explicit user toggle.
+
 ## 3. Terminology
 
 Use these terms consistently:
@@ -24,8 +29,8 @@ Use these terms consistently:
 - `usage`: amount consumed in a known window.
 - `remaining`: remaining requests/tokens/messages/percent.
 - `window`: reset window, such as `1m`, `5h`, `daily`, `weekly`, `monthly`, or `api`.
-- `provider`: integration source such as `openai-api`, `anthropic-api`, `claude-code-local`, `codex-local`, `manual`.
-- `source`: how the number was obtained: `official-api`, `response-header`, `local-log`, `manual`, `estimate`, `unavailable`.
+- `provider`: integration source such as `openai-api`, `anthropic-api`, `claude-code-local`, `codex-local`, `manual`, `webview-claude-ai`, `webview-chatgpt-codex`.
+- `source`: how the number was obtained: `official-api`, `response-header`, `local-log`, `manual`, `estimate`, `unavailable`, `webview-scrape`.
 - `confidence`: `high`, `medium`, or `low`.
 
 ## 4. Recommended repository layout
@@ -172,10 +177,13 @@ Every row should show uncertainty honestly:
 
 - `high`: official API/header data.
 - `medium`: local log parsing with known token usage fields.
-- `low`: local estimate or inferred subscription usage.
+- `low`: local estimate, inferred subscription usage, or `webview-scrape` source where the DOM contract is not officially guaranteed.
 - `no data`: provider configured but no reliable snapshot yet.
 
-Do not label estimates as exact remaining tokens.
+Do not label estimates as exact remaining tokens. The `webview-scrape` source
+must always render as `confidence: low` in the UI and surface the data source
+explicitly (for example via a tooltip indicating that the value is read from a
+provider's web UI and may break if the DOM layout changes).
 
 ## 7. Core data model
 
@@ -210,6 +218,8 @@ pub enum ProviderKind {
     ClaudeCodeLocal,
     CodexLocal,
     Manual,
+    WebViewClaudeAi,
+    WebViewChatgptCodex,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -233,6 +243,7 @@ pub enum UsageSource {
     Manual,
     Estimate,
     Unavailable,
+    WebViewScrape,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -276,7 +287,9 @@ export type UsageSnapshot = {
     | "anthropic-api"
     | "claude-code-local"
     | "codex-local"
-    | "manual";
+    | "manual"
+    | "web-view-claude-ai"
+    | "web-view-chatgpt-codex";
   accountLabel: string;
   window:
     | "one-minute"
@@ -306,7 +319,8 @@ export type UsageSnapshot = {
     | "local-log"
     | "manual"
     | "estimate"
-    | "unavailable";
+    | "unavailable"
+    | "webview-scrape";
   confidence: "high" | "medium" | "low";
   status: "ok" | "warning" | "critical" | "no-data" | "error";
   message?: string | null;
@@ -431,17 +445,89 @@ Rules:
 - Do not read unrelated files.
 - Avoid assumptions about ChatGPT subscription windows unless evidence exists in local data.
 
-### 8.6 Future browser extension bridge
+### 8.6 Browser extension bridge (alternative, not adopted)
 
-For normal ChatGPT/Claude web subscription usage, a browser extension bridge may be the cleanest path.
-
-Do not implement in v0, but keep architecture ready:
+For normal ChatGPT/Claude web subscription usage, a separate browser extension
+bridge was considered as an alternative path:
 
 ```text
 Browser extension -> Native Messaging or localhost websocket -> QuotaHUD provider cache
 ```
 
-The extension can observe visible usage banners or local send events with user consent. QuotaHUD should treat this as `estimate` unless the data comes from an official usage endpoint.
+The extension can observe visible usage banners or local send events with user
+consent, and QuotaHUD would treat the result as `estimate` unless the data
+comes from an official usage endpoint.
+
+This approach is **not adopted as the default path** because it requires
+publishing and maintaining a browser extension per browser, plus a localhost
+bridge. The supported route is §8.7. The extension architecture is kept here
+as a reference design for future contributors who may want a route that does
+not embed a WebView inside QuotaHUD itself.
+
+### 8.7 WebView-backed providers (opt-in, v1 and later)
+
+For Claude (Pro/Max) and ChatGPT (Plus/Pro/Codex agent) subscription usage,
+where no official rate-limit API exists, QuotaHUD ships an **opt-in**
+WebView-backed provider. The approach is inspired by the open source project
+[ai-gauge](https://github.com/jpajak/ai-gauge) (MIT), which uses an embedded
+headless browser to read the public usage settings page of each provider's
+web app. QuotaHUD ports the idea to Tauri 2's built-in WebView so that no
+Python or external runtime is required.
+
+Hard rules:
+
+- **Opt-in only.** A WebView provider must not start, navigate, or load any
+  external URL unless the user explicitly enables it from Settings. Default is
+  off. The opt-in state is persisted in `provider_settings.json`, separate from
+  overlay settings.
+- **Visible login flow.** The first time a user enables the provider, QuotaHUD
+  opens a normal visible WebView window pointing at the provider's own login
+  URL (for example `https://claude.ai/login`). QuotaHUD does not present its
+  own login form, does not intercept credentials, and does not read the
+  password field. The user authenticates in the provider's own page.
+- **Hidden refresh window.** After login, QuotaHUD creates a separate hidden
+  WebView window (`visible=false, skip_taskbar=true, focused=false,
+  decorations=false`) that re-navigates to the usage page on a scheduler tick
+  to refresh the snapshot.
+- **No `__TAURI__` exposure on external origins.** The internal Tauri IPC must
+  not be reachable from `claude.ai` or `chatgpt.com`. Results are returned by
+  the extractor JavaScript writing a JSON payload into `document.title` with a
+  short prefix (for example `QHJSON:`), which Rust polls and clears.
+- **Per-provider data directory.** Each provider gets its own
+  `data_directory(app_data_dir/webview-<provider>)`. Login window and refresh
+  window share the same directory so that the cookie persists across them, but
+  providers are isolated from each other.
+- **Deletable.** The Settings UI must expose a "Delete provider data" action
+  that removes the entire `webview-<provider>` directory, which clears the
+  cookie and forces a fresh login.
+- **`source=webview-scrape`, `confidence=low`.** The DOM contract of an
+  external web app is not a stable interface. Results must always render as
+  `confidence: low` and be marked clearly in the UI tooltip.
+- **Refresh budget.** The default `min_refresh_interval` for a WebView
+  provider is **600 seconds**, with a configured floor of 300 seconds. Hitting
+  external sites more aggressively risks rate limiting or anti-abuse
+  challenges.
+- **Failure modes are statuses, not crashes.** A Cloudflare challenge,
+  redirect to `/login`, or a layout change that makes the extractor return
+  `null` must surface as `SnapshotStatus::Error` or `SnapshotStatus::NoData`
+  with a human-readable message, never a process crash.
+
+Recommended file layout (concrete, for the v1 implementation):
+
+```text
+src-tauri/src/providers/webview/
+  mod.rs                 # shared `WebViewScraper` actor and helpers
+  claude_web.rs          # ClaudeWebProvider (UsageProvider impl)
+  codex_web.rs           # CodexWebProvider (UsageProvider impl)
+  extractors/
+    claude.js            # DOM extraction JS, loaded via include_str!
+    codex.js             # DOM extraction JS, loaded via include_str!
+```
+
+The DOM selectors and traversal logic in `extractors/*.js` may take inspiration
+from ai-gauge's `src/aigauge/providers/{claude,codex}.py` but must be
+re-implemented inside this repository. Carry the MIT attribution in
+`THIRD_PARTY_NOTICES.md`.
 
 ## 9. Overlay/platform implementation
 
@@ -580,6 +666,10 @@ pub struct OverlaySettings {
 
 Persist settings in SQLite or a Tauri store file. Secrets must go to OS credential storage, not SQLite.
 
+WebView provider opt-in state must be persisted separately from overlay
+settings (suggested file: `provider_settings.json`) so that provider toggles
+can be reasoned about independently from window placement and theming.
+
 ### 10.2 Secrets
 
 Store these in OS credential storage:
@@ -588,7 +678,18 @@ Store these in OS credential storage:
 - Proxy credentials, if implemented.
 - Any provider tokens.
 
-Never store browser cookies in v0.
+Browser cookies must not be stored in v0.
+
+From v1 onwards, an opt-in WebView provider (see §8.7) may rely on the
+OS-native WebView cookie store (WKWebView, WebView2, or WebKitGTK depending on
+the platform) to keep a logged-in session. The QuotaHUD application code must
+not read, copy, or otherwise process individual cookie values. The native
+cookie store is treated as an opaque session container, isolated per provider
+under `app_data_dir/webview-<provider>/`, and fully removable through a
+user-visible "Delete provider data" action. This carve-out only applies to
+`UsageSource::WebViewScrape` providers and does not relax the rule for API
+keys, OAuth tokens, or proxy credentials, which still require the OS
+credential store.
 
 ## 11. Scheduler
 
@@ -739,6 +840,36 @@ Acceptance:
 - Release workflow uploads artifacts for macOS, Windows, Linux.
 - README explains install limitations and unsigned-app warnings.
 
+### Phase 6 — WebView providers (v1, opt-in)
+
+- Add `ProviderKind::WebViewClaudeAi`, `ProviderKind::WebViewChatgptCodex`
+  and `UsageSource::WebViewScrape` to the Rust model and TS DTO.
+- Implement the shared `WebViewScraper` actor under
+  `src-tauri/src/providers/webview/`.
+- Implement `claude_web.rs` against `https://claude.ai/settings/usage` and
+  `codex_web.rs` against `https://chatgpt.com/codex/cloud/settings/analytics`.
+- Add `provider_settings.json` persistence for opt-in toggles, distinct from
+  overlay settings.
+- Add Tauri commands `open_provider_login_window`, `set_provider_enabled`,
+  `get_provider_settings`, `delete_provider_data`.
+- Add a Settings UI section to enable/disable each WebView provider, trigger
+  login, and delete provider data.
+- Use `min_refresh_interval >= 600s` (floor 300s) in the scheduler.
+
+Acceptance:
+
+- WebView providers are disabled by default and only start after explicit
+  user action.
+- Hidden refresh windows are not visible in the macOS dock, the Windows
+  taskbar, or the Linux taskbar.
+- A Cloudflare challenge, a `/login` redirect, or an extractor returning
+  `null` is surfaced as a row status with a human-readable message and
+  does not crash the app.
+- Deleting provider data removes the `webview-<provider>` directory and
+  forces re-login on the next refresh.
+- All resulting `UsageSnapshot` rows have `source=webview-scrape` and
+  `confidence=low`, and the UI tooltip explains the data source.
+
 ## 14. Security and privacy requirements
 
 - Default telemetry: off/nonexistent.
@@ -749,6 +880,21 @@ Acceptance:
 - Local file parsers must read only expected directories and file extensions.
 - Avoid logging secrets or full request bodies.
 - Add a `redact_for_log` helper for provider errors.
+- WebView-backed providers (see §8.7) are subject to additional rules:
+  - They are off by default and must require an explicit opt-in toggle.
+  - On the first run, the visible window must navigate to the provider's own
+    login URL. QuotaHUD must not render its own login form or read keystrokes.
+  - The hidden refresh window must not expose `__TAURI__` IPC to external
+    origins. Results are returned through `document.title` polling or
+    equivalent indirect channels.
+  - Each WebView provider has its own `data_directory` under
+    `app_data_dir/webview-<provider>/`. Application code does not read,
+    inspect, or copy individual cookies from this directory.
+  - A user-triggered "Delete provider data" action must remove the entire
+    `webview-<provider>` directory.
+  - Outbound network traffic from a WebView provider is allowed only while
+    the provider is enabled and only against its configured target origin
+    (for example `claude.ai`, `chatgpt.com`).
 
 ## 15. README minimum content
 

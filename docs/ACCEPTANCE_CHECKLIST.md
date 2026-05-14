@@ -94,6 +94,37 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] Sanitized fixtures cover the parser.
 - [ ] Estimated windows are labeled as estimates.
 
+### WebView providers (opt-in, see PROJECT_SPEC §8.7)
+
+- [ ] Each WebView provider is **disabled by default**. No external network
+      activity occurs until the user toggles it on in Settings.
+- [ ] The first-time enable opens a **visible** login window pointing at the
+      provider's own login URL. QuotaHUD does not render its own login form
+      and does not read or store credentials.
+- [ ] The post-login refresh window is created with `visible=false`,
+      `skip_taskbar=true`, `focused=false`, `decorations=false`, and does not
+      appear in the macOS dock, the Windows taskbar, or the Linux taskbar.
+- [ ] Cookie persistence is scoped to `app_data_dir/webview-<provider>/`,
+      isolated per provider.
+- [ ] A "Delete provider data" action removes the entire
+      `webview-<provider>/` directory and forces re-login on the next refresh.
+- [ ] A Cloudflare challenge surfaces as `SnapshotStatus::Error` with a
+      human-readable message, not a crash.
+- [ ] A redirect to `/login` surfaces as `SnapshotStatus::NoData` with a
+      message indicating that re-login is required, and the Settings UI
+      re-enables the "Login" action.
+- [ ] An extractor returning `null` due to a DOM layout change surfaces as
+      `SnapshotStatus::Error` and feeds the scheduler's exponential backoff.
+- [ ] Every WebView-derived `UsageSnapshot` row has
+      `source=webview-scrape` and `confidence=low`, and the UI exposes this in
+      a tooltip so the user understands the data source.
+- [ ] The configured `min_refresh_interval` is **at least 300 seconds** for
+      WebView providers (default 600 seconds).
+- [ ] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
+      origin loaded in the WebView.
+- [ ] No QuotaHUD code reads or inspects individual cookies inside
+      `webview-<provider>/`.
+
 ## Release checks
 
 - [ ] GitHub Actions CI runs for macOS, Windows, and Linux.
