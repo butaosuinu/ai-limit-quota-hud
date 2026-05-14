@@ -216,6 +216,7 @@ fn parse_i64(value: Option<&String>) -> Option<i64> {
 /// (`"1m30"`, `"1s junk"`) return `None` so the caller surfaces a parse
 /// warning instead of an incorrect countdown.
 pub fn parse_reset_duration(input: &str) -> Option<Duration> {
+    let input = input.trim();
     if input.is_empty() {
         return None;
     }
@@ -578,6 +579,16 @@ mod tests {
         let out = parse_openai_headers(&snap, WARN, CRIT);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].used, Some(i64::MAX));
+    }
+
+    #[test]
+    fn reset_duration_trims_surrounding_whitespace() {
+        let d = parse_reset_duration("  1s  ").unwrap();
+        assert_eq!(d.whole_seconds(), 1);
+        let d = parse_reset_duration(" 250ms").unwrap();
+        assert_eq!(d.whole_milliseconds(), 250);
+        let d = parse_reset_duration("6m0s\n").unwrap();
+        assert_eq!(d.whole_seconds(), 360);
     }
 
     #[test]
