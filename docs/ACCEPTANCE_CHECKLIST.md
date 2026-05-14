@@ -94,6 +94,60 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] Sanitized fixtures cover the parser.
 - [ ] Estimated windows are labeled as estimates.
 
+### WebView providers (opt-in, see PROJECT_SPEC §8.7)
+
+- [ ] Each WebView provider is **disabled by default**. No external network
+      activity occurs until the user toggles it on in Settings.
+- [ ] The first-time enable opens a **visible** login window pointing at the
+      provider's own login URL. QuotaHUD does not render its own login form
+      and does not read or store credentials.
+- [ ] The post-login refresh window is created with `visible=false`,
+      `focused=false`, `decorations=false`, and `resizable=false` on every
+      platform. On Windows / Linux it additionally has `skip_taskbar=true`.
+      On macOS `skip_taskbar` is omitted (not supported by Tauri 2 on
+      macOS); the non-visible NSWindow does not appear in the dock as a
+      consequence of `visible=false`. The window must not appear in the
+      macOS dock, the Windows taskbar, or the Linux taskbar.
+- [ ] Cookie persistence is scoped per provider using a platform-specific
+      mechanism: `data_directory(app_data_dir/webview-<provider>/)` on
+      Windows / Linux, and a deterministic `dataStoreIdentifier` plus
+      `WKWebsiteDataStore` on macOS (see PROJECT_SPEC §8.7). The macOS <14
+      fallback is documented as a known limitation in the README.
+- [ ] A "Delete provider data" action forces re-login on the next refresh on
+      every supported platform: removes `webview-<provider>/` on Windows /
+      Linux, and removes the `dataStoreIdentifier`-scoped
+      `WKWebsiteDataStore` (or per-origin records on macOS <14) on macOS.
+- [ ] A Cloudflare challenge surfaces as `SnapshotStatus::Error` with a
+      human-readable message, not a crash.
+- [ ] A redirect to `/login` surfaces as `SnapshotStatus::NoData` with a
+      message indicating that re-login is required, and the Settings UI
+      re-enables the "Login" action.
+- [ ] An extractor returning `null` due to a DOM layout change surfaces as
+      `SnapshotStatus::Error` and feeds the scheduler's exponential backoff.
+- [ ] Every WebView-derived `UsageSnapshot` row has
+      `source=webview-scrape` and `confidence=low`, and the UI exposes this in
+      a tooltip so the user understands the data source.
+- [ ] The configured `min_refresh_interval` is **at least 300 seconds** for
+      WebView providers (default 600 seconds).
+- [ ] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
+      origin loaded in the WebView.
+- [ ] During login, redirects to well-known identity providers (Google,
+      Apple, Microsoft, Okta, Cloudflare Access, GitHub, etc.) are allowed
+      so that the provider's first-party login flow completes (see
+      PROJECT_SPEC §14).
+- [ ] After login completes, the WebView is allowed to fetch resources
+      from a constrained set of provider-owned supporting hosts (CDN,
+      static-asset, and first-party XHR API domains declared in the
+      provider implementation, for example `*.anthropic.com` for the
+      Claude provider or `*.openai.com` / `cdn.oaistatic.com` for the
+      Codex provider). Requests to hosts outside this list and outside an
+      active login redirect chain are blocked at the WebView's navigation
+      or resource-request layer.
+- [ ] No QuotaHUD code reads or inspects individual cookies inside the
+      provider's session store (the `webview-<provider>/` directory on
+      Windows / Linux, or the per-`dataStoreIdentifier` `WKWebsiteDataStore`
+      on macOS).
+
 ## Release checks
 
 - [ ] GitHub Actions CI runs for macOS, Windows, and Linux.

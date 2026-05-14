@@ -14,8 +14,8 @@ The app is tentatively named `QuotaHUD`. Rename only if the repository already h
 - Prefer Rust for backend/platform code and TypeScript + React + Vite for UI. Do not scaffold Svelte/Vue/Solid.
 - Show an overlay window that can be always-on-top, transparent, click-through, and visible across virtual desktops/workspaces where the OS supports it.
 - Support multiple provider/account rows through a provider adapter interface.
-- Never store provider tokens, cookies, or API keys in plaintext. Use the OS credential store.
-- Do not implement fragile private-endpoint scraping as the default path. Clearly label any estimated or unofficial data source.
+- Never store provider tokens, cookies, or API keys in plaintext. Use the OS credential store. The only carve-out is the opt-in WebView provider in `docs/PROJECT_SPEC.md` §8.7, which delegates session cookies to the OS-native WebView cookie store and is gated behind explicit user consent.
+- Do not implement fragile private-endpoint scraping as the default path. Clearly label any estimated or unofficial data source. Opt-in WebView providers are permitted only under `docs/PROJECT_SPEC.md` §8.7 / §14.
 
 ## Before editing
 
