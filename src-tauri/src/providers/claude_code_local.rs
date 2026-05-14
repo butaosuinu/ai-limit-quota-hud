@@ -189,6 +189,13 @@ fn read_session_file(path: &Path) -> (u64, u64) {
         let Some(usage) = parsed.message.and_then(|m| m.usage) else {
             continue;
         };
+        // Guard against `"usage": {}` or schema drift: serde defaults every
+        // token field to 0, so without this check an empty / renamed payload
+        // would silently count as a valid "0 tokens" event and surface
+        // `status=Ok, used=0` instead of `NoData`.
+        if !usage.has_recognized_field() {
+            continue;
+        }
         events += 1;
         sum = sum.saturating_add(usage.total());
     }
@@ -265,22 +272,26 @@ struct MessageEnvelope {
 #[derive(Deserialize, Default, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 struct UsageFields {
-    #[serde(default)]
-    input_tokens: u64,
-    #[serde(default)]
-    output_tokens: u64,
-    #[serde(default)]
-    cache_creation_input_tokens: u64,
-    #[serde(default)]
-    cache_read_input_tokens: u64,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    cache_creation_input_tokens: Option<u64>,
+    cache_read_input_tokens: Option<u64>,
 }
 
 impl UsageFields {
+    fn has_recognized_field(self) -> bool {
+        self.input_tokens.is_some()
+            || self.output_tokens.is_some()
+            || self.cache_creation_input_tokens.is_some()
+            || self.cache_read_input_tokens.is_some()
+    }
+
     fn total(self) -> u64 {
         self.input_tokens
-            .saturating_add(self.output_tokens)
-            .saturating_add(self.cache_creation_input_tokens)
-            .saturating_add(self.cache_read_input_tokens)
+            .unwrap_or(0)
+            .saturating_add(self.output_tokens.unwrap_or(0))
+            .saturating_add(self.cache_creation_input_tokens.unwrap_or(0))
+            .saturating_add(self.cache_read_input_tokens.unwrap_or(0))
     }
 }
 
@@ -465,5 +476,49 @@ mod tests {
     fn provider_id_matches_provider_kind_serde() {
         let serialized = serde_json::to_value(ProviderKind::ClaudeCodeLocal).unwrap();
         assert_eq!(serialized, serde_json::json!(CLAUDE_CODE_LOCAL_PROVIDER_ID));
+    }
+
+    /// `"usage": {}` is the canonical shape Codex flagged: serde would default
+    /// all four token fields to 0 and report `Ok` with `used=0`. The provider
+    /// must instead treat it as `NoData` so schema drift surfaces as a
+    /// parse miss rather than a misleading zero.
+    #[tokio::test]
+    async fn empty_usage_object_is_treated_as_no_data() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("proj");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            project.join("empty-usage.jsonl"),
+            r#"{"message":{"usage":{}}}
+{"message":{"usage":{"renamed_unknown_field":123}}}
+"#,
+        )
+        .unwrap();
+        let provider = ClaudeCodeLocalProvider::with_root(dir.path().to_path_buf());
+        let snapshots = provider.refresh(&ctx()).await.unwrap();
+        let snap = &snapshots[0];
+        assert_eq!(snap.status, SnapshotStatus::NoData);
+        assert_eq!(snap.source, UsageSource::LocalLog);
+        assert!(snap.used.is_none());
+    }
+
+    /// A real-looking partial usage line (only `input_tokens` set) must still
+    /// count, so the recognized-field guard doesn't reject legitimate
+    /// payloads where the model skipped a key.
+    #[tokio::test]
+    async fn partial_usage_with_single_field_is_counted() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("proj");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            project.join("partial.jsonl"),
+            r#"{"message":{"usage":{"input_tokens":42}}}"#,
+        )
+        .unwrap();
+        let provider = ClaudeCodeLocalProvider::with_root(dir.path().to_path_buf());
+        let snapshots = provider.refresh(&ctx()).await.unwrap();
+        let snap = &snapshots[0];
+        assert_eq!(snap.status, SnapshotStatus::Ok);
+        assert_eq!(snap.used, Some(42));
     }
 }
