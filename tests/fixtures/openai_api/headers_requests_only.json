@@ -1,0 +1,9 @@
+{
+  "accountLabel": "work",
+  "observedAt": "2026-05-13T12:00:00Z",
+  "headers": {
+    "x-ratelimit-limit-requests": "60",
+    "x-ratelimit-remaining-requests": "12",
+    "x-ratelimit-reset-requests": "45s"
+  }
+}

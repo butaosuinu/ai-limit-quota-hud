@@ -5,6 +5,7 @@
 //! the `CredentialGetter` and `Clock` traits exist now so those can be
 //! injected without changing this signature.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,6 +18,7 @@ use crate::storage::Storage;
 pub mod anthropic_api;
 pub mod claude_code_local;
 pub mod manual;
+pub mod openai_api;
 
 /// 60 seconds is the floor specified by AGENTS.md — every provider must
 /// respect this unless it has a strong reason to be slower.
@@ -87,12 +89,18 @@ impl ProviderContext {
     }
 }
 
-/// Build the list of providers that ship with Phase 2. Phase 3+ extends this
-/// with conditional providers gated on credential presence so startup remains
-/// network-free for users without configured API keys.
-pub fn default_providers(storage: Arc<Storage>) -> Vec<Arc<dyn UsageProvider>> {
+/// Build the default provider list. `data_dir` is the app's data directory,
+/// used by file-backed providers (Phase 3a OpenAI) to locate imported header
+/// snapshots; Phase 3b's proxy/import flow writes to the same location.
+pub fn default_providers(
+    storage: Arc<Storage>,
+    data_dir: &Path,
+) -> Vec<Arc<dyn UsageProvider>> {
     vec![
         Arc::new(manual::ManualProvider::new(storage)),
+        Arc::new(openai_api::OpenAiApiProvider::new(
+            openai_api::OpenAiApiProvider::default_snapshot_path(data_dir),
+        )),
         Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
         Arc::new(anthropic_api::AnthropicApiProvider::new()),
     ]
