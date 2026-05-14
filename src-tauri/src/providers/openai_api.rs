@@ -101,8 +101,15 @@ pub fn parse_openai_headers(
     out
 }
 
+/// Lowercase header keys for case-insensitive lookup. Entries are visited
+/// in sorted original-key order so case-variant collisions (e.g. both
+/// `x-ratelimit-limit-requests` and `X-RateLimit-Limit-Requests`) resolve
+/// deterministically — the lexicographically-last original key wins.
 fn normalize_headers(raw: &HashMap<String, String>) -> HashMap<String, String> {
-    raw.iter()
+    let mut entries: Vec<(&String, &String)> = raw.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+        .into_iter()
         .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
         .collect()
 }
@@ -117,7 +124,13 @@ fn build_metric_snapshot(
 ) -> Option<UsageSnapshot> {
     let limit = parse_i64(headers.get(spec.limit_key))?;
     let remaining = parse_i64(headers.get(spec.remaining_key))?;
-    let used = (limit - remaining).max(0);
+    // Negative or maliciously crafted values would overflow `limit - remaining`
+    // in debug builds and kill the scheduler task; reject them so the snapshot
+    // is dropped rather than corrupting the overlay.
+    if limit < 0 || remaining < 0 {
+        return None;
+    }
+    let used = limit.saturating_sub(remaining).max(0);
     let remaining_percent = compute_remaining_percent(Some(limit), Some(remaining), None);
     let status = classify_status(
         Some(limit),
@@ -181,12 +194,17 @@ fn parse_i64(value: Option<&String>) -> Option<i64> {
 }
 
 /// Parses Go-style duration strings (`6m0s`, `1.5s`, `10ms`, `1d2h3m4.567s`).
-/// Supported units: `d`, `h`, `m`, `s`, `ms`.
+/// Supported units: `d`, `h`, `m`, `s`, `ms`. Strict: the whole input must
+/// consume cleanly as one or more `<number><unit>` segments — partial parses
+/// (`"1m30"`, `"1s junk"`) return `None` so the caller surfaces a parse
+/// warning instead of an incorrect countdown.
 pub fn parse_reset_duration(input: &str) -> Option<Duration> {
+    if input.is_empty() {
+        return None;
+    }
     let bytes = input.as_bytes();
     let mut idx = 0;
     let mut total_seconds: f64 = 0.0;
-    let mut matched_any = false;
 
     while idx < bytes.len() {
         let num_start = idx;
@@ -194,15 +212,19 @@ pub fn parse_reset_duration(input: &str) -> Option<Duration> {
             idx += 1;
         }
         if num_start == idx {
-            break;
+            return None;
         }
-        let Ok(number) = std::str::from_utf8(&bytes[num_start..idx]).ok()?.parse::<f64>() else {
-            break;
-        };
+        let number: f64 = std::str::from_utf8(&bytes[num_start..idx])
+            .ok()?
+            .parse()
+            .ok()?;
 
         let unit_start = idx;
         while idx < bytes.len() && bytes[idx].is_ascii_alphabetic() {
             idx += 1;
+        }
+        if unit_start == idx {
+            return None;
         }
         let unit = std::str::from_utf8(&bytes[unit_start..idx]).ok()?;
         let multiplier = match unit {
@@ -211,13 +233,12 @@ pub fn parse_reset_duration(input: &str) -> Option<Duration> {
             "m" => 60.0,
             "s" => 1.0,
             "ms" => 0.001,
-            _ => break,
+            _ => return None,
         };
         total_seconds += number * multiplier;
-        matched_any = true;
     }
 
-    matched_any.then(|| Duration::seconds_f64(total_seconds))
+    Some(Duration::seconds_f64(total_seconds))
 }
 
 pub struct OpenAiApiProvider {
@@ -489,6 +510,81 @@ mod tests {
     fn reset_duration_zero_is_valid() {
         let d = parse_reset_duration("0s").unwrap();
         assert_eq!(d.whole_seconds(), 0);
+    }
+
+    #[test]
+    fn reset_duration_trailing_digits_without_unit_rejected() {
+        assert!(parse_reset_duration("1m30").is_none());
+        assert!(parse_reset_duration("1s0").is_none());
+    }
+
+    #[test]
+    fn reset_duration_trailing_garbage_rejected() {
+        assert!(parse_reset_duration("1s junk").is_none());
+        assert!(parse_reset_duration("1ms_more").is_none());
+    }
+
+    #[test]
+    fn reset_duration_unknown_unit_rejected() {
+        assert!(parse_reset_duration("1w").is_none());
+        assert!(parse_reset_duration("1s2w").is_none());
+    }
+
+    #[test]
+    fn negative_limit_or_remaining_skips_metric() {
+        let snap = snapshot_with(
+            &[
+                ("x-ratelimit-limit-requests", "60"),
+                ("x-ratelimit-remaining-requests", "-1"),
+                ("x-ratelimit-limit-tokens", "-5"),
+                ("x-ratelimit-remaining-tokens", "100"),
+            ],
+            "2026-05-13T12:00:00Z",
+        );
+        let out = parse_openai_headers(&snap, WARN, CRIT);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].status, SnapshotStatus::NoData);
+    }
+
+    #[test]
+    fn extreme_values_do_not_panic() {
+        let snap = snapshot_with(
+            &[
+                ("x-ratelimit-limit-requests", &i64::MAX.to_string()),
+                ("x-ratelimit-remaining-requests", "0"),
+            ],
+            "2026-05-13T12:00:00Z",
+        );
+        let out = parse_openai_headers(&snap, WARN, CRIT);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].used, Some(i64::MAX));
+    }
+
+    #[test]
+    fn case_collision_resolves_deterministically() {
+        // Both casings of the same header are present with different values.
+        // The normalizer iterates entries in sorted original-key order, so
+        // whichever original key sorts last wins. We assert this happens the
+        // same way on every run (multiple constructions of the same input).
+        let make = || {
+            let mut headers = HashMap::new();
+            headers.insert("x-ratelimit-limit-requests".to_string(), "100".to_string());
+            headers.insert("X-RateLimit-Limit-Requests".to_string(), "999".to_string());
+            headers.insert("x-ratelimit-remaining-requests".to_string(), "50".to_string());
+            ObservedHeaderSnapshot {
+                account_label: "personal".into(),
+                observed_at: "2026-05-13T12:00:00Z".into(),
+                headers,
+            }
+        };
+        let limits: Vec<i64> = (0..16)
+            .map(|_| parse_openai_headers(&make(), WARN, CRIT)[0].limit.unwrap())
+            .collect();
+        let first = limits[0];
+        assert!(limits.iter().all(|&v| v == first));
+        // Sorted ASCII puts uppercase 'X' before lowercase 'x'; lex-last wins
+        // so the lowercase variant ("100") is the deterministic answer.
+        assert_eq!(first, 100);
     }
 
     fn fixtures_dir() -> std::path::PathBuf {
