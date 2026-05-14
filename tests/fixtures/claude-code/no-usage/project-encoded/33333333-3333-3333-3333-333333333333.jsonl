@@ -1,0 +1,4 @@
+{"type":"permission-mode","permissionMode":"plan","sessionId":"33333333-3333-3333-3333-333333333333"}
+{"type":"user","sessionId":"33333333-3333-3333-3333-333333333333","message":{"role":"user","content":"any updates?"},"timestamp":"2026-05-13T12:00:00Z"}
+{"type":"stop","sessionId":"33333333-3333-3333-3333-333333333333","timestamp":"2026-05-13T12:00:01Z"}
+{"type":"custom-title","sessionId":"33333333-3333-3333-3333-333333333333","customTitle":"chat without LLM responses"}

@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 use crate::model::{ProviderKind, UsageSnapshot, DEFAULT_CRITICAL_PCT, DEFAULT_WARN_PCT};
 use crate::storage::Storage;
 
+pub mod claude_code_local;
 pub mod manual;
 
 /// 60 seconds is the floor specified by AGENTS.md — every provider must
@@ -89,5 +90,8 @@ impl ProviderContext {
 /// with conditional providers gated on credential presence so startup remains
 /// network-free for users without configured API keys.
 pub fn default_providers(storage: Arc<Storage>) -> Vec<Arc<dyn UsageProvider>> {
-    vec![Arc::new(manual::ManualProvider::new(storage))]
+    vec![
+        Arc::new(manual::ManualProvider::new(storage)),
+        Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
+    ]
 }
