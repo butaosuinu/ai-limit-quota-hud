@@ -31,8 +31,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Purge pre-installed Homebrew rust shims (macOS arm runner image fix)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # See ci.yml: newer macos-15-arm64 images ship a broken
+          # /opt/homebrew/bin/cargo that breaks tauri-action's `cargo build`
+          # with "Usage: rustup-init[EXE]". Remove the shims so rustup
+          # installs fresh proxies into ~/.cargo/bin.
+          for bin in cargo cargo-fmt cargo-clippy rustc rustup rustdoc; do
+            sudo rm -f "/opt/homebrew/bin/${bin}" "/usr/local/bin/${bin}" || true
+          done
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify cargo is the rustup proxy (fail-fast diagnostic)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          which cargo
+          cargo --version | grep -E '^cargo ' \
+            || { echo "::error::cargo is not the rustup proxy"; exit 1; }
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
