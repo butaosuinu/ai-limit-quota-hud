@@ -102,8 +102,12 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       provider's own login URL. QuotaHUD does not render its own login form
       and does not read or store credentials.
 - [ ] The post-login refresh window is created with `visible=false`,
-      `skip_taskbar=true`, `focused=false`, `decorations=false`, and does not
-      appear in the macOS dock, the Windows taskbar, or the Linux taskbar.
+      `focused=false`, `decorations=false`, and `resizable=false` on every
+      platform. On Windows / Linux it additionally has `skip_taskbar=true`.
+      On macOS `skip_taskbar` is omitted (not supported by Tauri 2 on
+      macOS); the non-visible NSWindow does not appear in the dock as a
+      consequence of `visible=false`. The window must not appear in the
+      macOS dock, the Windows taskbar, or the Linux taskbar.
 - [ ] Cookie persistence is scoped per provider using a platform-specific
       mechanism: `data_directory(app_data_dir/webview-<provider>/)` on
       Windows / Linux, and a deterministic `dataStoreIdentifier` plus

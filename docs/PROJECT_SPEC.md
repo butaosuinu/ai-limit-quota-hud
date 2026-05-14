@@ -489,9 +489,18 @@ Hard rules:
   redirects are permitted as part of the login chain and must not be
   blocked. See §14 for the egress allowlist rule.
 - **Hidden refresh window.** After login, QuotaHUD creates a separate hidden
-  WebView window (`visible=false, skip_taskbar=true, focused=false,
-  decorations=false`) that re-navigates to the usage page on a scheduler tick
-  to refresh the snapshot.
+  WebView window that re-navigates to the usage page on a scheduler tick to
+  refresh the snapshot. On every platform the window is created with
+  `visible=false`, `focused=false`, `decorations=false`, and
+  `resizable=false`. Additional flags are platform-specific because Tauri 2
+  exposes different builder hooks per OS:
+  - **Windows / Linux:** also set `skip_taskbar=true` so the window is not
+    listed in the taskbar / Alt-Tab.
+  - **macOS:** `WebviewWindowBuilder::skip_taskbar` is not supported because
+    AppKit has no per-window taskbar concept. A non-visible NSWindow does
+    not contribute to the dock, so `visible=false` is sufficient; the
+    overall application's dock icon behavior is governed by §9.2 (NSApp
+    activation policy and NSWindow collection behavior), not by this rule.
 - **No `__TAURI__` exposure on external origins.** The internal Tauri IPC must
   not be reachable from `claude.ai` or `chatgpt.com`. Results are returned by
   the extractor JavaScript writing a JSON payload into `document.title` with a
