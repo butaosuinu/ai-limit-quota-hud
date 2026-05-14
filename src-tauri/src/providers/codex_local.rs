@@ -9,6 +9,7 @@
 //! "directory missing" / "no sessions" as explicit `NoData` snapshots
 //! (not empty vecs) so the overlay row stays visible with a useful message.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -96,6 +97,7 @@ impl UsageProvider for CodexLocalProvider {
 
 #[derive(Debug, Deserialize)]
 struct SessionEntry<'a> {
+    id: &'a str,
     updated_at: &'a str,
 }
 
@@ -149,8 +151,11 @@ fn collect_snapshots(
         }
     };
 
-    let cutoff = *now - time::Duration::seconds(ESTIMATE_WINDOW_SECS);
-    let mut count: i64 = 0;
+    // Codex appends to `session_index.jsonl` on every metadata update, so
+    // the same session id can appear several times (renames, re-touches).
+    // Collapse to the latest `updated_at` per id before applying the window
+    // — otherwise a chatty session would inflate the "sessions" count.
+    let mut latest_per_id: HashMap<String, OffsetDateTime> = HashMap::new();
     for line in BufReader::new(file).lines() {
         // Read errors (e.g., invalid UTF-8 mid-stream) skip the line so one
         // bad byte does not blank the snapshot.
@@ -165,13 +170,23 @@ fn collect_snapshots(
         let Ok(ts) = OffsetDateTime::parse(entry.updated_at, &Rfc3339) else {
             continue;
         };
-        // Clamp to (cutoff, now] — accept anything in the 24h window ending
-        // at `now`, drop future-dated rows that would otherwise inflate the
-        // count whenever the writer's clock had skewed forward.
-        if ts >= cutoff && ts <= *now {
-            count += 1;
-        }
+        latest_per_id
+            .entry(entry.id.to_string())
+            .and_modify(|prev| {
+                if ts > *prev {
+                    *prev = ts;
+                }
+            })
+            .or_insert(ts);
     }
+
+    // Clamp to (cutoff, now] — drop future-dated rows that would otherwise
+    // inflate the count whenever the writer's clock had skewed forward.
+    let cutoff = *now - time::Duration::seconds(ESTIMATE_WINDOW_SECS);
+    let count: i64 = latest_per_id
+        .values()
+        .filter(|ts| **ts >= cutoff && **ts <= *now)
+        .count() as i64;
 
     if count == 0 {
         return vec![nodata(now, "No Codex CLI sessions touched in the last 24h")];
@@ -332,8 +347,11 @@ mod tests {
         assert_eq!(snap.source, UsageSource::Estimate);
         assert_eq!(snap.confidence, Confidence::Low);
         assert_eq!(snap.metric, UsageMetric::Unknown);
-        // 2 of 4 fixture rows fall inside (cutoff, now]: one row is older
-        // than 24h, one is future-dated (clock-skew guard) — both excluded.
+        // Fixture has 5 rows across 4 unique session ids. After dedup by id
+        // (taking the latest `updated_at` per id) and clamping to (cutoff,
+        // now]: id A (latest 11:00, in window), id B (08:00, in window),
+        // id C (out of window), id D (future, excluded). → 2 unique
+        // sessions count.
         assert_eq!(snap.used, Some(2));
         assert!(snap.limit.is_none());
         assert!(snap.remaining.is_none());
