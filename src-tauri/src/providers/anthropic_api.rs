@@ -1,6 +1,6 @@
 //! Anthropic API response-header provider (spec §8.3).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -29,22 +29,28 @@ pub struct ObservedHeaders {
 }
 
 pub struct AnthropicApiProvider {
-    cache: Mutex<Option<ObservedHeaders>>,
+    // Keyed by `account_label` so users tracking multiple Anthropic accounts
+    // keep one observation per account instead of clobbering each other.
+    // BTreeMap keeps emit order stable for the UI and tests.
+    cache: Mutex<BTreeMap<String, ObservedHeaders>>,
 }
 
 impl AnthropicApiProvider {
     pub fn new() -> Self {
         Self {
-            cache: Mutex::new(None),
+            cache: Mutex::new(BTreeMap::new()),
         }
     }
 
-    /// Replace the cached observation. Wired by a later import pipeline; for
-    /// now the in-memory cache is the only entry point so the provider never
-    /// initiates a network call on its own.
+    /// Upsert the observation for `observed.account_label`. Wired by a later
+    /// import pipeline; for now the in-memory cache is the only entry point
+    /// so the provider never initiates a network call on its own.
     #[allow(dead_code)]
     pub fn record(&self, observed: ObservedHeaders) {
-        *self.cache.lock().expect("anthropic header cache poisoned") = Some(observed);
+        self.cache
+            .lock()
+            .expect("anthropic header cache poisoned")
+            .insert(observed.account_label.clone(), observed);
     }
 }
 
@@ -65,19 +71,22 @@ impl UsageProvider for AnthropicApiProvider {
     }
 
     async fn refresh(&self, ctx: &ProviderContext) -> anyhow::Result<Vec<UsageSnapshot>> {
-        let Some(observed) = self
+        let observations: Vec<ObservedHeaders> = self
             .cache
             .lock()
             .expect("anthropic header cache poisoned")
-            .clone()
-        else {
-            return Ok(vec![]);
-        };
-        Ok(parse_anthropic_headers(
-            &observed,
-            ctx.warn_pct,
-            ctx.critical_pct,
-        ))
+            .values()
+            .cloned()
+            .collect();
+        let mut out = Vec::with_capacity(observations.len() * FAMILIES.len());
+        for observed in &observations {
+            out.extend(parse_anthropic_headers(
+                observed,
+                ctx.warn_pct,
+                ctx.critical_pct,
+            ));
+        }
+        Ok(out)
     }
 }
 
@@ -381,6 +390,65 @@ mod tests {
             assert_eq!(snap.status, SnapshotStatus::Ok);
             assert_eq!(snap.source, UsageSource::ResponseHeader);
         }
+    }
+
+    fn observed_for_account(label: &str, remaining_requests: &str) -> ObservedHeaders {
+        ObservedHeaders {
+            account_label: label.to_string(),
+            observed_at: observed_at_fixture(),
+            headers: [
+                ("anthropic-ratelimit-requests-limit", "100"),
+                ("anthropic-ratelimit-requests-remaining", remaining_requests),
+                ("anthropic-ratelimit-tokens-limit", "10000"),
+                ("anthropic-ratelimit-tokens-remaining", "8000"),
+                ("anthropic-ratelimit-input-tokens-limit", "5000"),
+                ("anthropic-ratelimit-input-tokens-remaining", "4000"),
+                ("anthropic-ratelimit-output-tokens-limit", "5000"),
+                ("anthropic-ratelimit-output-tokens-remaining", "4000"),
+            ]
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn record_keeps_per_account_observations() {
+        let provider = AnthropicApiProvider::new();
+        provider.record(observed_for_account("team-alpha", "90"));
+        provider.record(observed_for_account("team-beta", "60"));
+
+        let snapshots = provider.refresh(&ctx()).await.unwrap();
+        assert_eq!(snapshots.len(), 8);
+
+        let alpha_requests = snapshots
+            .iter()
+            .find(|s| s.account_label == "team-alpha" && s.metric == UsageMetric::Requests)
+            .expect("alpha requests snapshot");
+        assert_eq!(alpha_requests.remaining, Some(90));
+
+        let beta_requests = snapshots
+            .iter()
+            .find(|s| s.account_label == "team-beta" && s.metric == UsageMetric::Requests)
+            .expect("beta requests snapshot");
+        assert_eq!(beta_requests.remaining, Some(60));
+
+        for snap in &snapshots {
+            assert!(["team-alpha", "team-beta"].contains(&snap.account_label.as_str()));
+            assert!(snap.provider_id.starts_with("anthropic-api:"));
+        }
+    }
+
+    #[tokio::test]
+    async fn record_replaces_observation_for_same_account() {
+        let provider = AnthropicApiProvider::new();
+        provider.record(observed_for_account("team-alpha", "90"));
+        provider.record(observed_for_account("team-alpha", "30"));
+
+        let snapshots = provider.refresh(&ctx()).await.unwrap();
+        assert_eq!(snapshots.len(), 4);
+        let requests = snap_for(&snapshots, UsageMetric::Requests);
+        assert_eq!(requests.remaining, Some(30));
     }
 
     #[test]
