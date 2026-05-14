@@ -17,6 +17,7 @@ use crate::storage::Storage;
 
 pub mod anthropic_api;
 pub mod claude_code_local;
+pub mod codex_local;
 pub mod manual;
 pub mod openai_api;
 
@@ -103,5 +104,6 @@ pub fn default_providers(
         )),
         Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
         Arc::new(anthropic_api::AnthropicApiProvider::new()),
+        Arc::new(codex_local::CodexLocalProvider::new()),
     ]
 }
