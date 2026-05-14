@@ -200,6 +200,20 @@ fn derive_remaining(
     }
 }
 
+/// Merge a manual row's provider/account fields into the single `account_label`
+/// slot the snapshot data model exposes. Two manual rows that share an
+/// account label (e.g., both `personal`) for different providers would
+/// otherwise render indistinguishably in the overlay.
+fn manual_account_label(provider_label: &str, account_label: &str) -> String {
+    let provider = provider_label.trim();
+    let account = account_label.trim();
+    match (provider.is_empty(), account.is_empty()) {
+        (true, _) => account.to_string(),
+        (false, true) => provider.to_string(),
+        (false, false) => format!("{provider} · {account}"),
+    }
+}
+
 /// Convert a stored manual row into a snapshot. Always tagged as
 /// `source = Manual` and `confidence = Low` per spec §8.1.
 pub fn snapshot_from_manual_row(
@@ -221,7 +235,7 @@ pub fn snapshot_from_manual_row(
     UsageSnapshot {
         provider_id: format!("manual:{}", row.id),
         provider_kind: ProviderKind::Manual,
-        account_label: row.account_label.clone(),
+        account_label: manual_account_label(&row.provider_label, &row.account_label),
         window: row.window,
         metric: row.metric,
         limit: row.limit,
@@ -363,13 +377,33 @@ mod tests {
         assert_eq!(snap.provider_kind, ProviderKind::Manual);
         assert_eq!(snap.source, UsageSource::Manual);
         assert_eq!(snap.confidence, Confidence::Low);
-        assert_eq!(snap.account_label, "personal");
+        // provider + account merged so two rows with the same account label
+        // for different providers are distinguishable in the overlay.
+        assert_eq!(snap.account_label, "ChatGPT · personal");
         assert_eq!(snap.window, UsageWindow::FiveHours);
         assert_eq!(snap.remaining, Some(30));
         assert_eq!(snap.remaining_percent, Some(75.0));
         assert_eq!(snap.status, SnapshotStatus::Ok);
         assert_eq!(snap.provider_id, "manual:abc");
         assert_eq!(snap.message.as_deref(), Some("plus plan"));
+    }
+
+    #[test]
+    fn manual_account_label_handles_blank_fields() {
+        // Both populated: dot-separated.
+        assert_eq!(
+            manual_account_label("ChatGPT", "personal"),
+            "ChatGPT · personal"
+        );
+        // Account blank: fall back to provider only.
+        assert_eq!(manual_account_label("ChatGPT", ""), "ChatGPT");
+        assert_eq!(manual_account_label("ChatGPT", "   "), "ChatGPT");
+        // Provider blank: fall back to account only (preserves whitespace
+        // trimming consistency for both halves).
+        assert_eq!(manual_account_label("", "personal"), "personal");
+        assert_eq!(manual_account_label("  ", "personal"), "personal");
+        // Both blank: empty string.
+        assert_eq!(manual_account_label("", ""), "");
     }
 
     #[test]
