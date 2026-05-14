@@ -36,6 +36,14 @@ function formatDetail(snapshot: UsageSnapshot): string {
     const percent = Math.round((remaining / snapshot.limit) * PERCENT_BASE);
     return `${percent.toString()}%`;
   }
+  // No limit / remaining derivable — fall back to raw cumulative usage so
+  // count-only estimates (e.g. Codex local sessions/24h) stay visible.
+  if (snapshot.used !== null) {
+    const unit = METRIC_SHORT[snapshot.metric];
+    return unit === ""
+      ? snapshot.used.toString()
+      : `${snapshot.used.toString()} ${unit}`;
+  }
   return "—";
 }
 

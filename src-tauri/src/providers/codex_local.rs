@@ -182,7 +182,11 @@ fn estimate_snapshot(count: i64, now: &OffsetDateTime) -> UsageSnapshot {
         provider_kind: ProviderKind::CodexLocal,
         account_label: CODEX_LOCAL_ACCOUNT_LABEL.to_string(),
         window: UsageWindow::Daily,
-        metric: UsageMetric::Requests,
+        // The unit is "sessions touched in the last 24h", not requests or
+        // messages — one Codex session can wrap many of either. `Unknown`
+        // keeps the FE from suffixing a misleading unit; the snapshot
+        // message spells "session(s)" out for the user.
+        metric: UsageMetric::Unknown,
         limit: None,
         used: Some(count),
         remaining: None,
@@ -324,7 +328,7 @@ mod tests {
         assert_eq!(snap.account_label, CODEX_LOCAL_ACCOUNT_LABEL);
         assert_eq!(snap.source, UsageSource::Estimate);
         assert_eq!(snap.confidence, Confidence::Low);
-        assert_eq!(snap.metric, UsageMetric::Requests);
+        assert_eq!(snap.metric, UsageMetric::Unknown);
         // 2 of 3 fixture rows fall inside the 24h window from the fixed clock.
         assert_eq!(snap.used, Some(2));
         assert!(snap.limit.is_none());

@@ -62,6 +62,36 @@ describe("UsageRow", () => {
     expect(screen.getByText("59 req")).toBeTruthy();
   });
 
+  it("falls back to raw used + unit when only used is set (e.g. Codex estimate)", () => {
+    renderWithSnapshot(
+      baseSnapshot({
+        remainingPercent: null,
+        remaining: null,
+        limit: null,
+        used: 3,
+        metric: "requests",
+        source: "estimate",
+        confidence: "low",
+        status: "no-data",
+      }),
+    );
+    expect(screen.getByText("3 req")).toBeTruthy();
+  });
+
+  it("renders raw used count without a unit suffix for unknown metric", () => {
+    renderWithSnapshot(
+      baseSnapshot({
+        remainingPercent: null,
+        remaining: null,
+        limit: null,
+        used: 7,
+        metric: "unknown",
+        status: "no-data",
+      }),
+    );
+    expect(screen.getByText("7")).toBeTruthy();
+  });
+
   it("renders em dash when no usage data is available", () => {
     renderWithSnapshot(
       baseSnapshot({
