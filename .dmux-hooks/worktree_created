@@ -1,0 +1,27 @@
+#!/bin/bash
+# Install JS and Rust dependencies for a freshly-created worktree.
+# Runs after the worktree is created and BEFORE the agent launches.
+# Blocking: stdout/stderr is streamed into the new pane's setup UI.
+set -euo pipefail
+
+status() {
+  if [ "${DMUX_PROGRESS:-0}" = "1" ]; then
+    echo "${DMUX_STATUS_PREFIX:-DMUX_STATUS:} $*"
+  else
+    echo "[Hook] $*"
+  fi
+}
+
+cd "$DMUX_WORKTREE_PATH"
+
+if [ -f "pnpm-lock.yaml" ]; then
+  status "pnpm install (frozen lockfile)"
+  pnpm install --frozen-lockfile --prefer-offline
+fi
+
+if [ -f "src-tauri/Cargo.toml" ]; then
+  status "cargo fetch (src-tauri)"
+  cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+fi
+
+status "Dependencies ready"
