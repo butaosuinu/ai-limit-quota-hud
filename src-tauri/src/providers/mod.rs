@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 use crate::model::{ProviderKind, UsageSnapshot, DEFAULT_CRITICAL_PCT, DEFAULT_WARN_PCT};
 use crate::storage::Storage;
 
+pub mod anthropic_api;
 pub mod claude_code_local;
 pub mod manual;
 
@@ -93,5 +94,6 @@ pub fn default_providers(storage: Arc<Storage>) -> Vec<Arc<dyn UsageProvider>> {
     vec![
         Arc::new(manual::ManualProvider::new(storage)),
         Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
+        Arc::new(anthropic_api::AnthropicApiProvider::new()),
     ]
 }
