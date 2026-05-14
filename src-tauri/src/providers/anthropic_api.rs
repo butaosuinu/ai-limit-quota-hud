@@ -86,29 +86,38 @@ pub fn parse_anthropic_headers(
     warn_pct: f64,
     crit_pct: f64,
 ) -> Vec<UsageSnapshot> {
+    // HTTP header names are case-insensitive (RFC 9110 §5.1); fold the
+    // observed map to lowercase once so any casing the import path supplies
+    // (`Anthropic-RateLimit-Requests-Limit`, ALL-CAPS, …) still matches the
+    // lowercase keys we look up below.
+    let headers: HashMap<String, &String> = observed
+        .headers
+        .iter()
+        .map(|(k, v)| (k.to_ascii_lowercase(), v))
+        .collect();
     FAMILIES
         .iter()
-        .map(|(metric, slug)| build_family_snapshot(observed, *metric, slug, warn_pct, crit_pct))
+        .map(|(metric, slug)| {
+            build_family_snapshot(observed, &headers, *metric, slug, warn_pct, crit_pct)
+        })
         .collect()
 }
 
 fn build_family_snapshot(
     observed: &ObservedHeaders,
+    headers: &HashMap<String, &String>,
     metric: UsageMetric,
     slug: &str,
     warn_pct: f64,
     crit_pct: f64,
 ) -> UsageSnapshot {
-    let limit = observed
-        .headers
+    let limit = headers
         .get(&format!("anthropic-ratelimit-{slug}-limit"))
         .and_then(|s| s.trim().parse::<i64>().ok());
-    let remaining = observed
-        .headers
+    let remaining = headers
         .get(&format!("anthropic-ratelimit-{slug}-remaining"))
         .and_then(|s| s.trim().parse::<i64>().ok());
-    let reset_at = observed
-        .headers
+    let reset_at = headers
         .get(&format!("anthropic-ratelimit-{slug}-reset"))
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
@@ -372,6 +381,24 @@ mod tests {
             assert_eq!(snap.status, SnapshotStatus::Ok);
             assert_eq!(snap.source, UsageSource::ResponseHeader);
         }
+    }
+
+    #[test]
+    fn parse_is_case_insensitive_on_header_names() {
+        // HTTP header names are case-insensitive (RFC 9110 §5.1). Any import
+        // path may keep original casing — verify mixed-case + ALL-CAPS still
+        // resolve.
+        let observed = observed_with(&[
+            ("Anthropic-RateLimit-Requests-Limit", "100"),
+            ("ANTHROPIC-RATELIMIT-REQUESTS-REMAINING", "75"),
+            ("Anthropic-Ratelimit-Requests-Reset", "2026-05-14T19:00:00Z"),
+        ]);
+        let snapshots = parse_anthropic_headers(&observed, DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
+        let requests = snap_for(&snapshots, UsageMetric::Requests);
+        assert_eq!(requests.status, SnapshotStatus::Ok);
+        assert_eq!(requests.limit, Some(100));
+        assert_eq!(requests.remaining, Some(75));
+        assert_eq!(requests.reset_at.as_deref(), Some("2026-05-14T19:00:00Z"));
     }
 
     #[test]
