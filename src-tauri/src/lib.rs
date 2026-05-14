@@ -356,7 +356,7 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     let storage = Arc::new(storage::Storage::open(db_path)?);
     let latest = Arc::new(RwLock::new(Vec::new()));
     let interval_seconds = Arc::new(AtomicU64::new(DEFAULT_REFRESH_INTERVAL_SECS));
-    let providers = providers::default_providers(Arc::clone(&storage));
+    let providers = providers::default_providers(Arc::clone(&storage), &data_dir);
     let scheduler_handle = scheduler::spawn(scheduler::SchedulerDeps {
         app: handle.clone(),
         providers,

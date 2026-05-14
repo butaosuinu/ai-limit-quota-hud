@@ -5,6 +5,7 @@
 //! the `CredentialGetter` and `Clock` traits exist now so those can be
 //! injected without changing this signature.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ use crate::model::{ProviderKind, UsageSnapshot, DEFAULT_CRITICAL_PCT, DEFAULT_WA
 use crate::storage::Storage;
 
 pub mod manual;
+pub mod openai_api;
 
 /// 60 seconds is the floor specified by AGENTS.md — every provider must
 /// respect this unless it has a strong reason to be slower.
@@ -85,9 +87,18 @@ impl ProviderContext {
     }
 }
 
-/// Build the list of providers that ship with Phase 2. Phase 3+ extends this
-/// with conditional providers gated on credential presence so startup remains
-/// network-free for users without configured API keys.
-pub fn default_providers(storage: Arc<Storage>) -> Vec<Arc<dyn UsageProvider>> {
-    vec![Arc::new(manual::ManualProvider::new(storage))]
+/// Build the list of providers that ship by default. Phase 3a adds the
+/// OpenAI API header provider; its snapshot file path is rooted under the
+/// app's data directory so Phase 3b's proxy/import flow can write to the
+/// same location without extra plumbing.
+pub fn default_providers(
+    storage: Arc<Storage>,
+    data_dir: &Path,
+) -> Vec<Arc<dyn UsageProvider>> {
+    vec![
+        Arc::new(manual::ManualProvider::new(storage)),
+        Arc::new(openai_api::OpenAiApiProvider::new(
+            openai_api::OpenAiApiProvider::default_snapshot_path(data_dir),
+        )),
+    ]
 }
