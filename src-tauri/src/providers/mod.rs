@@ -16,6 +16,7 @@ use crate::storage::Storage;
 
 pub mod anthropic_api;
 pub mod claude_code_local;
+pub mod codex_local;
 pub mod manual;
 
 /// 60 seconds is the floor specified by AGENTS.md — every provider must
@@ -95,5 +96,6 @@ pub fn default_providers(storage: Arc<Storage>) -> Vec<Arc<dyn UsageProvider>> {
         Arc::new(manual::ManualProvider::new(storage)),
         Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
         Arc::new(anthropic_api::AnthropicApiProvider::new()),
+        Arc::new(codex_local::CodexLocalProvider::new()),
     ]
 }

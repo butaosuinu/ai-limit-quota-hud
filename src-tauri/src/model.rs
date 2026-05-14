@@ -310,6 +310,39 @@ pub fn error_snapshot(
     }
 }
 
+/// Build a `NoData` snapshot from a local provider that found no parseable
+/// usage data. Distinct from `error_snapshot` so the UI can render
+/// "no signal" rows differently from "the provider crashed" rows. Local
+/// providers must use this when expected files are missing or empty —
+/// per AGENTS.md, "推定値を「正確な remaining」として表示しない" implies
+/// missing-data states must be explicit, not zero-filled.
+pub fn nodata_snapshot(
+    provider_id: &str,
+    provider_kind: ProviderKind,
+    account_label: &str,
+    now: &OffsetDateTime,
+    message: impl Into<String>,
+) -> UsageSnapshot {
+    let observed_at = format_rfc3339(now);
+    UsageSnapshot {
+        provider_id: provider_id.to_string(),
+        provider_kind,
+        account_label: account_label.to_string(),
+        window: UsageWindow::Unknown,
+        metric: UsageMetric::Unknown,
+        limit: None,
+        used: None,
+        remaining: None,
+        remaining_percent: None,
+        reset_at: None,
+        observed_at,
+        source: UsageSource::LocalLog,
+        confidence: Confidence::Low,
+        status: SnapshotStatus::NoData,
+        message: Some(message.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +619,29 @@ mod tests {
         assert!(json.get("remainingPercent").is_some());
         assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
         assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("unavailable"));
+    }
+
+    #[test]
+    fn nodata_snapshot_uses_local_log_source_and_no_data_status() {
+        let snap = nodata_snapshot(
+            "codex-local:default",
+            ProviderKind::CodexLocal,
+            "Codex CLI",
+            &now_fixture(),
+            "Codex CLI directory not found",
+        );
+        assert_eq!(snap.provider_kind, ProviderKind::CodexLocal);
+        assert_eq!(snap.source, UsageSource::LocalLog);
+        assert_eq!(snap.confidence, Confidence::Low);
+        assert_eq!(snap.status, SnapshotStatus::NoData);
+        assert_eq!(snap.account_label, "Codex CLI");
+        assert!(snap.limit.is_none());
+        assert!(snap.used.is_none());
+        assert!(snap.remaining.is_none());
+        assert!(snap.remaining_percent.is_none());
+        assert_eq!(
+            snap.message.as_deref(),
+            Some("Codex CLI directory not found")
+        );
     }
 }
