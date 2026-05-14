@@ -939,14 +939,25 @@ Acceptance:
   - Outbound network traffic from a WebView provider must originate from a
     user-initiated login or a scheduled refresh against the provider's
     configured target origin (for example `claude.ai`, `chatgpt.com`).
-    Navigations triggered by the target's own authentication flow to
-    well-known identity providers (Google, Apple, Microsoft, Okta, Cloudflare
-    Access, GitHub, etc.) are permitted because the provider's first-party
-    login flow requires them. Outside of the login redirect chain, the
-    provider's own scripts must not navigate to or fetch from third-party
-    hosts; the implementation should enforce this with a small allowlist
-    that grows only while a login flow is in progress and resets once the
-    redirect chain returns to the target origin.
+    Permitted destinations are limited to a layered allowlist:
+    - **Provider-owned supporting hosts.** Each provider implementation
+      declares a static list of additional hosts that the target's web app
+      needs in order to render the usage page — typically provider-owned
+      CDN, static-asset, and first-party XHR API domains (for example
+      `*.anthropic.com` alongside `claude.ai`, or `*.openai.com` and
+      `cdn.oaistatic.com` alongside `chatgpt.com`). This list is checked
+      into the repository next to the provider source so changes go
+      through code review.
+    - **Login redirect chain.** While a login flow is in progress, the
+      target's first-party login may redirect through well-known external
+      identity providers (Google, Apple, Microsoft, Okta, Cloudflare
+      Access, GitHub, etc.). These redirects are permitted as long as the
+      chain eventually returns to the target origin. The dynamic portion
+      of the allowlist is reset once the redirect chain returns.
+    Outside of those two cases, the WebView must not navigate to or fetch
+    from arbitrary third-party hosts. The implementation should enforce
+    this on every WebView navigation and resource request, not only on
+    the top-level URL.
 
 ## 15. README minimum content
 

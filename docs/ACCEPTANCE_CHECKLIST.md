@@ -133,10 +133,16 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       origin loaded in the WebView.
 - [ ] During login, redirects to well-known identity providers (Google,
       Apple, Microsoft, Okta, Cloudflare Access, GitHub, etc.) are allowed
-      so that the provider's first-party login flow completes. Outside of an
-      active login redirect chain, the WebView must not navigate to or fetch
-      from third-party hosts unrelated to the target origin (see PROJECT_SPEC
-      §14).
+      so that the provider's first-party login flow completes (see
+      PROJECT_SPEC §14).
+- [ ] After login completes, the WebView is allowed to fetch resources
+      from a constrained set of provider-owned supporting hosts (CDN,
+      static-asset, and first-party XHR API domains declared in the
+      provider implementation, for example `*.anthropic.com` for the
+      Claude provider or `*.openai.com` / `cdn.oaistatic.com` for the
+      Codex provider). Requests to hosts outside this list and outside an
+      active login redirect chain are blocked at the WebView's navigation
+      or resource-request layer.
 - [ ] No QuotaHUD code reads or inspects individual cookies inside the
       provider's session store (the `webview-<provider>/` directory on
       Windows / Linux, or the per-`dataStoreIdentifier` `WKWebsiteDataStore`
