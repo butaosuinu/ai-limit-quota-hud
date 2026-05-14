@@ -483,7 +483,11 @@ Hard rules:
   opens a normal visible WebView window pointing at the provider's own login
   URL (for example `https://claude.ai/login`). QuotaHUD does not present its
   own login form, does not intercept credentials, and does not read the
-  password field. The user authenticates in the provider's own page.
+  password field. The user authenticates in the provider's own page. The
+  provider's login page may redirect through external identity providers
+  (Google, Apple, Microsoft, Okta, Cloudflare Access, GitHub, etc.); these
+  redirects are permitted as part of the login chain and must not be
+  blocked. See §14 for the egress allowlist rule.
 - **Hidden refresh window.** After login, QuotaHUD creates a separate hidden
   WebView window (`visible=false, skip_taskbar=true, focused=false,
   decorations=false`) that re-navigates to the usage page on a scheduler tick
@@ -874,7 +878,10 @@ Acceptance:
   `get_provider_settings`, `delete_provider_data`.
 - Add a Settings UI section to enable/disable each WebView provider, trigger
   login, and delete provider data.
-- Use `min_refresh_interval >= 600s` (floor 300s) in the scheduler.
+- Use a configurable `min_refresh_interval` for WebView providers with a
+  default of 600 seconds and an enforced floor of 300 seconds. Reject
+  configurations below 300s at the settings boundary; permit any value in
+  the 300–3600s range.
 
 Acceptance:
 
@@ -920,9 +927,17 @@ Acceptance:
     `webview-<provider>/` directory on Windows / Linux, and remove the
     `dataStoreIdentifier`-scoped `WKWebsiteDataStore` (or fall back to
     origin-scoped removal) on macOS.
-  - Outbound network traffic from a WebView provider is allowed only while
-    the provider is enabled and only against its configured target origin
-    (for example `claude.ai`, `chatgpt.com`).
+  - Outbound network traffic from a WebView provider must originate from a
+    user-initiated login or a scheduled refresh against the provider's
+    configured target origin (for example `claude.ai`, `chatgpt.com`).
+    Navigations triggered by the target's own authentication flow to
+    well-known identity providers (Google, Apple, Microsoft, Okta, Cloudflare
+    Access, GitHub, etc.) are permitted because the provider's first-party
+    login flow requires them. Outside of the login redirect chain, the
+    provider's own scripts must not navigate to or fetch from third-party
+    hosts; the implementation should enforce this with a small allowlist
+    that grows only while a login flow is in progress and resets once the
+    redirect chain returns to the target origin.
 
 ## 15. README minimum content
 

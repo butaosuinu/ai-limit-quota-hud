@@ -127,6 +127,12 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       WebView providers (default 600 seconds).
 - [ ] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
       origin loaded in the WebView.
+- [ ] During login, redirects to well-known identity providers (Google,
+      Apple, Microsoft, Okta, Cloudflare Access, GitHub, etc.) are allowed
+      so that the provider's first-party login flow completes. Outside of an
+      active login redirect chain, the WebView must not navigate to or fetch
+      from third-party hosts unrelated to the target origin (see PROJECT_SPEC
+      §14).
 - [ ] No QuotaHUD code reads or inspects individual cookies inside the
       provider's session store (the `webview-<provider>/` directory on
       Windows / Linux, or the per-`dataStoreIdentifier` `WKWebsiteDataStore`
