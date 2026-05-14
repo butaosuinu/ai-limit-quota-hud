@@ -30,6 +30,8 @@ pub enum ProviderKind {
     ClaudeCodeLocal,
     CodexLocal,
     Manual,
+    WebviewClaudeAi,
+    WebviewChatgptCodex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +55,7 @@ pub enum UsageSource {
     Manual,
     Estimate,
     Unavailable,
+    WebviewScrape,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,7 +157,8 @@ pub fn compute_remaining_percent(
         return Some(pct);
     }
     match (limit, remaining) {
-        (Some(l), Some(r)) if l > 0 => {
+        (Some(l), Some(r)) if l > 0 =>
+        {
             #[allow(clippy::cast_precision_loss)]
             Some((r as f64 / l as f64) * 100.0)
         }
@@ -186,11 +190,7 @@ pub fn classify_status(
 /// otherwise compute `limit - used` so manual rows that only specify
 /// `limit + used` still classify correctly (and don't fall through to
 /// `NoData`).
-fn derive_remaining(
-    limit: Option<i64>,
-    used: Option<i64>,
-    remaining: Option<i64>,
-) -> Option<i64> {
+fn derive_remaining(limit: Option<i64>, used: Option<i64>, remaining: Option<i64>) -> Option<i64> {
     if let Some(r) = remaining {
         return Some(r);
     }
@@ -436,7 +436,8 @@ mod tests {
             created_at: "2026-05-01T00:00:00Z".into(),
             updated_at: "2026-05-13T12:00:00Z".into(),
         };
-        let snap = snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
+        let snap =
+            snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
         assert_eq!(snap.provider_kind, ProviderKind::Manual);
         assert_eq!(snap.source, UsageSource::Manual);
         assert_eq!(snap.confidence, Confidence::Low);
@@ -490,12 +491,8 @@ mod tests {
             created_at: "2026-05-01T00:00:00Z".into(),
             updated_at: "2026-05-13T12:00:00Z".into(),
         };
-        let snap = snapshot_from_manual_row(
-            &row,
-            &now_fixture(),
-            DEFAULT_WARN_PCT,
-            DEFAULT_CRITICAL_PCT,
-        );
+        let snap =
+            snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
         assert_eq!(snap.remaining_percent, Some(12.5));
         assert_eq!(snap.status, SnapshotStatus::Warning);
         // The DB-backed `remaining` field stays as the user entered it.
@@ -519,12 +516,8 @@ mod tests {
             created_at: "2026-05-01T00:00:00Z".into(),
             updated_at: "2026-05-13T12:00:00Z".into(),
         };
-        let snap = snapshot_from_manual_row(
-            &row,
-            &now_fixture(),
-            DEFAULT_WARN_PCT,
-            DEFAULT_CRITICAL_PCT,
-        );
+        let snap =
+            snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
         // 2/40 = 5% → Critical.
         assert_eq!(snap.remaining_percent, Some(5.0));
         assert_eq!(snap.status, SnapshotStatus::Critical);
@@ -546,7 +539,8 @@ mod tests {
             created_at: "2026-05-01T00:00:00Z".into(),
             updated_at: "2026-05-13T12:00:00Z".into(),
         };
-        let snap = snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
+        let snap =
+            snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
         assert_eq!(snap.status, SnapshotStatus::NoData);
         assert_eq!(snap.remaining_percent, None);
     }
@@ -564,6 +558,33 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<ProviderKind>("\"manual\"").unwrap(),
             ProviderKind::Manual
+        );
+        // Webview kinds round-trip with the same slug used in PROJECT_SPEC §3
+        // and §7. `Webview` is a single word here so the kebab form drops the
+        // hyphen between "web" and "view".
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::WebviewClaudeAi).unwrap(),
+            "\"webview-claude-ai\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::WebviewChatgptCodex).unwrap(),
+            "\"webview-chatgpt-codex\""
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderKind>("\"webview-claude-ai\"").unwrap(),
+            ProviderKind::WebviewClaudeAi
+        );
+    }
+
+    #[test]
+    fn usage_source_webview_scrape_round_trips() {
+        assert_eq!(
+            serde_json::to_string(&UsageSource::WebviewScrape).unwrap(),
+            "\"webview-scrape\""
+        );
+        assert_eq!(
+            serde_json::from_str::<UsageSource>("\"webview-scrape\"").unwrap(),
+            UsageSource::WebviewScrape
         );
     }
 
@@ -606,7 +627,10 @@ mod tests {
     #[test]
     fn confidence_serde_kebab_case() {
         assert_eq!(serde_json::to_string(&Confidence::Low).unwrap(), "\"low\"");
-        assert_eq!(serde_json::to_string(&Confidence::High).unwrap(), "\"high\"");
+        assert_eq!(
+            serde_json::to_string(&Confidence::High).unwrap(),
+            "\"high\""
+        );
     }
 
     #[test]
@@ -618,7 +642,10 @@ mod tests {
         assert!(json.get("accountLabel").is_some());
         assert!(json.get("remainingPercent").is_some());
         assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
-        assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("unavailable"));
+        assert_eq!(
+            json.get("source").and_then(|v| v.as_str()),
+            Some("unavailable")
+        );
     }
 
     #[test]

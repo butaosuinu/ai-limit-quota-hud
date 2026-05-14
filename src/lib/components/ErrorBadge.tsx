@@ -22,12 +22,17 @@ const SOURCE_LABEL: Record<UsageSource, string> = {
   manual: "manual",
   estimate: "estimate",
   unavailable: "n/a",
+  // WebView-scraped sources (PROJECT_SPEC §6.3): always render with the
+  // explicit label so the user sees the value comes from a vendor's web UI,
+  // not an official API.
+  "webview-scrape": "webview",
 };
 
 const SHOWN_SOURCES: ReadonlySet<UsageSource> = new Set([
   "manual",
   "estimate",
   "unavailable",
+  "webview-scrape",
 ]);
 
 function shouldShowConfidence(confidence: Confidence | undefined): boolean {
