@@ -1,13 +1,7 @@
 //! Anthropic API response-header provider (spec §8.3).
-//!
-//! Parses `anthropic-ratelimit-*` headers from a previously observed snapshot
-//! and emits one `UsageSnapshot` per metric family (requests / tokens /
-//! input-tokens / output-tokens). Never makes a live HTTP call — the cache is
-//! only populated by an in-process `record(...)` hook for now; the import
-//! pipeline (Tauri command + storage table) is a later phase.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use time::OffsetDateTime;
@@ -20,8 +14,6 @@ use crate::providers::{ProviderContext, UsageProvider};
 
 pub const ANTHROPIC_API_PROVIDER_ID: &str = "anthropic-api";
 
-/// The four header families spec §8.3 calls out, paired with the slug that
-/// appears between `anthropic-ratelimit-` and `-{limit,remaining,reset}`.
 const FAMILIES: &[(UsageMetric, &str)] = &[
     (UsageMetric::Requests, "requests"),
     (UsageMetric::Tokens, "tokens"),
@@ -29,8 +21,6 @@ const FAMILIES: &[(UsageMetric, &str)] = &[
     (UsageMetric::OutputTokens, "output-tokens"),
 ];
 
-/// A previously observed set of Anthropic response headers, tagged with the
-/// account it belongs to and when the response was captured.
 #[derive(Debug, Clone)]
 pub struct ObservedHeaders {
     pub account_label: String,
@@ -39,21 +29,22 @@ pub struct ObservedHeaders {
 }
 
 pub struct AnthropicApiProvider {
-    cache: Arc<RwLock<Option<ObservedHeaders>>>,
+    cache: Mutex<Option<ObservedHeaders>>,
 }
 
 impl AnthropicApiProvider {
     pub fn new() -> Self {
         Self {
-            cache: Arc::new(RwLock::new(None)),
+            cache: Mutex::new(None),
         }
     }
 
-    /// Replace the cached observation. Tests use this directly; the runtime
-    /// import pipeline will call it once the Phase 3c command/storage lands.
+    /// Replace the cached observation. Wired by a later import pipeline; for
+    /// now the in-memory cache is the only entry point so the provider never
+    /// initiates a network call on its own.
     #[allow(dead_code)]
     pub fn record(&self, observed: ObservedHeaders) {
-        *self.cache.write().expect("anthropic header cache poisoned") = Some(observed);
+        *self.cache.lock().expect("anthropic header cache poisoned") = Some(observed);
     }
 }
 
@@ -74,14 +65,12 @@ impl UsageProvider for AnthropicApiProvider {
     }
 
     async fn refresh(&self, ctx: &ProviderContext) -> anyhow::Result<Vec<UsageSnapshot>> {
-        // No observed headers yet → produce nothing. Keeps the overlay clean
-        // on first launch and enforces the "no startup probe" rule: this
-        // provider never reaches the network on its own.
-        let observed = {
-            let guard = self.cache.read().expect("anthropic header cache poisoned");
-            guard.clone()
-        };
-        let Some(observed) = observed else {
+        let Some(observed) = self
+            .cache
+            .lock()
+            .expect("anthropic header cache poisoned")
+            .clone()
+        else {
             return Ok(vec![]);
         };
         Ok(parse_anthropic_headers(
@@ -92,10 +81,6 @@ impl UsageProvider for AnthropicApiProvider {
     }
 }
 
-/// Parse an observed header snapshot into one `UsageSnapshot` per family.
-/// A family with none of its three headers present is returned as a `NoData`
-/// row so the UI can render "Anthropic — input tokens — no data" instead of
-/// silently dropping the family.
 pub fn parse_anthropic_headers(
     observed: &ObservedHeaders,
     warn_pct: f64,
@@ -114,76 +99,60 @@ fn build_family_snapshot(
     warn_pct: f64,
     crit_pct: f64,
 ) -> UsageSnapshot {
-    let limit_key = format!("anthropic-ratelimit-{slug}-limit");
-    let remaining_key = format!("anthropic-ratelimit-{slug}-remaining");
-    let reset_key = format!("anthropic-ratelimit-{slug}-reset");
-
     let limit = observed
         .headers
-        .get(&limit_key)
+        .get(&format!("anthropic-ratelimit-{slug}-limit"))
         .and_then(|s| s.trim().parse::<i64>().ok());
     let remaining = observed
         .headers
-        .get(&remaining_key)
+        .get(&format!("anthropic-ratelimit-{slug}-remaining"))
         .and_then(|s| s.trim().parse::<i64>().ok());
     let reset_at = observed
         .headers
-        .get(&reset_key)
+        .get(&format!("anthropic-ratelimit-{slug}-reset"))
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let provider_id = format!(
-        "{ANTHROPIC_API_PROVIDER_ID}:{}:{slug}",
-        observed.account_label
-    );
-    let observed_at = format_rfc3339(&observed.observed_at);
-    let family_present = limit.is_some() || remaining.is_some() || reset_at.is_some();
-
-    if !family_present {
-        return UsageSnapshot {
-            provider_id,
-            provider_kind: ProviderKind::AnthropicApi,
-            account_label: observed.account_label.clone(),
-            window: UsageWindow::Api,
-            metric,
-            limit: None,
-            used: None,
-            remaining: None,
-            remaining_percent: None,
-            reset_at: None,
-            observed_at,
-            source: UsageSource::ResponseHeader,
-            confidence: Confidence::High,
-            status: SnapshotStatus::NoData,
-            message: Some(format!(
-                "anthropic-ratelimit-{slug}-* headers not present in observed snapshot"
-            )),
-        };
-    }
-
-    let remaining_percent = compute_remaining_percent(limit, remaining, None);
-    let status = classify_status(limit, remaining, remaining_percent, warn_pct, crit_pct);
-
-    UsageSnapshot {
-        provider_id,
+    let base = UsageSnapshot {
+        provider_id: format!(
+            "{ANTHROPIC_API_PROVIDER_ID}:{}:{slug}",
+            observed.account_label
+        ),
         provider_kind: ProviderKind::AnthropicApi,
         account_label: observed.account_label.clone(),
         window: UsageWindow::Api,
         metric,
-        limit,
-        // Anthropic only sends limit + remaining; we leave `used` empty rather
-        // than back-computing limit-remaining so the snapshot mirrors the wire
-        // truth and the UI can distinguish "header didn't say" from "we did
-        // the math."
+        limit: None,
+        // Anthropic only sends limit + remaining; leaving `used` empty
+        // preserves the wire truth instead of back-computing limit-remaining.
         used: None,
+        remaining: None,
+        remaining_percent: None,
+        reset_at: None,
+        observed_at: format_rfc3339(&observed.observed_at),
+        source: UsageSource::ResponseHeader,
+        confidence: Confidence::High,
+        status: SnapshotStatus::NoData,
+        message: None,
+    };
+
+    if limit.is_none() && remaining.is_none() && reset_at.is_none() {
+        return UsageSnapshot {
+            message: Some(format!(
+                "anthropic-ratelimit-{slug}-* headers not present in observed snapshot"
+            )),
+            ..base
+        };
+    }
+
+    let remaining_percent = compute_remaining_percent(limit, remaining, None);
+    UsageSnapshot {
+        limit,
         remaining,
         remaining_percent,
         reset_at,
-        observed_at,
-        source: UsageSource::ResponseHeader,
-        confidence: Confidence::High,
-        status,
-        message: None,
+        status: classify_status(limit, remaining, remaining_percent, warn_pct, crit_pct),
+        ..base
     }
 }
 
@@ -204,7 +173,6 @@ mod tests {
     use crate::storage::Storage;
 
     fn fixture_path(name: &str) -> PathBuf {
-        // CARGO_MANIFEST_DIR points at src-tauri/; fixtures live at repo root.
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("tests")
@@ -232,7 +200,6 @@ mod tests {
     }
 
     fn ctx() -> ProviderContext {
-        // Storage is unused by this provider but ProviderContext requires it.
         let storage = Arc::new(Storage::open_in_memory().expect("in-memory storage"));
         ProviderContext::new(storage)
     }
@@ -304,8 +271,6 @@ mod tests {
             assert!(snap.limit.is_none());
             assert!(snap.remaining.is_none());
             assert!(snap.reset_at.is_none());
-            // Source/confidence stay attached so the row still carries the
-            // spec-mandated provenance metadata.
             assert_eq!(snap.source, UsageSource::ResponseHeader);
             assert_eq!(snap.confidence, Confidence::High);
             let msg = snap.message.as_deref().expect("NoData carries message");
@@ -355,7 +320,6 @@ mod tests {
         let snapshots = parse_anthropic_headers(&observed, DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
 
         let tokens = snap_for(&snapshots, UsageMetric::Tokens);
-        // 2500/10000 = 25% → warning band (< 30, >= 10).
         assert_eq!(tokens.status, SnapshotStatus::Warning);
         assert!(tokens.reset_at.is_none());
     }
@@ -395,10 +359,7 @@ mod tests {
     async fn provider_returns_empty_when_cache_unset() {
         let provider = AnthropicApiProvider::new();
         let snapshots = provider.refresh(&ctx()).await.unwrap();
-        assert!(
-            snapshots.is_empty(),
-            "no observation should yield no rows so the overlay stays clean and startup is probe-free"
-        );
+        assert!(snapshots.is_empty());
     }
 
     #[tokio::test]
@@ -415,8 +376,6 @@ mod tests {
 
     #[test]
     fn non_numeric_limit_falls_through_to_no_data() {
-        // limit fails to parse → effectively missing; remaining also missing
-        // → no usable data → NoData for the family. reset_at empty too.
         let observed = observed_with(&[
             ("anthropic-ratelimit-requests-limit", "not-a-number"),
             ("anthropic-ratelimit-requests-reset", "   "),
