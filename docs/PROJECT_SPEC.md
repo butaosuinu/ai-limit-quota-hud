@@ -218,8 +218,8 @@ pub enum ProviderKind {
     ClaudeCodeLocal,
     CodexLocal,
     Manual,
-    WebViewClaudeAi,
-    WebViewChatgptCodex,
+    WebviewClaudeAi,
+    WebviewChatgptCodex,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -243,7 +243,7 @@ pub enum UsageSource {
     Manual,
     Estimate,
     Unavailable,
-    WebViewScrape,
+    WebviewScrape,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -288,8 +288,8 @@ export type UsageSnapshot = {
     | "claude-code-local"
     | "codex-local"
     | "manual"
-    | "web-view-claude-ai"
-    | "web-view-chatgpt-codex";
+    | "webview-claude-ai"
+    | "webview-chatgpt-codex";
   accountLabel: string;
   window:
     | "one-minute"
@@ -468,11 +468,10 @@ not embed a WebView inside QuotaHUD itself.
 
 For Claude (Pro/Max) and ChatGPT (Plus/Pro/Codex agent) subscription usage,
 where no official rate-limit API exists, QuotaHUD ships an **opt-in**
-WebView-backed provider. The approach is inspired by the open source project
-[ai-gauge](https://github.com/jpajak/ai-gauge) (MIT), which uses an embedded
-headless browser to read the public usage settings page of each provider's
-web app. QuotaHUD ports the idea to Tauri 2's built-in WebView so that no
-Python or external runtime is required.
+WebView-backed provider. The provider loads each vendor's own usage settings
+page inside QuotaHUD's built-in Tauri 2 WebView and extracts the visible
+usage figures with a small JavaScript helper, so that no Python or external
+runtime is required.
 
 Hard rules:
 
@@ -516,7 +515,7 @@ Recommended file layout (concrete, for the v1 implementation):
 
 ```text
 src-tauri/src/providers/webview/
-  mod.rs                 # shared `WebViewScraper` actor and helpers
+  mod.rs                 # shared `WebviewScraper` actor and helpers
   claude_web.rs          # ClaudeWebProvider (UsageProvider impl)
   codex_web.rs           # CodexWebProvider (UsageProvider impl)
   extractors/
@@ -524,10 +523,10 @@ src-tauri/src/providers/webview/
     codex.js             # DOM extraction JS, loaded via include_str!
 ```
 
-The DOM selectors and traversal logic in `extractors/*.js` may take inspiration
-from ai-gauge's `src/aigauge/providers/{claude,codex}.py` but must be
-re-implemented inside this repository. Carry the MIT attribution in
-`THIRD_PARTY_NOTICES.md`.
+The DOM selectors and traversal logic in `extractors/*.js` must be written
+fresh inside this repository. Treat each vendor's web app as an external,
+unstable interface: keep extractor heuristics small, defensive, and easy to
+swap when the page layout changes.
 
 ## 9. Overlay/platform implementation
 
@@ -687,7 +686,7 @@ not read, copy, or otherwise process individual cookie values. The native
 cookie store is treated as an opaque session container, isolated per provider
 under `app_data_dir/webview-<provider>/`, and fully removable through a
 user-visible "Delete provider data" action. This carve-out only applies to
-`UsageSource::WebViewScrape` providers and does not relax the rule for API
+`UsageSource::WebviewScrape` providers and does not relax the rule for API
 keys, OAuth tokens, or proxy credentials, which still require the OS
 credential store.
 
@@ -842,9 +841,9 @@ Acceptance:
 
 ### Phase 6 — WebView providers (v1, opt-in)
 
-- Add `ProviderKind::WebViewClaudeAi`, `ProviderKind::WebViewChatgptCodex`
-  and `UsageSource::WebViewScrape` to the Rust model and TS DTO.
-- Implement the shared `WebViewScraper` actor under
+- Add `ProviderKind::WebviewClaudeAi`, `ProviderKind::WebviewChatgptCodex`
+  and `UsageSource::WebviewScrape` to the Rust model and TS DTO.
+- Implement the shared `WebviewScraper` actor under
   `src-tauri/src/providers/webview/`.
 - Implement `claude_web.rs` against `https://claude.ai/settings/usage` and
   `codex_web.rs` against `https://chatgpt.com/codex/cloud/settings/analytics`.
