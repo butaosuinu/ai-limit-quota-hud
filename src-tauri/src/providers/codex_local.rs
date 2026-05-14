@@ -1,28 +1,17 @@
 //! Codex CLI local provider (Phase 4b).
 //!
 //! Codex CLI does not write quota / rate-limit information into the local
-//! `~/.codex/` directory — only conversation metadata (`session_index.jsonl`,
-//! `history.jsonl`). Per AGENTS.md / PROJECT_SPEC.md §8.5 we therefore:
-//!
-//! - Discover the Codex home (`$CODEX_HOME` then `~/.codex/`).
-//! - Parse the stable `session_index.jsonl` schema (`{id, thread_name,
-//!   updated_at}`) and count sessions touched in the last 24 hours.
-//! - Emit a single `source = Estimate`, `confidence = Low` snapshot. Limit and
-//!   remaining stay `None` so the UI cannot mistake the value for a "real"
-//!   remaining quota.
-//! - Return an explicit `NoData` snapshot (not an empty vec) when the
-//!   directory or index file is missing, so the overlay still shows a row
-//!   with a useful "why nothing is here" message.
-//!
-//! Only `session_index.jsonl` is read. We never touch `auth.json`,
-//! `config.toml`, the SQLite log DB, or any file with `token`/`secret`/etc.
-//! in its name — that satisfies the §14 rule "read only expected directories
-//! and file extensions".
+//! `~/.codex/` directory — only conversation metadata. Per PROJECT_SPEC.md
+//! §8.5 / §14 we therefore only read `session_index.jsonl` (the one stable
+//! structured file), count the sessions touched in the last 24 h, and emit
+//! a single `Estimate` snapshot. `limit` / `remaining` stay `None` so the
+//! UI cannot mistake the value for a real remaining quota, and we surface
+//! "directory missing" / "no sessions" as explicit `NoData` snapshots
+//! (not empty vecs) so the overlay row stays visible with a useful message.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -36,18 +25,15 @@ use crate::model::{
 use crate::providers::{ProviderContext, UsageProvider};
 
 pub const CODEX_LOCAL_PROVIDER_ID: &str = "codex-local";
-pub const CODEX_LOCAL_ACCOUNT_LABEL: &str = "Codex CLI";
+const CODEX_LOCAL_ACCOUNT_LABEL: &str = "Codex CLI";
 const SESSION_INDEX_FILENAME: &str = "session_index.jsonl";
 const ESTIMATE_WINDOW_SECS: i64 = 24 * 60 * 60;
 
-/// Resolves the directory that the Codex CLI writes its state into. Split
-/// out as a trait so unit tests can point the provider at a `TempDir`
-/// instead of the real `~/.codex/`.
-pub trait CodexHomeResolver: Send + Sync {
+trait CodexHomeResolver: Send + Sync {
     fn resolve(&self) -> Option<PathBuf>;
 }
 
-pub struct SystemCodexHomeResolver;
+struct SystemCodexHomeResolver;
 
 impl CodexHomeResolver for SystemCodexHomeResolver {
     fn resolve(&self) -> Option<PathBuf> {
@@ -72,7 +58,7 @@ impl CodexLocalProvider {
     }
 
     #[cfg(test)]
-    pub fn with_resolver(resolver: Arc<dyn CodexHomeResolver>) -> Self {
+    fn with_resolver(resolver: Arc<dyn CodexHomeResolver>) -> Self {
         Self {
             home_resolver: resolver,
         }
@@ -95,12 +81,6 @@ impl UsageProvider for CodexLocalProvider {
         ProviderKind::CodexLocal
     }
 
-    fn min_refresh_interval(&self) -> Duration {
-        // Filesystem reads are cheap but Codex writes the index on every
-        // session — 60s is plenty to surface changes.
-        Duration::from_secs(60)
-    }
-
     async fn refresh(&self, ctx: &ProviderContext) -> anyhow::Result<Vec<UsageSnapshot>> {
         let resolver = Arc::clone(&self.home_resolver);
         let clock = Arc::clone(&ctx.clock);
@@ -115,13 +95,27 @@ impl UsageProvider for CodexLocalProvider {
 }
 
 #[derive(Debug, Deserialize)]
-struct SessionEntry {
-    #[allow(dead_code)]
-    id: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    thread_name: Option<String>,
-    updated_at: String,
+struct SessionEntry<'a> {
+    updated_at: &'a str,
+}
+
+fn nodata(now: &OffsetDateTime, message: impl Into<String>) -> UsageSnapshot {
+    nodata_snapshot(
+        CODEX_LOCAL_PROVIDER_ID,
+        ProviderKind::CodexLocal,
+        CODEX_LOCAL_ACCOUNT_LABEL,
+        now,
+        message,
+    )
+}
+
+fn error(now: &OffsetDateTime, message: impl Into<String>) -> UsageSnapshot {
+    error_snapshot(
+        CODEX_LOCAL_PROVIDER_ID,
+        ProviderKind::CodexLocal,
+        now,
+        message,
+    )
 }
 
 fn collect_snapshots(
@@ -129,35 +123,26 @@ fn collect_snapshots(
     now: &OffsetDateTime,
 ) -> Vec<UsageSnapshot> {
     let Some(home) = resolver.resolve() else {
-        return vec![nodata_snapshot(
-            CODEX_LOCAL_PROVIDER_ID,
-            ProviderKind::CodexLocal,
-            CODEX_LOCAL_ACCOUNT_LABEL,
+        return vec![nodata(
             now,
             "Codex CLI home directory could not be resolved (no $CODEX_HOME and no detectable home directory)",
         )];
     };
 
     let index_path = home.join(SESSION_INDEX_FILENAME);
-    if !index_path.exists() {
-        return vec![nodata_snapshot(
-            CODEX_LOCAL_PROVIDER_ID,
-            ProviderKind::CodexLocal,
-            CODEX_LOCAL_ACCOUNT_LABEL,
-            now,
-            format!(
-                "Codex CLI session index not found at {} — start a Codex session to populate it",
-                index_path.display()
-            ),
-        )];
-    }
-
     let file = match std::fs::File::open(&index_path) {
         Ok(f) => f,
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            return vec![nodata(
+                now,
+                format!(
+                    "Codex CLI session index not found at {} — start a Codex session to populate it",
+                    index_path.display()
+                ),
+            )];
+        }
         Err(err) => {
-            return vec![error_snapshot(
-                CODEX_LOCAL_PROVIDER_ID,
-                ProviderKind::CodexLocal,
+            return vec![error(
                 now,
                 format!("failed to open Codex session index: {err}"),
             )];
@@ -167,11 +152,9 @@ fn collect_snapshots(
     let cutoff = *now - time::Duration::seconds(ESTIMATE_WINDOW_SECS);
     let mut count: i64 = 0;
     for line in BufReader::new(file).lines() {
-        let Ok(line) = line else {
-            // Read error mid-stream (e.g., invalid UTF-8). Skip rather than
-            // panic — a single bad byte should not blank the snapshot.
-            continue;
-        };
+        // Read errors (e.g., invalid UTF-8 mid-stream) skip the line so one
+        // bad byte does not blank the snapshot.
+        let Ok(line) = line else { continue };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -179,7 +162,7 @@ fn collect_snapshots(
         let Ok(entry) = serde_json::from_str::<SessionEntry>(trimmed) else {
             continue;
         };
-        let Ok(ts) = OffsetDateTime::parse(&entry.updated_at, &Rfc3339) else {
+        let Ok(ts) = OffsetDateTime::parse(entry.updated_at, &Rfc3339) else {
             continue;
         };
         if ts >= cutoff {
@@ -188,15 +171,8 @@ fn collect_snapshots(
     }
 
     if count == 0 {
-        return vec![nodata_snapshot(
-            CODEX_LOCAL_PROVIDER_ID,
-            ProviderKind::CodexLocal,
-            CODEX_LOCAL_ACCOUNT_LABEL,
-            now,
-            "No Codex CLI sessions touched in the last 24h",
-        )];
+        return vec![nodata(now, "No Codex CLI sessions touched in the last 24h")];
     }
-
     vec![estimate_snapshot(count, now)]
 }
 
@@ -215,9 +191,8 @@ fn estimate_snapshot(count: i64, now: &OffsetDateTime) -> UsageSnapshot {
         observed_at: format_rfc3339(now),
         source: UsageSource::Estimate,
         confidence: Confidence::Low,
-        // No `limit` is known locally — we deliberately surface this as
-        // `NoData` ("there is a number but we cannot judge severity") rather
-        // than `Ok`, matching `classify_status(None, None, None, ..)`.
+        // No `limit` is known locally, so we surface this as `NoData` rather
+        // than `Ok` — the UI must not infer severity from a count alone.
         status: SnapshotStatus::NoData,
         message: Some(format!(
             "Estimate: {count} Codex CLI session(s) in last 24h (no local quota data — counted from session_index.jsonl)"
@@ -228,13 +203,9 @@ fn estimate_snapshot(count: i64, now: &OffsetDateTime) -> UsageSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Confidence, ProviderKind, SnapshotStatus, UsageMetric, UsageSource};
-    use crate::providers::{
-        Clock, CredentialGetter, NoopCredentialGetter, ProviderContext, SystemClock,
-    };
+    use crate::providers::{Clock, NoopCredentialGetter};
     use crate::storage::Storage;
     use std::path::Path;
-    use std::sync::Arc;
     use tempfile::TempDir;
     use time::macros::datetime;
 
@@ -259,9 +230,8 @@ mod tests {
     }
 
     fn ctx_with_clock(clock: Arc<dyn Clock>) -> ProviderContext {
-        let storage = Arc::new(Storage::open_in_memory().unwrap());
         ProviderContext {
-            storage,
+            storage: Arc::new(Storage::open_in_memory().unwrap()),
             clock,
             credentials: Arc::new(NoopCredentialGetter),
             warn_pct: crate::model::DEFAULT_WARN_PCT,
@@ -269,26 +239,26 @@ mod tests {
         }
     }
 
-    fn fixture_dir() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
+    fn copy_fixture_to(home: &Path, fixture_name: &str) {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("workspace root")
             .join("tests/fixtures/codex")
+            .join(fixture_name);
+        let dst = home.join(SESSION_INDEX_FILENAME);
+        std::fs::copy(&src, &dst)
+            .unwrap_or_else(|e| panic!("copy {} -> {}: {e}", src.display(), dst.display()));
     }
 
-    fn copy_fixture_to(home: &Path, fixture_name: &str) {
-        let src = fixture_dir().join(fixture_name);
-        let dst = home.join(SESSION_INDEX_FILENAME);
-        std::fs::copy(&src, &dst).unwrap_or_else(|e| {
-            panic!("copy {} -> {}: {e}", src.display(), dst.display())
-        });
+    async fn run_with(resolver: FixtureResolver) -> Vec<UsageSnapshot> {
+        let provider = CodexLocalProvider::with_resolver(Arc::new(resolver));
+        let ctx = ctx_with_clock(Arc::new(FixedClock(fixed_now())));
+        provider.refresh(&ctx).await.unwrap()
     }
 
     #[tokio::test]
     async fn missing_resolver_returns_nodata() {
-        let provider = CodexLocalProvider::with_resolver(Arc::new(FixtureResolver { path: None }));
-        let ctx = ctx_with_clock(Arc::new(FixedClock(fixed_now())));
-        let snaps = provider.refresh(&ctx).await.unwrap();
+        let snaps = run_with(FixtureResolver { path: None }).await;
         assert_eq!(snaps.len(), 1);
         let snap = &snaps[0];
         assert_eq!(snap.provider_kind, ProviderKind::CodexLocal);
@@ -305,11 +275,10 @@ mod tests {
     #[tokio::test]
     async fn empty_directory_returns_nodata() {
         let tmp = TempDir::new().unwrap();
-        let provider = CodexLocalProvider::with_resolver(Arc::new(FixtureResolver {
+        let snaps = run_with(FixtureResolver {
             path: Some(tmp.path().to_path_buf()),
-        }));
-        let ctx = ctx_with_clock(Arc::new(FixedClock(fixed_now())));
-        let snaps = provider.refresh(&ctx).await.unwrap();
+        })
+        .await;
         assert_eq!(snaps.len(), 1);
         let snap = &snaps[0];
         assert_eq!(snap.status, SnapshotStatus::NoData);
@@ -325,11 +294,10 @@ mod tests {
     async fn empty_jsonl_file_returns_nodata() {
         let tmp = TempDir::new().unwrap();
         copy_fixture_to(tmp.path(), "session_index_empty.jsonl");
-        let provider = CodexLocalProvider::with_resolver(Arc::new(FixtureResolver {
+        let snaps = run_with(FixtureResolver {
             path: Some(tmp.path().to_path_buf()),
-        }));
-        let ctx = ctx_with_clock(Arc::new(FixedClock(fixed_now())));
-        let snaps = provider.refresh(&ctx).await.unwrap();
+        })
+        .await;
         assert_eq!(snaps.len(), 1);
         let snap = &snaps[0];
         assert_eq!(snap.status, SnapshotStatus::NoData);
@@ -345,11 +313,10 @@ mod tests {
     async fn valid_sessions_produce_estimate() {
         let tmp = TempDir::new().unwrap();
         copy_fixture_to(tmp.path(), "session_index_valid.jsonl");
-        let provider = CodexLocalProvider::with_resolver(Arc::new(FixtureResolver {
+        let snaps = run_with(FixtureResolver {
             path: Some(tmp.path().to_path_buf()),
-        }));
-        let ctx = ctx_with_clock(Arc::new(FixedClock(fixed_now())));
-        let snaps = provider.refresh(&ctx).await.unwrap();
+        })
+        .await;
         assert_eq!(snaps.len(), 1);
         let snap = &snaps[0];
         assert_eq!(snap.provider_kind, ProviderKind::CodexLocal);
@@ -358,13 +325,12 @@ mod tests {
         assert_eq!(snap.source, UsageSource::Estimate);
         assert_eq!(snap.confidence, Confidence::Low);
         assert_eq!(snap.metric, UsageMetric::Requests);
-        // 2 of the 3 fixture rows fall inside the 24h window from the fixed clock.
+        // 2 of 3 fixture rows fall inside the 24h window from the fixed clock.
         assert_eq!(snap.used, Some(2));
         assert!(snap.limit.is_none());
         assert!(snap.remaining.is_none());
         assert!(snap.remaining_percent.is_none());
         assert_eq!(snap.status, SnapshotStatus::NoData);
-        // Message must mark this as an estimate (acceptance criterion).
         assert!(snap
             .message
             .as_deref()
@@ -377,16 +343,12 @@ mod tests {
     async fn malformed_lines_do_not_panic() {
         let tmp = TempDir::new().unwrap();
         copy_fixture_to(tmp.path(), "session_index_malformed.jsonl");
-        let provider = CodexLocalProvider::with_resolver(Arc::new(FixtureResolver {
+        let snaps = run_with(FixtureResolver {
             path: Some(tmp.path().to_path_buf()),
-        }));
-        let ctx = ctx_with_clock(Arc::new(FixedClock(fixed_now())));
-        let snaps = provider.refresh(&ctx).await.unwrap();
+        })
+        .await;
         assert_eq!(snaps.len(), 1);
         let snap = &snaps[0];
-        // The fixture contains 2 valid in-window entries plus several junk
-        // lines (truncated JSON, empty line, missing fields, bad timestamp).
-        // Junk must be skipped silently — never panic.
         assert_eq!(snap.source, UsageSource::Estimate);
         assert_eq!(snap.used, Some(2));
     }
@@ -396,10 +358,5 @@ mod tests {
         let provider = CodexLocalProvider::new();
         assert_eq!(provider.id(), "codex-local");
         assert_eq!(provider.kind(), ProviderKind::CodexLocal);
-        assert_eq!(provider.min_refresh_interval(), Duration::from_secs(60));
     }
-
-    // Silence unused-import warnings for items only used via trait bounds.
-    #[allow(dead_code)]
-    fn _trait_object_compiles(_: Arc<dyn CredentialGetter>, _: SystemClock) {}
 }
