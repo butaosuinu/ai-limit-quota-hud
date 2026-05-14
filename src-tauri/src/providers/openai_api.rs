@@ -21,6 +21,11 @@ use crate::providers::{ProviderContext, UsageProvider};
 
 pub const OPENAI_PROVIDER_ID: &str = "openai-api";
 const OPENAI_SNAPSHOT_FILE: &str = "observed_headers/openai-api.json";
+const DEFAULT_ACCOUNT_LABEL: &str = "OpenAI API";
+/// Cap on reset durations parsed from headers. OpenAI rate-limit windows are
+/// measured in minutes/hours; anything beyond a year is malformed and would
+/// risk panicking `Duration::seconds_f64` / `OffsetDateTime::checked_add`.
+const MAX_RESET_SECONDS: f64 = 31_536_000.0;
 
 struct MetricSpec {
     limit_key: &'static str,
@@ -141,7 +146,10 @@ fn build_metric_snapshot(
     );
     let (reset_at, message) = match headers.get(spec.reset_key) {
         Some(raw) => match parse_reset_duration(raw) {
-            Some(dur) => (Some(format_rfc3339(&(*observed_at + dur))), None),
+            Some(dur) => match observed_at.checked_add(dur) {
+                Some(reset_dt) => (Some(format_rfc3339(&reset_dt)), None),
+                None => (None, Some(format!("`{}` value out of range", spec.reset_key))),
+            },
             None => (None, Some(format!("could not parse `{}` value", spec.reset_key))),
         },
         None => (None, None),
@@ -149,7 +157,7 @@ fn build_metric_snapshot(
     Some(UsageSnapshot {
         provider_id: format!("{OPENAI_PROVIDER_ID}:{}", spec.slug),
         provider_kind: ProviderKind::OpenAiApi,
-        account_label: account_label.to_string(),
+        account_label: display_account_label(account_label),
         window: UsageWindow::Api,
         metric: spec.metric,
         limit: Some(limit),
@@ -165,6 +173,15 @@ fn build_metric_snapshot(
     })
 }
 
+fn display_account_label(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        DEFAULT_ACCOUNT_LABEL.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 fn no_data_snapshot(
     account_label: &str,
     observed_at: &OffsetDateTime,
@@ -173,7 +190,7 @@ fn no_data_snapshot(
     UsageSnapshot {
         provider_id: OPENAI_PROVIDER_ID.to_string(),
         provider_kind: ProviderKind::OpenAiApi,
-        account_label: account_label.to_string(),
+        account_label: display_account_label(account_label),
         window: UsageWindow::Api,
         metric: UsageMetric::Unknown,
         limit: None,
@@ -236,6 +253,9 @@ pub fn parse_reset_duration(input: &str) -> Option<Duration> {
             _ => return None,
         };
         total_seconds += number * multiplier;
+        if !total_seconds.is_finite() || total_seconds < 0.0 || total_seconds > MAX_RESET_SECONDS {
+            return None;
+        }
     }
 
     Some(Duration::seconds_f64(total_seconds))
@@ -274,7 +294,7 @@ impl UsageProvider for OpenAiApiProvider {
         match loaded {
             Ok(Some(snapshot)) => Ok(parse_openai_headers(&snapshot, ctx.warn_pct, ctx.critical_pct)),
             Ok(None) => Ok(vec![no_data_snapshot(
-                "",
+                DEFAULT_ACCOUNT_LABEL,
                 &now,
                 "no observed headers — import a snapshot to enable",
             )]),
@@ -561,6 +581,56 @@ mod tests {
     }
 
     #[test]
+    fn reset_duration_rejects_overflow_inputs() {
+        assert!(parse_reset_duration("99999999999999999s").is_none());
+        assert!(parse_reset_duration("999999d").is_none());
+    }
+
+    #[test]
+    fn out_of_range_reset_drops_reset_at_without_panic() {
+        // observed_at near PositiveInfinity is impossible; instead force
+        // checked_add to refuse by using a max-cap reset on an already-late
+        // observed_at. We use a snapshot whose reset value is just at the
+        // 1-year cap and verify no panic occurs; if the parser rejected an
+        // out-of-cap value we'd land in the "could not parse" message path.
+        let snap = snapshot_with(
+            &[
+                ("x-ratelimit-limit-requests", "60"),
+                ("x-ratelimit-remaining-requests", "59"),
+                ("x-ratelimit-reset-requests", "99999999999999999s"),
+            ],
+            "2026-05-13T12:00:00Z",
+        );
+        let out = parse_openai_headers(&snap, WARN, CRIT);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].reset_at, None);
+        assert!(out[0].message.as_deref().unwrap_or("").contains("reset-requests"));
+    }
+
+    #[test]
+    fn empty_account_label_falls_back_to_default() {
+        let snap = snapshot_with(
+            &[
+                ("x-ratelimit-limit-requests", "60"),
+                ("x-ratelimit-remaining-requests", "59"),
+            ],
+            "2026-05-13T12:00:00Z",
+        );
+        let mut snap = snap;
+        snap.account_label = "".into();
+        let out = parse_openai_headers(&snap, WARN, CRIT);
+        assert_eq!(out[0].account_label, DEFAULT_ACCOUNT_LABEL);
+    }
+
+    #[test]
+    fn whitespace_account_label_falls_back_to_default() {
+        let mut snap = snapshot_with(&[], "2026-05-13T12:00:00Z");
+        snap.account_label = "   ".into();
+        let out = parse_openai_headers(&snap, WARN, CRIT);
+        assert_eq!(out[0].account_label, DEFAULT_ACCOUNT_LABEL);
+    }
+
+    #[test]
     fn case_collision_resolves_deterministically() {
         // Both casings of the same header are present with different values.
         // The normalizer iterates entries in sorted original-key order, so
@@ -638,7 +708,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].status, SnapshotStatus::NoData);
         assert_eq!(out[0].provider_kind, ProviderKind::OpenAiApi);
-        assert_eq!(out[0].account_label, "");
+        assert_eq!(out[0].account_label, DEFAULT_ACCOUNT_LABEL);
     }
 
     #[tokio::test]
