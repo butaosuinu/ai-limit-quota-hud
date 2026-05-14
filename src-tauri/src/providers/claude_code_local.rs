@@ -23,8 +23,8 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 
 use crate::model::{
-    error_snapshot, format_rfc3339, Confidence, ProviderKind, SnapshotStatus, UsageMetric,
-    UsageSnapshot, UsageSource, UsageWindow,
+    error_snapshot, format_rfc3339, no_data_snapshot, Confidence, ProviderKind, SnapshotStatus,
+    UsageMetric, UsageSnapshot, UsageSource, UsageWindow,
 };
 use crate::providers::{ProviderContext, UsageProvider};
 
@@ -48,11 +48,10 @@ impl ClaudeCodeLocalProvider {
     pub fn with_root(root: PathBuf) -> Self {
         Self { root: Some(root) }
     }
-}
 
-impl Default for ClaudeCodeLocalProvider {
-    fn default() -> Self {
-        Self::new()
+    #[cfg(test)]
+    pub fn with_no_root() -> Self {
+        Self { root: None }
     }
 }
 
@@ -97,10 +96,7 @@ enum ScanOutcome {
     /// The directory exists but no usage events were parseable.
     Empty { searched_root: PathBuf },
     /// Found usage events. `total_tokens` is saturated to `i64::MAX`.
-    Found {
-        total_tokens: i64,
-        file_count: u64,
-    },
+    Found { total_tokens: i64 },
     /// Top-level scan failed (e.g. permission denied on the root dir).
     Error(String),
 }
@@ -128,7 +124,6 @@ fn scan_root(root: &Path) -> ScanOutcome {
     };
 
     let mut total: u64 = 0;
-    let mut file_count: u64 = 0;
     let mut any_event = false;
 
     for entry in entries.flatten() {
@@ -136,16 +131,14 @@ fn scan_root(root: &Path) -> ScanOutcome {
         if !path.is_dir() {
             continue;
         }
-        let inner = match fs::read_dir(&path) {
-            Ok(i) => i,
-            Err(_) => continue, // skip unreadable project dirs without aborting
+        let Ok(inner) = fs::read_dir(&path) else {
+            continue;
         };
         for inner_entry in inner.flatten() {
             let file_path = inner_entry.path();
             if !is_jsonl_file(&file_path) {
                 continue;
             }
-            file_count += 1;
             let (events, sum) = read_session_file(&file_path);
             if events > 0 {
                 any_event = true;
@@ -161,8 +154,7 @@ fn scan_root(root: &Path) -> ScanOutcome {
     }
 
     ScanOutcome::Found {
-        total_tokens: saturating_u64_to_i64(total),
-        file_count,
+        total_tokens: i64::try_from(total).unwrap_or(i64::MAX),
     }
 }
 
@@ -175,16 +167,18 @@ fn is_jsonl_file(path: &Path) -> bool {
 }
 
 /// Read a single JSONL session and return `(usage_event_count, token_sum)`.
-/// Any IO or parse failure for a line is silently skipped — the spec
-/// explicitly forbids panicking on malformed local files.
+/// Any IO or parse failure for a line is skipped (not propagated) — the spec
+/// explicitly forbids panicking on malformed local files. Mid-file IO errors
+/// `continue` rather than abort so a single bad UTF-8 line doesn't truncate
+/// the rest of the file.
 fn read_session_file(path: &Path) -> (u64, u64) {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(_) => return (0, 0),
+    let Ok(file) = File::open(path) else {
+        return (0, 0);
     };
     let mut events: u64 = 0;
     let mut sum: u64 = 0;
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
+    for line in BufReader::new(file).lines() {
+        let Ok(line) = line else { continue };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -201,35 +195,29 @@ fn read_session_file(path: &Path) -> (u64, u64) {
     (events, sum)
 }
 
-fn saturating_u64_to_i64(value: u64) -> i64 {
-    if value > i64::MAX as u64 {
-        i64::MAX
-    } else {
-        value as i64
-    }
-}
-
 impl ScanOutcome {
     fn into_snapshot(self, now: &OffsetDateTime) -> UsageSnapshot {
-        let observed_at = format_rfc3339(now);
         match self {
             ScanOutcome::Absent { reason } => no_data_snapshot(
-                observed_at,
+                CLAUDE_CODE_LOCAL_PROVIDER_ID,
+                ProviderKind::ClaudeCodeLocal,
+                ACCOUNT_LABEL,
                 UsageSource::Unavailable,
-                Some(reason),
+                now,
+                reason,
             ),
             ScanOutcome::Empty { searched_root } => no_data_snapshot(
-                observed_at,
+                CLAUDE_CODE_LOCAL_PROVIDER_ID,
+                ProviderKind::ClaudeCodeLocal,
+                ACCOUNT_LABEL,
                 UsageSource::LocalLog,
-                Some(format!(
+                now,
+                format!(
                     "no Claude Code usage events found under {}",
                     searched_root.display()
-                )),
+                ),
             ),
-            ScanOutcome::Found {
-                total_tokens,
-                file_count,
-            } => UsageSnapshot {
+            ScanOutcome::Found { total_tokens } => UsageSnapshot {
                 provider_id: CLAUDE_CODE_LOCAL_PROVIDER_ID.to_string(),
                 provider_kind: ProviderKind::ClaudeCodeLocal,
                 account_label: ACCOUNT_LABEL.to_string(),
@@ -240,16 +228,17 @@ impl ScanOutcome {
                 remaining: None,
                 remaining_percent: None,
                 reset_at: None,
-                observed_at,
+                observed_at: format_rfc3339(now),
                 source: UsageSource::LocalLog,
                 confidence: Confidence::Medium,
                 // We can't compute remaining without a known plan limit, but
                 // hiding the row would make Claude Code invisible. `Ok`
                 // signals "data present, no warning thresholds to evaluate."
                 status: SnapshotStatus::Ok,
-                message: Some(format!(
-                    "cumulative tokens across {file_count} session file(s) (no reset window inferred)"
-                )),
+                message: Some(
+                    "cumulative tokens across local Claude Code sessions (no reset window inferred)"
+                        .to_string(),
+                ),
             },
             ScanOutcome::Error(message) => error_snapshot(
                 CLAUDE_CODE_LOCAL_PROVIDER_ID,
@@ -258,30 +247,6 @@ impl ScanOutcome {
                 format!("claude code local scan failed: {message}"),
             ),
         }
-    }
-}
-
-fn no_data_snapshot(
-    observed_at: String,
-    source: UsageSource,
-    message: Option<String>,
-) -> UsageSnapshot {
-    UsageSnapshot {
-        provider_id: CLAUDE_CODE_LOCAL_PROVIDER_ID.to_string(),
-        provider_kind: ProviderKind::ClaudeCodeLocal,
-        account_label: ACCOUNT_LABEL.to_string(),
-        window: UsageWindow::Unknown,
-        metric: UsageMetric::Tokens,
-        limit: None,
-        used: None,
-        remaining: None,
-        remaining_percent: None,
-        reset_at: None,
-        observed_at,
-        source,
-        confidence: Confidence::Low,
-        status: SnapshotStatus::NoData,
-        message,
     }
 }
 
@@ -360,9 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_root_resolved_returns_no_data() {
-        // `with_root` always sets Some; simulate the `default_root` returning
-        // None by constructing the provider directly.
-        let provider = ClaudeCodeLocalProvider { root: None };
+        let provider = ClaudeCodeLocalProvider::with_no_root();
         let snapshots = provider.refresh(&ctx()).await.unwrap();
         assert_eq!(snapshots.len(), 1);
         let snap = &snapshots[0];
@@ -493,5 +456,14 @@ mod tests {
         let provider = ClaudeCodeLocalProvider::with_root(PathBuf::from("/nonexistent"));
         assert_eq!(provider.id(), "claude-code-local");
         assert_eq!(provider.kind(), ProviderKind::ClaudeCodeLocal);
+    }
+
+    /// Guard against drift between the provider id string and
+    /// `ProviderKind::ClaudeCodeLocal`'s serde rename. If someone renames the
+    /// variant or the kebab-case, this fails before reaching the UI.
+    #[test]
+    fn provider_id_matches_provider_kind_serde() {
+        let serialized = serde_json::to_value(ProviderKind::ClaudeCodeLocal).unwrap();
+        assert_eq!(serialized, serde_json::json!(CLAUDE_CODE_LOCAL_PROVIDER_ID));
     }
 }
