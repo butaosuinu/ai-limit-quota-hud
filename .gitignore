@@ -17,6 +17,7 @@ yarn-error.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+.dmux/
 
 # Claude Code: ローカル上書き設定のみ ignore。settings.json と hooks/ は共有する。
 .claude/settings.local.json
