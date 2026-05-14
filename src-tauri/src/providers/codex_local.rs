@@ -165,7 +165,10 @@ fn collect_snapshots(
         let Ok(ts) = OffsetDateTime::parse(entry.updated_at, &Rfc3339) else {
             continue;
         };
-        if ts >= cutoff {
+        // Clamp to (cutoff, now] — accept anything in the 24h window ending
+        // at `now`, drop future-dated rows that would otherwise inflate the
+        // count whenever the writer's clock had skewed forward.
+        if ts >= cutoff && ts <= *now {
             count += 1;
         }
     }
@@ -329,7 +332,8 @@ mod tests {
         assert_eq!(snap.source, UsageSource::Estimate);
         assert_eq!(snap.confidence, Confidence::Low);
         assert_eq!(snap.metric, UsageMetric::Unknown);
-        // 2 of 3 fixture rows fall inside the 24h window from the fixed clock.
+        // 2 of 4 fixture rows fall inside (cutoff, now]: one row is older
+        // than 24h, one is future-dated (clock-skew guard) — both excluded.
         assert_eq!(snap.used, Some(2));
         assert!(snap.limit.is_none());
         assert!(snap.remaining.is_none());
