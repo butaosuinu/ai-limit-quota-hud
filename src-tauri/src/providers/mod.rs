@@ -15,6 +15,8 @@ use time::OffsetDateTime;
 use crate::model::{ProviderKind, UsageSnapshot, DEFAULT_CRITICAL_PCT, DEFAULT_WARN_PCT};
 use crate::storage::Storage;
 
+pub mod anthropic_api;
+pub mod claude_code_local;
 pub mod manual;
 pub mod openai_api;
 
@@ -87,10 +89,9 @@ impl ProviderContext {
     }
 }
 
-/// Build the list of providers that ship by default. Phase 3a adds the
-/// OpenAI API header provider; its snapshot file path is rooted under the
-/// app's data directory so Phase 3b's proxy/import flow can write to the
-/// same location without extra plumbing.
+/// Build the default provider list. `data_dir` is the app's data directory,
+/// used by file-backed providers (Phase 3a OpenAI) to locate imported header
+/// snapshots; Phase 3b's proxy/import flow writes to the same location.
 pub fn default_providers(
     storage: Arc<Storage>,
     data_dir: &Path,
@@ -100,5 +101,7 @@ pub fn default_providers(
         Arc::new(openai_api::OpenAiApiProvider::new(
             openai_api::OpenAiApiProvider::default_snapshot_path(data_dir),
         )),
+        Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
+        Arc::new(anthropic_api::AnthropicApiProvider::new()),
     ]
 }

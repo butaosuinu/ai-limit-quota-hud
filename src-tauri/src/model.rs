@@ -251,6 +251,36 @@ pub fn snapshot_from_manual_row(
     }
 }
 
+/// Build a `NoData` snapshot for a provider that legitimately has nothing to
+/// report (data directory absent, no events recorded yet, etc.). Shared by
+/// the local-CLI providers in Phase 4.
+pub fn no_data_snapshot(
+    provider_id: &str,
+    provider_kind: ProviderKind,
+    account_label: &str,
+    source: UsageSource,
+    now: &OffsetDateTime,
+    message: impl Into<String>,
+) -> UsageSnapshot {
+    UsageSnapshot {
+        provider_id: provider_id.to_string(),
+        provider_kind,
+        account_label: account_label.to_string(),
+        window: UsageWindow::Unknown,
+        metric: UsageMetric::Tokens,
+        limit: None,
+        used: None,
+        remaining: None,
+        remaining_percent: None,
+        reset_at: None,
+        observed_at: format_rfc3339(now),
+        source,
+        confidence: Confidence::Low,
+        status: SnapshotStatus::NoData,
+        message: Some(message.into()),
+    }
+}
+
 /// Build a snapshot that represents a provider-level failure without crashing
 /// the overlay. Phase 2 uses this so storage errors land in the UI as a single
 /// `Error` row instead of bringing down the whole refresh loop.
