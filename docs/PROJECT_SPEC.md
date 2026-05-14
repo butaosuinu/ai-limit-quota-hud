@@ -492,13 +492,29 @@ Hard rules:
   not be reachable from `claude.ai` or `chatgpt.com`. Results are returned by
   the extractor JavaScript writing a JSON payload into `document.title` with a
   short prefix (for example `QHJSON:`), which Rust polls and clears.
-- **Per-provider data directory.** Each provider gets its own
-  `data_directory(app_data_dir/webview-<provider>)`. Login window and refresh
-  window share the same directory so that the cookie persists across them, but
-  providers are isolated from each other.
+- **Per-provider session isolation.** Each provider's WebView session must be
+  kept isolated from other providers' sessions. The login window and refresh
+  window of the same provider share the same session so that the cookie
+  persists across them. The concrete mechanism is platform-specific because
+  Tauri 2 exposes different WebView storage APIs on each OS:
+  - **Windows (WebView2) and Linux (WebKitGTK):** use
+    `WebviewBuilder::data_directory(app_data_dir/webview-<provider>/)` to bind
+    a dedicated on-disk profile per provider.
+  - **macOS (WKWebView):** `data_directory` is not honored. Use the
+    `dataStoreIdentifier` builder hook to attach a `WKWebsiteDataStore`
+    derived deterministically from the provider slug (for example a
+    UUIDv5 over `webview-<provider>`). This requires macOS 14+ for
+    persistent per-identifier stores; on older macOS the implementation
+    must fall back to a single store, isolate logically by URL origin only,
+    and document this as a known limitation in the README.
 - **Deletable.** The Settings UI must expose a "Delete provider data" action
-  that removes the entire `webview-<provider>` directory, which clears the
-  cookie and forces a fresh login.
+  whose effect is platform-specific:
+  - **Windows / Linux:** remove the entire `webview-<provider>/` directory.
+  - **macOS:** remove the per-`dataStoreIdentifier` `WKWebsiteDataStore` on
+    macOS 14+. On older macOS, fall back to
+    `WKWebsiteDataStore.removeData(ofTypes:for:completionHandler:)` scoped to
+    the provider's target origin (for example `claude.ai`, `chatgpt.com`).
+  In all cases the next refresh must require a fresh login.
 - **`source=webview-scrape`, `confidence=low`.** The DOM contract of an
   external web app is not a stable interface. Results must always render as
   `confidence: low` and be marked clearly in the UI tooltip.
@@ -683,12 +699,14 @@ From v1 onwards, an opt-in WebView provider (see §8.7) may rely on the
 OS-native WebView cookie store (WKWebView, WebView2, or WebKitGTK depending on
 the platform) to keep a logged-in session. The QuotaHUD application code must
 not read, copy, or otherwise process individual cookie values. The native
-cookie store is treated as an opaque session container, isolated per provider
-under `app_data_dir/webview-<provider>/`, and fully removable through a
-user-visible "Delete provider data" action. This carve-out only applies to
-`UsageSource::WebviewScrape` providers and does not relax the rule for API
-keys, OAuth tokens, or proxy credentials, which still require the OS
-credential store.
+cookie store is treated as an opaque session container that is isolated per
+provider using whichever mechanism the platform exposes — a
+`data_directory(app_data_dir/webview-<provider>/)` on Windows and Linux, or a
+deterministic `dataStoreIdentifier` (and the matching `WKWebsiteDataStore`)
+on macOS — and fully removable through a user-visible "Delete provider
+data" action. This carve-out only applies to `UsageSource::WebviewScrape`
+providers and does not relax the rule for API keys, OAuth tokens, or proxy
+credentials, which still require the OS credential store.
 
 ## 11. Scheduler
 
@@ -847,6 +865,9 @@ Acceptance:
   `src-tauri/src/providers/webview/`.
 - Implement `claude_web.rs` against `https://claude.ai/settings/usage` and
   `codex_web.rs` against `https://chatgpt.com/codex/cloud/settings/analytics`.
+- Implement platform-specific session isolation (see §8.7): `data_directory`
+  on Windows / Linux, `dataStoreIdentifier` (+ `WKWebsiteDataStore`) on
+  macOS, with the macOS <14 fallback documented as a limitation.
 - Add `provider_settings.json` persistence for opt-in toggles, distinct from
   overlay settings.
 - Add Tauri commands `open_provider_login_window`, `set_provider_enabled`,
@@ -864,8 +885,10 @@ Acceptance:
 - A Cloudflare challenge, a `/login` redirect, or an extractor returning
   `null` is surfaced as a row status with a human-readable message and
   does not crash the app.
-- Deleting provider data removes the `webview-<provider>` directory and
-  forces re-login on the next refresh.
+- "Delete provider data" forces re-login on the next refresh on all three
+  platforms: removing `webview-<provider>/` on Windows and Linux, and
+  clearing the `dataStoreIdentifier`-scoped `WKWebsiteDataStore`
+  (or the per-origin fallback on macOS <14) on macOS.
 - All resulting `UsageSnapshot` rows have `source=webview-scrape` and
   `confidence=low`, and the UI tooltip explains the data source.
 
@@ -886,11 +909,17 @@ Acceptance:
   - The hidden refresh window must not expose `__TAURI__` IPC to external
     origins. Results are returned through `document.title` polling or
     equivalent indirect channels.
-  - Each WebView provider has its own `data_directory` under
-    `app_data_dir/webview-<provider>/`. Application code does not read,
-    inspect, or copy individual cookies from this directory.
-  - A user-triggered "Delete provider data" action must remove the entire
-    `webview-<provider>` directory.
+  - Each WebView provider must isolate its session storage from other
+    providers using the platform's native mechanism: `data_directory` under
+    `app_data_dir/webview-<provider>/` on Windows / Linux, and a per-provider
+    `dataStoreIdentifier` (backing a `WKWebsiteDataStore`) on macOS (see
+    §8.7 for details and the macOS <14 fallback). Application code must not
+    read, inspect, or copy individual cookies from these stores.
+  - A user-triggered "Delete provider data" action must clear the
+    provider's session storage on every platform: remove the
+    `webview-<provider>/` directory on Windows / Linux, and remove the
+    `dataStoreIdentifier`-scoped `WKWebsiteDataStore` (or fall back to
+    origin-scoped removal) on macOS.
   - Outbound network traffic from a WebView provider is allowed only while
     the provider is enabled and only against its configured target origin
     (for example `claude.ai`, `chatgpt.com`).

@@ -104,10 +104,15 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] The post-login refresh window is created with `visible=false`,
       `skip_taskbar=true`, `focused=false`, `decorations=false`, and does not
       appear in the macOS dock, the Windows taskbar, or the Linux taskbar.
-- [ ] Cookie persistence is scoped to `app_data_dir/webview-<provider>/`,
-      isolated per provider.
-- [ ] A "Delete provider data" action removes the entire
-      `webview-<provider>/` directory and forces re-login on the next refresh.
+- [ ] Cookie persistence is scoped per provider using a platform-specific
+      mechanism: `data_directory(app_data_dir/webview-<provider>/)` on
+      Windows / Linux, and a deterministic `dataStoreIdentifier` plus
+      `WKWebsiteDataStore` on macOS (see PROJECT_SPEC §8.7). The macOS <14
+      fallback is documented as a known limitation in the README.
+- [ ] A "Delete provider data" action forces re-login on the next refresh on
+      every supported platform: removes `webview-<provider>/` on Windows /
+      Linux, and removes the `dataStoreIdentifier`-scoped
+      `WKWebsiteDataStore` (or per-origin records on macOS <14) on macOS.
 - [ ] A Cloudflare challenge surfaces as `SnapshotStatus::Error` with a
       human-readable message, not a crash.
 - [ ] A redirect to `/login` surfaces as `SnapshotStatus::NoData` with a
@@ -122,8 +127,10 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       WebView providers (default 600 seconds).
 - [ ] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
       origin loaded in the WebView.
-- [ ] No QuotaHUD code reads or inspects individual cookies inside
-      `webview-<provider>/`.
+- [ ] No QuotaHUD code reads or inspects individual cookies inside the
+      provider's session store (the `webview-<provider>/` directory on
+      Windows / Linux, or the per-`dataStoreIdentifier` `WKWebsiteDataStore`
+      on macOS).
 
 ## Release checks
 
