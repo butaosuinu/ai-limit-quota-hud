@@ -570,11 +570,25 @@ impl WebviewScraper {
             });
             // Title-change callback is our result channel. The extractor JS
             // writes `QHJSON:{...}` whenever it finishes a pass; we take the
-            // first such title and signal the oneshot.
+            // first such title and signal the oneshot — except for the
+            // `no-rows` transient kind below, which the extractor publishes
+            // during SPA hydration and retries on its own. Resolving on
+            // that first emit would race the retry and false-error the
+            // snapshot, so we drop it and keep waiting for the next title
+            // change (success / cloudflare / logged-out / layout-changed
+            // are all final). The outer `tokio::time::timeout` still
+            // bounds the wait.
             let builder = builder.on_document_title_changed({
                 let tx_slot = Arc::clone(&tx_slot_clone);
                 move |_window, title| {
                     if !title.starts_with(TITLE_PREFIX) {
+                        return;
+                    }
+                    if let Some(Ok(ScraperPayload::Err {
+                        kind: ScraperErrorKind::NoRows,
+                        ..
+                    })) = parse_title_payload(&title)
+                    {
                         return;
                     }
                     let mut slot = tx_slot

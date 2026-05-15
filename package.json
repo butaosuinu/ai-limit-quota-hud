@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "oxlint src/ && eslint . --ignore-pattern \"src-tauri/**\"",
+    "lint": "oxlint src/ && eslint . --ignore-pattern \"src-tauri/**\" --ignore-pattern \".dmux/**\"",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "tsc --noEmit",
