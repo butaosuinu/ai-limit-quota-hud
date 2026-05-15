@@ -339,6 +339,27 @@ impl Drop for WindowDestroyGuard {
     }
 }
 
+/// Cancellation flag set on `Drop`. Paired with the `run_on_main_thread`
+/// closure inside [`WebviewScraper::run_hidden_inner`] so a queued window
+/// build can detect that the awaiting future has already been cancelled.
+///
+/// Why we need both this *and* [`WindowDestroyGuard`]: the destroy-guard
+/// only handles windows that *already exist* when the future is dropped.
+/// `run_on_main_thread` queues a closure that may not have run yet when
+/// cancellation happens; if it later runs without checking this flag, it
+/// builds an orphan window that no one is left to clean up. The closure
+/// inspects this flag before and after `builder.build()` and either skips
+/// the build entirely or destroys the freshly-built window inline.
+struct CancelOnDropGuard {
+    flag: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for CancelOnDropGuard {
+    fn drop(&mut self) {
+        self.flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Path of a hidden refresh window's data directory, if any. Returned so
 /// `delete_provider_data` can wipe it. `None` on macOS (cookies live in the
 /// `WKWebsiteDataStore` keyed by `data_store_identifier`).
@@ -512,14 +533,30 @@ impl WebviewScraper {
         timeout: Duration,
     ) -> Result<ScraperPayload, ScraperError> {
         let label = self.hidden_label();
-        // Drop-based cleanup so the window is destroyed even when the outer
-        // future (e.g. scheduler's `tokio::time::timeout`) cancels us before
-        // the post-`.await` block can run. See `WindowDestroyGuard`.
-        let _guard = WindowDestroyGuard {
+        // Two-tier cleanup so the hidden window is reliably torn down on
+        // every termination path:
+        // - `WindowDestroyGuard` destroys an *already-built* window when
+        //   the future is dropped (e.g. scheduler's outer timeout firing).
+        // - `CancelOnDropGuard` signals the queued `run_on_main_thread`
+        //   closure so a build that hasn't run yet either skips entirely
+        //   or destroys itself inline immediately after `builder.build()`.
+        // The second guard is essential because `run_on_main_thread` is
+        // asynchronous against the awaiting future: under load the main
+        // thread can pick up the closure *after* the future has been
+        // cancelled, at which point the destroy-guard is already gone.
+        let _window_guard = WindowDestroyGuard {
             app: self.app.clone(),
             label: label.clone(),
         };
-        let result = tokio::time::timeout(timeout, self.run_hidden_inner(label)).await;
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _cancel_guard = CancelOnDropGuard {
+            flag: Arc::clone(&cancelled),
+        };
+        let result = tokio::time::timeout(
+            timeout,
+            self.run_hidden_inner(label, Arc::clone(&cancelled)),
+        )
+        .await;
         match result {
             Ok(inner) => inner,
             Err(_) => Err(ScraperError::Timeout(timeout)),
@@ -588,7 +625,11 @@ impl WebviewScraper {
         }
     }
 
-    async fn run_hidden_inner(&self, label: String) -> Result<ScraperPayload, ScraperError> {
+    async fn run_hidden_inner(
+        &self,
+        label: String,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<ScraperPayload, ScraperError> {
         let (tx, rx) = oneshot::channel::<String>();
         // Wrap the sender in a mutex so the title callback (Fn, not FnMut)
         // can take it once and ignore subsequent fires.
@@ -613,8 +654,18 @@ impl WebviewScraper {
 
         let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
         let app_for_main = app.clone();
+        let cancelled_for_main = Arc::clone(&cancelled);
         let result = app.run_on_main_thread(move || {
             let app = app_for_main;
+            // The awaiting future may have been dropped between queuing
+            // this closure and the main thread actually picking it up.
+            // Bail before building so we don't orphan a hidden window.
+            if cancelled_for_main.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = build_tx.send(Err(
+                    "scrape was cancelled before main-thread dispatch".into()
+                ));
+                return;
+            }
             let url = match Url::parse(target_url) {
                 Ok(u) => u,
                 Err(e) => {
@@ -680,8 +731,19 @@ impl WebviewScraper {
                 }
             });
             match builder.build() {
-                Ok(_window) => {
-                    let _ = build_tx.send(Ok(()));
+                Ok(window) => {
+                    // Build succeeded; before returning success, check
+                    // whether the awaiting future was cancelled while we
+                    // were on the main thread. If so, destroy the window
+                    // inline so the `WindowDestroyGuard` (which has
+                    // already fired its `Drop`) doesn't get bypassed.
+                    if cancelled_for_main.load(std::sync::atomic::Ordering::SeqCst) {
+                        let _ = window.destroy();
+                        let _ = build_tx
+                            .send(Err("scrape was cancelled during main-thread build".into()));
+                    } else {
+                        let _ = build_tx.send(Ok(()));
+                    }
                 }
                 Err(e) => {
                     let _ = build_tx.send(Err(e.to_string()));
