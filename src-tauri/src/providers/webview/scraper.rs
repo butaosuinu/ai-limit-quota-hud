@@ -174,11 +174,21 @@ pub fn parse_title_payload(title: &str) -> Option<Result<ScraperPayload, String>
 #[derive(Debug, Default)]
 pub struct LoginRedirectTracker {
     in_chain: bool,
+    /// Whether the most recently-allowed navigation landed inside the static
+    /// allowlist (provider's own origin + supporting hosts). Required so an
+    /// IDP host can only be permitted as a *redirect from* the provider, not
+    /// as a fresh top-level navigation. Without this flag, the tracker would
+    /// allow direct top-level navigation to e.g. `github.com` simply because
+    /// the host is in `KNOWN_IDP_SUFFIXES`.
+    last_was_static: bool,
 }
 
 impl LoginRedirectTracker {
     pub fn new() -> Self {
-        Self { in_chain: false }
+        Self {
+            in_chain: false,
+            last_was_static: false,
+        }
     }
 
     /// Returns `true` if the current state is in an active IDP redirect
@@ -196,6 +206,7 @@ impl LoginRedirectTracker {
     #[allow(dead_code)] // public API for Codex #31; production code does not need explicit reset yet
     pub fn reset(&mut self) {
         self.in_chain = false;
+        self.last_was_static = false;
     }
 
     /// Inspect a navigation attempt and decide whether to allow it. Updates
@@ -211,20 +222,26 @@ impl LoginRedirectTracker {
     ) -> NavigationDecision {
         let nav_host = nav_host.to_ascii_lowercase();
         let target_host = target_host.to_ascii_lowercase();
-        // Static allowlist always permits.
+        // Static allowlist always permits and arms the IDP gate.
         if allowlist.permits(&nav_host) {
             // Reset the chain when we return to the target origin so a
             // stale IDP allowance doesn't outlive the login flow.
             if nav_host == target_host {
                 self.in_chain = false;
             }
+            self.last_was_static = true;
             return NavigationDecision::Allow;
         }
-        // Otherwise, allow IDP hosts but only while a chain is active. The
-        // chain itself is bootstrapped by the *first* IDP redirect from the
-        // target — that is, when we are leaving the target for a known IDP.
-        if host_is_known_idp(&nav_host) {
+        // IDP hosts: only as part of an active chain or as the *immediate*
+        // redirect target after a static-allowlist host. A direct top-level
+        // navigation to e.g. `github.com` from a fresh tab does not satisfy
+        // either condition and is blocked.
+        if host_is_known_idp(&nav_host) && (self.in_chain || self.last_was_static) {
             self.in_chain = true;
+            // Subsequent IDP hops (Google → corp SSO → Google) keep the
+            // chain open; only landing back inside the static allowlist
+            // (handled above) rearms `last_was_static`.
+            self.last_was_static = false;
             return NavigationDecision::Allow;
         }
         // While in a chain, additional IDP hops (e.g. Google → corp SSO →
@@ -232,6 +249,7 @@ impl LoginRedirectTracker {
         // conservative: anything not on either list while in-chain is still
         // blocked, but the chain itself stays open in case a subsequent
         // navigation does land on an IDP suffix we know.
+        self.last_was_static = false;
         NavigationDecision::Block
     }
 }
@@ -792,17 +810,37 @@ mod tests {
     }
 
     #[test]
-    fn navigation_tracker_opens_chain_on_idp_redirect() {
+    fn navigation_tracker_opens_chain_on_idp_redirect_from_target() {
+        // The intended flow: provider's own page → /login → IDP. The static
+        // allow on the target arms the IDP gate; the subsequent IDP hop is
+        // then permitted and opens the chain.
         let mut tracker = LoginRedirectTracker::new();
+        tracker.decide("example.com", "example.com", &TEST_ALLOWLIST);
         let decision = tracker.decide("accounts.google.com", "example.com", &TEST_ALLOWLIST);
         assert_eq!(decision, NavigationDecision::Allow);
         assert!(tracker.in_chain(), "IDP redirect must open a chain");
     }
 
     #[test]
+    fn navigation_tracker_blocks_idp_without_prior_static_navigation() {
+        // Direct top-level navigation to an IDP host (no prior static-allow
+        // navigation) must be blocked — Codex Review pointed out that the
+        // previous unconditional `Allow` for KNOWN_IDP_SUFFIXES bypassed the
+        // "only during a provider login chain" constraint.
+        let mut tracker = LoginRedirectTracker::new();
+        let decision = tracker.decide("github.com", "example.com", &TEST_ALLOWLIST);
+        assert_eq!(decision, NavigationDecision::Block);
+        assert!(
+            !tracker.in_chain(),
+            "blocked IDP navigation must not open a chain"
+        );
+    }
+
+    #[test]
     fn navigation_tracker_resets_chain_on_return_to_target() {
         let mut tracker = LoginRedirectTracker::new();
-        // Bootstrap an IDP chain.
+        // Bootstrap an IDP chain via the legitimate static → IDP path.
+        tracker.decide("example.com", "example.com", &TEST_ALLOWLIST);
         tracker.decide("accounts.google.com", "example.com", &TEST_ALLOWLIST);
         assert!(tracker.in_chain());
         // Land back on target → chain resets.
@@ -824,6 +862,7 @@ mod tests {
         // Once a chain is open, a totally unrelated host is still blocked.
         // This is the conservative posture described in the doc comment.
         let mut tracker = LoginRedirectTracker::new();
+        tracker.decide("example.com", "example.com", &TEST_ALLOWLIST);
         tracker.decide("accounts.google.com", "example.com", &TEST_ALLOWLIST);
         let decision = tracker.decide("evil.com", "example.com", &TEST_ALLOWLIST);
         assert_eq!(decision, NavigationDecision::Block);
@@ -832,10 +871,23 @@ mod tests {
     #[test]
     fn navigation_tracker_force_reset_works() {
         let mut tracker = LoginRedirectTracker::new();
+        tracker.decide("example.com", "example.com", &TEST_ALLOWLIST);
         tracker.decide("accounts.google.com", "example.com", &TEST_ALLOWLIST);
         assert!(tracker.in_chain());
         tracker.reset();
         assert!(!tracker.in_chain());
+    }
+
+    #[test]
+    fn navigation_tracker_idp_hops_within_chain_stay_allowed() {
+        // Once a chain is open, additional IDP hops are permitted (Google → corp
+        // SSO → Google). This verifies the `in_chain || last_was_static` half
+        // still works after the IDP gate tightening.
+        let mut tracker = LoginRedirectTracker::new();
+        tracker.decide("example.com", "example.com", &TEST_ALLOWLIST);
+        tracker.decide("accounts.google.com", "example.com", &TEST_ALLOWLIST);
+        let decision = tracker.decide("login.microsoftonline.com", "example.com", &TEST_ALLOWLIST);
+        assert_eq!(decision, NavigationDecision::Allow);
     }
 
     #[test]

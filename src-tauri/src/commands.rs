@@ -197,9 +197,10 @@ pub async fn open_provider_login_window(
 pub async fn delete_provider_data(
     kind: ProviderKind,
     webview: tauri::State<'_, WebviewProviders>,
+    state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
     let _slug = webview_slug_for_command(kind)?;
-    match kind {
+    let outcome = match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
             let scraper = provider.attach_scraper_for_login();
@@ -209,7 +210,18 @@ pub async fn delete_provider_data(
             "Codex WebView provider is not implemented in this branch — see issue #31".into(),
         )),
         _ => unreachable!("webview_slug_for_command already validated the kind"),
+    };
+    // Wake the scheduler so the next refresh emits the post-delete (logged-
+    // out) snapshot immediately. Without this, `min_refresh_interval = 600s`
+    // would leave the stale authenticated rows visible for up to ~10 min
+    // after the user clicked "Delete provider data", contradicting the
+    // "delete + re-login required" UX. Trigger only on success so a failed
+    // delete doesn't waste a refresh slot showing the still-authenticated
+    // state.
+    if outcome.is_ok() {
+        scheduler::trigger(&state.scheduler);
     }
+    outcome
 }
 
 /// Force re-login by tearing down a provider's persistent session storage.
