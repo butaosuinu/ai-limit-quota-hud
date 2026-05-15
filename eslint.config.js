@@ -16,6 +16,10 @@ export default tseslint.config(
       "vitest.config.ts",
       "src-tauri/target/",
       "src-tauri/gen/",
+      // WebView provider extractors run inside the embedded WebView and are
+      // loaded into Rust via `include_str!`. They are not part of the
+      // frontend build and the TS project service cannot resolve them.
+      "src-tauri/src/providers/webview/extractors/",
       "src/types/**/*.d.ts",
       ".claude/",
       ".mcp.json",

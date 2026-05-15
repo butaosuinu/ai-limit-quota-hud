@@ -357,7 +357,28 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     let storage = Arc::new(storage::Storage::open(db_path)?);
     let latest = Arc::new(RwLock::new(Vec::new()));
     let interval_seconds = Arc::new(AtomicU64::new(DEFAULT_REFRESH_INTERVAL_SECS));
-    let providers = providers::default_providers(Arc::clone(&storage), &data_dir);
+
+    // Load opt-in state for WebView-backed providers from a separate JSON
+    // file (PROJECT_SPEC §10.2). Failure to parse is non-fatal: we fall
+    // back to an in-memory empty store so the rest of the app keeps
+    // running, but the error is logged so a corrupted file is visible. The
+    // "everything off by default" semantics ensure no provider is silently
+    // re-enabled by the fallback. This must run *before* `default_providers`
+    // because the WebView provider list is gated on the opt-in state.
+    let provider_settings_store = match provider_settings::ProviderSettingsStore::load(&config_dir)
+    {
+        Ok(store) => Arc::new(store),
+        Err(err) => {
+            log::warn!("could not load provider_settings.json; falling back to defaults: {err}");
+            Arc::new(provider_settings::ProviderSettingsStore::empty(&config_dir))
+        }
+    };
+
+    let providers = providers::default_providers(
+        Arc::clone(&storage),
+        &data_dir,
+        Some(provider_settings_store.as_ref()),
+    );
     let scheduler_handle = scheduler::spawn(scheduler::SchedulerDeps {
         app: handle.clone(),
         providers,
@@ -371,21 +392,6 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
         scheduler_handle,
         interval_seconds,
     ));
-
-    // Load opt-in state for WebView-backed providers from a separate JSON
-    // file (PROJECT_SPEC §10.2). Failure to parse is non-fatal: we fall
-    // back to an in-memory empty store so the rest of the app keeps
-    // running, but the error is logged so a corrupted file is visible. The
-    // "everything off by default" semantics ensure no provider is silently
-    // re-enabled by the fallback.
-    let provider_settings_store = match provider_settings::ProviderSettingsStore::load(&config_dir)
-    {
-        Ok(store) => Arc::new(store),
-        Err(err) => {
-            log::warn!("could not load provider_settings.json; falling back to defaults: {err}");
-            Arc::new(provider_settings::ProviderSettingsStore::empty(&config_dir))
-        }
-    };
     handle.manage(provider_settings_store);
 
     Ok(())

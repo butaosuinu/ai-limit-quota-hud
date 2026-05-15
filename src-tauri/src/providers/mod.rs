@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use time::OffsetDateTime;
 
 use crate::model::{ProviderKind, UsageSnapshot, DEFAULT_CRITICAL_PCT, DEFAULT_WARN_PCT};
+use crate::provider_settings::ProviderSettingsStore;
 use crate::storage::Storage;
 
 pub mod anthropic_api;
@@ -94,8 +95,19 @@ impl ProviderContext {
 /// Build the default provider list. `data_dir` is the app's data directory,
 /// used by file-backed providers (Phase 3a OpenAI) to locate imported header
 /// snapshots; Phase 3b's proxy/import flow writes to the same location.
-pub fn default_providers(storage: Arc<Storage>, data_dir: &Path) -> Vec<Arc<dyn UsageProvider>> {
-    vec![
+///
+/// `provider_settings` gates the opt-in WebView providers (§8.7). When a
+/// WebView provider is not enabled, it is *omitted entirely* — that matches
+/// AGENTS.md's "no network call on startup unless the user configured it"
+/// rule, and keeps the scheduler from emitting a `NoData` row for a
+/// provider the user never asked to see. Passing `None` (e.g. tests) is
+/// equivalent to "all opt-in providers off".
+pub fn default_providers(
+    storage: Arc<Storage>,
+    data_dir: &Path,
+    provider_settings: Option<&ProviderSettingsStore>,
+) -> Vec<Arc<dyn UsageProvider>> {
+    let mut providers: Vec<Arc<dyn UsageProvider>> = vec![
         Arc::new(manual::ManualProvider::new(storage)),
         Arc::new(openai_api::OpenAiApiProvider::new(
             openai_api::OpenAiApiProvider::default_snapshot_path(data_dir),
@@ -103,5 +115,14 @@ pub fn default_providers(storage: Arc<Storage>, data_dir: &Path) -> Vec<Arc<dyn 
         Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
         Arc::new(anthropic_api::AnthropicApiProvider::new()),
         Arc::new(codex_local::CodexLocalProvider::new()),
-    ]
+    ];
+    if let Some(settings) = provider_settings {
+        if settings.is_enabled(webview::codex_web::CODEX_WEB_PROVIDER_ID) {
+            providers.push(Arc::new(webview::codex_web::CodexWebProvider::new()));
+        }
+        // PR #30 (Claude WebView provider) will push its own entry here
+        // gated on `settings.is_enabled("webview-claude-ai")`. Keeping that
+        // gating in a single function makes the opt-in rule easy to audit.
+    }
+    providers
 }

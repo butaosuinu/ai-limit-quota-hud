@@ -5,7 +5,18 @@ import {
   overlaySettingsAtom,
   updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
-import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
+import {
+  deleteProviderDataAtom,
+  isProviderEnabledAtom,
+  openProviderLoginAtom,
+  providerSettingsErrorAtom,
+  setProviderEnabledAtom,
+} from "../atoms/providerSettingsAtom";
+import {
+  DEFAULT_OVERLAY_SETTINGS,
+  type OverlaySettings,
+  type ProviderKind,
+} from "../types";
 import { ManualRowsPanel } from "./ManualRowsPanel";
 
 const OPACITY_STEP = 0.01;
@@ -100,6 +111,8 @@ export function SettingsPanel() {
 
       <ManualRowsPanel />
 
+      <WebviewProvidersPanel />
+
       <footer className="settings__footer">
         <button
           type="button"
@@ -136,5 +149,120 @@ function SettingToggle({ id, label, checked, onChange }: ToggleProps) {
       />
       {label}
     </label>
+  );
+}
+
+/**
+ * WebView-backed provider opt-in section (PROJECT_SPEC §8.7).
+ *
+ * Each row is **off by default**. Toggling it on persists the opt-in flag
+ * in `provider_settings.json`; clicking "Login" opens a visible WebView
+ * window pointing at the provider's first-party login; "Delete data"
+ * clears the provider's persistent session so the next refresh forces a
+ * fresh login.
+ *
+ * PR #31 (this branch) wires up the Codex (ChatGPT) row. PR #30 will add
+ * a sibling row for `webview-claude-ai`. The two PRs target the same
+ * section so conflicts here are expected and resolved during rebase.
+ */
+function WebviewProvidersPanel() {
+  const isEnabled = useAtomValue(isProviderEnabledAtom);
+  const settingsError = useAtomValue(providerSettingsErrorAtom);
+  const setEnabled = useSetAtom(setProviderEnabledAtom);
+  const openLogin = useSetAtom(openProviderLoginAtom);
+  const deleteData = useSetAtom(deleteProviderDataAtom);
+
+  return (
+    <section
+      className="settings__group settings__group--webview"
+      data-testid="webview-providers-panel"
+    >
+      <h2>WebView プロバイダ (opt-in)</h2>
+      <p className="settings__hint">
+        サブスクリプション枠の usage を取得するため、QuotaHUD
+        内蔵の WebView から各プロバイダのページを参照します。利用は明示的な
+        opt-in が必要で、初回はベンダー自身のログインページで認証してください
+        (PROJECT_SPEC §8.7)。
+      </p>
+
+      <WebviewProviderRow
+        kind="webview-chatgpt-codex"
+        label="Codex (ChatGPT)"
+        description="https://chatgpt.com/codex/cloud/settings/analytics から 5h / weekly の残量を取得します。"
+        enabled={isEnabled("webview-chatgpt-codex")}
+        onToggle={(next) => {
+          void setEnabled({ kind: "webview-chatgpt-codex", enabled: next });
+        }}
+        onLogin={() => {
+          void openLogin("webview-chatgpt-codex");
+        }}
+        onDelete={() => {
+          void deleteData("webview-chatgpt-codex");
+        }}
+      />
+
+      {settingsError !== null && (
+        <p
+          className="settings__error"
+          data-testid="webview-providers-error"
+          role="alert"
+        >
+          {settingsError}
+        </p>
+      )}
+    </section>
+  );
+}
+
+type WebviewProviderRowProps = {
+  kind: ProviderKind;
+  label: string;
+  description: string;
+  enabled: boolean;
+  onToggle: (next: boolean) => void;
+  onLogin: () => void;
+  onDelete: () => void;
+};
+
+function WebviewProviderRow({
+  kind,
+  label,
+  description,
+  enabled,
+  onToggle,
+  onLogin,
+  onDelete,
+}: WebviewProviderRowProps) {
+  const toggleId = `webview-provider-toggle-${kind}`;
+  return (
+    <div className="settings__webview-row" data-testid={`webview-row-${kind}`}>
+      <div className="settings__webview-row-main">
+        <SettingToggle
+          id={toggleId}
+          label={label}
+          checked={enabled}
+          onChange={onToggle}
+        />
+        <p className="settings__webview-row-description">{description}</p>
+      </div>
+      <div className="settings__webview-row-actions">
+        <button
+          type="button"
+          disabled={!enabled}
+          onClick={onLogin}
+          data-testid={`webview-row-${kind}-login`}
+        >
+          ログイン
+        </button>
+        <button
+          type="button"
+          disabled={!enabled}
+          onClick={onDelete}
+          data-testid={`webview-row-${kind}-delete`}
+        >
+          データ削除
+        </button>
+      </div>
+    </div>
   );
 }

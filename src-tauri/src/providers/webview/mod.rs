@@ -21,6 +21,18 @@
 //! provider-specific PRs. This module deliberately stops at pure helpers
 //! that are easy to unit-test without a Tauri runtime.
 
+// `scraper` is a temporary stub introduced by #31 (codex_web) because PR #30
+// — which owns the canonical `WebviewScraper` actor — has not yet landed.
+// When #30 merges first, this rebase replaces `scraper.rs` wholesale with
+// the canonical implementation. The `codex_web` module depends only on the
+// small surface declared in `scraper.rs`, so the swap is mechanical.
+pub mod scraper;
+
+// `codex_web` (PR #31) hosts `CodexWebProvider`, the chatgpt.com /
+// codex/cloud/settings/analytics scraper. The provider stays disabled until
+// the user opts in through `ProviderSettingsStore`; see PROJECT_SPEC §8.7.
+pub mod codex_web;
+
 use std::path::{Path, PathBuf};
 
 use crate::model::ProviderKind;
