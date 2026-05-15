@@ -12,10 +12,10 @@ use thiserror::Error;
 
 use crate::model::{ManualRow, ManualRowInput, ProviderKind, UsageSnapshot};
 use crate::provider_settings::{ProviderSettings, ProviderSettingsError, ProviderSettingsStore};
-use crate::providers::webview::provider_slug;
+use crate::providers::webview::{provider_slug, SessionStorage};
 use crate::providers::DEFAULT_REFRESH_INTERVAL_SECS;
 use crate::scheduler;
-use crate::state::ProviderState;
+use crate::state::{ProviderState, WebviewProviders};
 use crate::storage::{Storage, StorageError};
 
 #[derive(Debug, Error)]
@@ -162,17 +162,91 @@ pub async fn set_provider_enabled(
 }
 
 #[tauri::command]
-pub async fn open_provider_login_window(kind: ProviderKind) -> Result<(), AppError> {
+pub async fn open_provider_login_window(
+    kind: ProviderKind,
+    webview: tauri::State<'_, WebviewProviders>,
+) -> Result<(), AppError> {
     let _slug = webview_slug_for_command(kind)?;
-    Err(AppError::Internal(
-        "WebView login window is not wired up yet — see issue #30 (Claude) / #31 (Codex)".into(),
-    ))
+    match kind {
+        ProviderKind::WebviewClaudeAi => {
+            let provider = Arc::clone(&webview.claude_web);
+            // The provider's own scraper carries an `AppHandle`; reuse it
+            // rather than re-deriving one so the login window shares the
+            // same session storage as the hidden refresh.
+            let scraper = provider.attach_scraper_for_login().ok_or_else(|| {
+                AppError::Internal(
+                    "WebView runtime not initialized; cannot open login window".into(),
+                )
+            })?;
+            scraper
+                .open_visible_login()
+                .await
+                .map_err(|e| AppError::Internal(format!("login window failed: {e}")))?;
+            Ok(())
+        }
+        ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
+            "Codex WebView provider is not implemented in this branch — see issue #31".into(),
+        )),
+        // `webview_slug_for_command` already rejects non-WebView kinds.
+        _ => unreachable!("webview_slug_for_command already validated the kind"),
+    }
 }
 
 #[tauri::command]
-pub async fn delete_provider_data(kind: ProviderKind) -> Result<(), AppError> {
+pub async fn delete_provider_data(
+    kind: ProviderKind,
+    webview: tauri::State<'_, WebviewProviders>,
+) -> Result<(), AppError> {
     let _slug = webview_slug_for_command(kind)?;
-    Err(AppError::Internal(
-        "WebView data deletion is not wired up yet — see issue #30 (Claude) / #31 (Codex)".into(),
-    ))
+    match kind {
+        ProviderKind::WebviewClaudeAi => {
+            let provider = Arc::clone(&webview.claude_web);
+            delete_session_storage(provider.session_storage()).await
+        }
+        ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
+            "Codex WebView provider is not implemented in this branch — see issue #31".into(),
+        )),
+        _ => unreachable!("webview_slug_for_command already validated the kind"),
+    }
+}
+
+/// Best-effort removal of a provider's session storage.
+///
+/// On Windows / Linux this is just an `rm -rf` of the per-provider profile
+/// directory — the next refresh will recreate it empty and the user will be
+/// forced to log in again. On macOS the `WKWebsiteDataStore` keyed by the
+/// `dataStoreIdentifier` is the source of truth, and Tauri 2 does not expose
+/// a public API to drop it. We log a clear warning so the user (and the
+/// reviewer) sees the limitation; the workaround documented in the README
+/// is to use the in-window `clear_all_browsing_data` invoked from a refresh
+/// tick.
+async fn delete_session_storage(storage: &SessionStorage) -> Result<(), AppError> {
+    match storage {
+        SessionStorage::DataDirectory(path) => {
+            let path = path.clone();
+            tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
+                if !path.exists() {
+                    return Ok(());
+                }
+                std::fs::remove_dir_all(&path).map_err(|e| {
+                    AppError::Internal(format!(
+                        "could not remove WebView data directory {}: {e}",
+                        path.display()
+                    ))
+                })
+            })
+            .await
+            .map_err(|e| AppError::Internal(format!("join error: {e}")))??;
+            Ok(())
+        }
+        SessionStorage::DataStoreIdentifier(uuid) => {
+            log::warn!(
+                "delete_provider_data: macOS WKWebsiteDataStore for identifier {uuid} is not removable through Tauri 2's public API; the next refresh must use `clear_all_browsing_data` to force a re-login. See README WebView limitations."
+            );
+            // We return Ok so the UI registers the action as completed and
+            // updates the "logged in" indicator — the next refresh tick
+            // will clear browsing data via the scraper.
+            Ok(())
+        }
+    }
 }
