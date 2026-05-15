@@ -12,8 +12,8 @@ import {
 const baseSnapshot = (
   overrides: Partial<UsageSnapshot> = {},
 ): UsageSnapshot => ({
-  providerId: "manual:row-1",
-  providerKind: "manual",
+  providerId: "webview-claude-ai:default",
+  providerKind: "webview-claude-ai",
   accountLabel: "personal",
   window: "five-hours",
   metric: "messages",
@@ -23,7 +23,7 @@ const baseSnapshot = (
   remainingPercent: 75,
   resetAt: null,
   observedAt: "2026-05-13T12:00:00Z",
-  source: "manual",
+  source: "webview-scrape",
   confidence: "low",
   status: "ok",
   message: null,

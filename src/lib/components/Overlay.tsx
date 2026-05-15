@@ -36,7 +36,7 @@ export function Overlay() {
         )}
       </ul>
       <footer className="overlay__footer">
-        phase 2 · {snapshots.length} provider rows ·{" "}
+        {snapshots.length} provider rows ·{" "}
         {settings.clickThrough ? "click-through on" : "click-through off"}
         {settings.locked ? " · locked" : " · drag to move"}
       </footer>

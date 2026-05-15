@@ -18,6 +18,7 @@ pub fn format_rfc3339(dt: &OffsetDateTime) -> String {
         .unwrap_or_else(|_| FALLBACK_TIMESTAMP.to_string())
 }
 
+#[allow(dead_code)]
 pub fn now_rfc3339() -> String {
     format_rfc3339(&OffsetDateTime::now_utc())
 }
@@ -25,11 +26,8 @@ pub fn now_rfc3339() -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderKind {
-    OpenAiApi,
-    AnthropicApi,
-    ClaudeCodeLocal,
-    CodexLocal,
-    Manual,
+    WebviewClaudeAi,
+    WebviewChatgptCodex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,12 +45,8 @@ pub enum UsageMetric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UsageSource {
-    OfficialApi,
-    ResponseHeader,
-    LocalLog,
-    Manual,
-    Estimate,
     Unavailable,
+    WebviewScrape,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,46 +99,12 @@ pub struct UsageSnapshot {
     pub message: Option<String>,
 }
 
-/// A manual row as persisted in SQLite. The frontend mirrors this in
-/// `src/lib/types.ts` as `ManualRow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ManualRow {
-    pub id: String,
-    pub provider_label: String,
-    pub account_label: String,
-    pub window: UsageWindow,
-    pub metric: UsageMetric,
-    pub limit: Option<i64>,
-    pub used: Option<i64>,
-    pub remaining: Option<i64>,
-    pub reset_at: Option<String>,
-    pub note: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Payload accepted by `create_manual_row` / `update_manual_row`. Fields the
-/// backend assigns (`id`, `created_at`, `updated_at`) are omitted here.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ManualRowInput {
-    pub provider_label: String,
-    pub account_label: String,
-    pub window: UsageWindow,
-    pub metric: UsageMetric,
-    pub limit: Option<i64>,
-    pub used: Option<i64>,
-    pub remaining: Option<i64>,
-    pub reset_at: Option<String>,
-    pub note: Option<String>,
-}
-
 pub const DEFAULT_WARN_PCT: f64 = 30.0;
 pub const DEFAULT_CRITICAL_PCT: f64 = 10.0;
 
 /// Resolve a remaining-percent figure from limit/remaining/explicit fields.
 /// Returns `None` when no usable data is present.
+#[allow(dead_code)]
 pub fn compute_remaining_percent(
     limit: Option<i64>,
     remaining: Option<i64>,
@@ -166,6 +126,7 @@ pub fn compute_remaining_percent(
 /// `None` for the explicit percent collapses to `NoData`. Boundary values use
 /// strict `<` against the thresholds (so 30 / 10 are warning / critical
 /// respectively when the value is below them).
+#[allow(dead_code)]
 pub fn classify_status(
     limit: Option<i64>,
     remaining: Option<i64>,
@@ -182,78 +143,10 @@ pub fn classify_status(
     }
 }
 
-/// Derive the effective remaining count: prefer an explicit `remaining`,
-/// otherwise compute `limit - used` so manual rows that only specify
-/// `limit + used` still classify correctly (and don't fall through to
-/// `NoData`).
-fn derive_remaining(
-    limit: Option<i64>,
-    used: Option<i64>,
-    remaining: Option<i64>,
-) -> Option<i64> {
-    if let Some(r) = remaining {
-        return Some(r);
-    }
-    match (limit, used) {
-        (Some(l), Some(u)) => Some((l - u).max(0)),
-        _ => None,
-    }
-}
-
-/// Merge a manual row's provider/account fields into the single `account_label`
-/// slot the snapshot data model exposes. Two manual rows that share an
-/// account label (e.g., both `personal`) for different providers would
-/// otherwise render indistinguishably in the overlay.
-fn manual_account_label(provider_label: &str, account_label: &str) -> String {
-    let provider = provider_label.trim();
-    let account = account_label.trim();
-    match (provider.is_empty(), account.is_empty()) {
-        (true, _) => account.to_string(),
-        (false, true) => provider.to_string(),
-        (false, false) => format!("{provider} · {account}"),
-    }
-}
-
-/// Convert a stored manual row into a snapshot. Always tagged as
-/// `source = Manual` and `confidence = Low` per spec §8.1.
-pub fn snapshot_from_manual_row(
-    row: &ManualRow,
-    now: &OffsetDateTime,
-    warn_pct: f64,
-    crit_pct: f64,
-) -> UsageSnapshot {
-    let observed_at = format_rfc3339(now);
-    let effective_remaining = derive_remaining(row.limit, row.used, row.remaining);
-    let remaining_percent = compute_remaining_percent(row.limit, effective_remaining, None);
-    let status = classify_status(
-        row.limit,
-        effective_remaining,
-        remaining_percent,
-        warn_pct,
-        crit_pct,
-    );
-    UsageSnapshot {
-        provider_id: format!("manual:{}", row.id),
-        provider_kind: ProviderKind::Manual,
-        account_label: manual_account_label(&row.provider_label, &row.account_label),
-        window: row.window,
-        metric: row.metric,
-        limit: row.limit,
-        used: row.used,
-        remaining: row.remaining,
-        remaining_percent,
-        reset_at: row.reset_at.clone(),
-        observed_at,
-        source: UsageSource::Manual,
-        confidence: Confidence::Low,
-        status,
-        message: row.note.clone(),
-    }
-}
-
 /// Build a `NoData` snapshot for a provider that legitimately has nothing to
-/// report (data directory absent, no events recorded yet, etc.). Shared by
-/// the local-CLI providers in Phase 4.
+/// report yet. Used by WebView providers when login is required or no
+/// usage data has been observed for the current window.
+#[allow(dead_code)]
 pub fn no_data_snapshot(
     provider_id: &str,
     provider_kind: ProviderKind,
@@ -267,7 +160,7 @@ pub fn no_data_snapshot(
         provider_kind,
         account_label: account_label.to_string(),
         window: UsageWindow::Unknown,
-        metric: UsageMetric::Tokens,
+        metric: UsageMetric::Unknown,
         limit: None,
         used: None,
         remaining: None,
@@ -282,8 +175,9 @@ pub fn no_data_snapshot(
 }
 
 /// Build a snapshot that represents a provider-level failure without crashing
-/// the overlay. Phase 2 uses this so storage errors land in the UI as a single
-/// `Error` row instead of bringing down the whole refresh loop.
+/// the overlay. The scheduler converts provider errors into this so the UI
+/// surfaces a single `Error` row instead of bringing down the whole refresh
+/// loop.
 pub fn error_snapshot(
     provider_id: &str,
     provider_kind: ProviderKind,
@@ -306,39 +200,6 @@ pub fn error_snapshot(
         source: UsageSource::Unavailable,
         confidence: Confidence::Low,
         status: SnapshotStatus::Error,
-        message: Some(message.into()),
-    }
-}
-
-/// Build a `NoData` snapshot from a local provider that found no parseable
-/// usage data. Distinct from `error_snapshot` so the UI can render
-/// "no signal" rows differently from "the provider crashed" rows. Local
-/// providers must use this when expected files are missing or empty —
-/// per AGENTS.md, "推定値を「正確な remaining」として表示しない" implies
-/// missing-data states must be explicit, not zero-filled.
-pub fn nodata_snapshot(
-    provider_id: &str,
-    provider_kind: ProviderKind,
-    account_label: &str,
-    now: &OffsetDateTime,
-    message: impl Into<String>,
-) -> UsageSnapshot {
-    let observed_at = format_rfc3339(now);
-    UsageSnapshot {
-        provider_id: provider_id.to_string(),
-        provider_kind,
-        account_label: account_label.to_string(),
-        window: UsageWindow::Unknown,
-        metric: UsageMetric::Unknown,
-        limit: None,
-        used: None,
-        remaining: None,
-        remaining_percent: None,
-        reset_at: None,
-        observed_at,
-        source: UsageSource::LocalLog,
-        confidence: Confidence::Low,
-        status: SnapshotStatus::NoData,
         message: Some(message.into()),
     }
 }
@@ -421,149 +282,18 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_from_manual_row_forces_manual_source_and_low_confidence() {
-        let row = ManualRow {
-            id: "abc".into(),
-            provider_label: "ChatGPT".into(),
-            account_label: "personal".into(),
-            window: UsageWindow::FiveHours,
-            metric: UsageMetric::Messages,
-            limit: Some(40),
-            used: Some(10),
-            remaining: Some(30),
-            reset_at: Some("2026-05-13T17:00:00Z".into()),
-            note: Some("plus plan".into()),
-            created_at: "2026-05-01T00:00:00Z".into(),
-            updated_at: "2026-05-13T12:00:00Z".into(),
-        };
-        let snap = snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
-        assert_eq!(snap.provider_kind, ProviderKind::Manual);
-        assert_eq!(snap.source, UsageSource::Manual);
-        assert_eq!(snap.confidence, Confidence::Low);
-        // provider + account merged so two rows with the same account label
-        // for different providers are distinguishable in the overlay.
-        assert_eq!(snap.account_label, "ChatGPT · personal");
-        assert_eq!(snap.window, UsageWindow::FiveHours);
-        assert_eq!(snap.remaining, Some(30));
-        assert_eq!(snap.remaining_percent, Some(75.0));
-        assert_eq!(snap.status, SnapshotStatus::Ok);
-        assert_eq!(snap.provider_id, "manual:abc");
-        assert_eq!(snap.message.as_deref(), Some("plus plan"));
-    }
-
-    #[test]
-    fn manual_account_label_handles_blank_fields() {
-        // Both populated: dot-separated.
-        assert_eq!(
-            manual_account_label("ChatGPT", "personal"),
-            "ChatGPT · personal"
-        );
-        // Account blank: fall back to provider only.
-        assert_eq!(manual_account_label("ChatGPT", ""), "ChatGPT");
-        assert_eq!(manual_account_label("ChatGPT", "   "), "ChatGPT");
-        // Provider blank: fall back to account only (preserves whitespace
-        // trimming consistency for both halves).
-        assert_eq!(manual_account_label("", "personal"), "personal");
-        assert_eq!(manual_account_label("  ", "personal"), "personal");
-        // Both blank: empty string.
-        assert_eq!(manual_account_label("", ""), "");
-    }
-
-    #[test]
-    fn snapshot_from_manual_row_derives_remaining_from_used() {
-        // The user filled limit + used (40 quota, 35 consumed) and left
-        // remaining blank. Without the limit-minus-used fallback this would
-        // collapse to `NoData`; with it the snapshot should classify as
-        // Critical (5/40 = 12.5% → below the 30% warn threshold and the
-        // 10% critical threshold is not yet crossed → Warning at 12.5%).
-        let row = ManualRow {
-            id: "deriv".into(),
-            provider_label: "ChatGPT".into(),
-            account_label: "personal".into(),
-            window: UsageWindow::FiveHours,
-            metric: UsageMetric::Messages,
-            limit: Some(40),
-            used: Some(35),
-            remaining: None,
-            reset_at: None,
-            note: None,
-            created_at: "2026-05-01T00:00:00Z".into(),
-            updated_at: "2026-05-13T12:00:00Z".into(),
-        };
-        let snap = snapshot_from_manual_row(
-            &row,
-            &now_fixture(),
-            DEFAULT_WARN_PCT,
-            DEFAULT_CRITICAL_PCT,
-        );
-        assert_eq!(snap.remaining_percent, Some(12.5));
-        assert_eq!(snap.status, SnapshotStatus::Warning);
-        // The DB-backed `remaining` field stays as the user entered it.
-        assert_eq!(snap.remaining, None);
-        assert_eq!(snap.used, Some(35));
-    }
-
-    #[test]
-    fn snapshot_from_manual_row_derives_critical_from_used() {
-        let row = ManualRow {
-            id: "deriv2".into(),
-            provider_label: "ChatGPT".into(),
-            account_label: "personal".into(),
-            window: UsageWindow::FiveHours,
-            metric: UsageMetric::Messages,
-            limit: Some(40),
-            used: Some(38),
-            remaining: None,
-            reset_at: None,
-            note: None,
-            created_at: "2026-05-01T00:00:00Z".into(),
-            updated_at: "2026-05-13T12:00:00Z".into(),
-        };
-        let snap = snapshot_from_manual_row(
-            &row,
-            &now_fixture(),
-            DEFAULT_WARN_PCT,
-            DEFAULT_CRITICAL_PCT,
-        );
-        // 2/40 = 5% → Critical.
-        assert_eq!(snap.remaining_percent, Some(5.0));
-        assert_eq!(snap.status, SnapshotStatus::Critical);
-    }
-
-    #[test]
-    fn snapshot_from_manual_row_no_data() {
-        let row = ManualRow {
-            id: "abc".into(),
-            provider_label: "ChatGPT".into(),
-            account_label: "personal".into(),
-            window: UsageWindow::FiveHours,
-            metric: UsageMetric::Messages,
-            limit: None,
-            used: None,
-            remaining: None,
-            reset_at: None,
-            note: None,
-            created_at: "2026-05-01T00:00:00Z".into(),
-            updated_at: "2026-05-13T12:00:00Z".into(),
-        };
-        let snap = snapshot_from_manual_row(&row, &now_fixture(), DEFAULT_WARN_PCT, DEFAULT_CRITICAL_PCT);
-        assert_eq!(snap.status, SnapshotStatus::NoData);
-        assert_eq!(snap.remaining_percent, None);
-    }
-
-    #[test]
     fn provider_kind_serde_kebab_case() {
         assert_eq!(
-            serde_json::to_string(&ProviderKind::OpenAiApi).unwrap(),
-            "\"open-ai-api\""
+            serde_json::to_string(&ProviderKind::WebviewClaudeAi).unwrap(),
+            "\"webview-claude-ai\""
         );
         assert_eq!(
-            serde_json::to_string(&ProviderKind::ClaudeCodeLocal).unwrap(),
-            "\"claude-code-local\""
+            serde_json::to_string(&ProviderKind::WebviewChatgptCodex).unwrap(),
+            "\"webview-chatgpt-codex\""
         );
         assert_eq!(
-            serde_json::from_str::<ProviderKind>("\"manual\"").unwrap(),
-            ProviderKind::Manual
+            serde_json::from_str::<ProviderKind>("\"webview-claude-ai\"").unwrap(),
+            ProviderKind::WebviewClaudeAi
         );
     }
 
@@ -610,8 +340,25 @@ mod tests {
     }
 
     #[test]
+    fn usage_source_serde_kebab_case() {
+        assert_eq!(
+            serde_json::to_string(&UsageSource::WebviewScrape).unwrap(),
+            "\"webview-scrape\""
+        );
+        assert_eq!(
+            serde_json::to_string(&UsageSource::Unavailable).unwrap(),
+            "\"unavailable\""
+        );
+    }
+
+    #[test]
     fn usage_snapshot_serializes_camel_case() {
-        let snap = error_snapshot("manual", ProviderKind::Manual, &now_fixture(), "boom");
+        let snap = error_snapshot(
+            "webview-claude-ai",
+            ProviderKind::WebviewClaudeAi,
+            &now_fixture(),
+            "boom",
+        );
         let json = serde_json::to_value(&snap).unwrap();
         assert!(json.get("providerId").is_some());
         assert!(json.get("providerKind").is_some());
@@ -622,26 +369,24 @@ mod tests {
     }
 
     #[test]
-    fn nodata_snapshot_uses_local_log_source_and_no_data_status() {
-        let snap = nodata_snapshot(
-            "codex-local:default",
-            ProviderKind::CodexLocal,
-            "Codex CLI",
+    fn no_data_snapshot_carries_provided_source() {
+        let snap = no_data_snapshot(
+            "webview-claude-ai:default",
+            ProviderKind::WebviewClaudeAi,
+            "Claude (Pro)",
+            UsageSource::WebviewScrape,
             &now_fixture(),
-            "Codex CLI directory not found",
+            "login required",
         );
-        assert_eq!(snap.provider_kind, ProviderKind::CodexLocal);
-        assert_eq!(snap.source, UsageSource::LocalLog);
+        assert_eq!(snap.provider_kind, ProviderKind::WebviewClaudeAi);
+        assert_eq!(snap.source, UsageSource::WebviewScrape);
         assert_eq!(snap.confidence, Confidence::Low);
         assert_eq!(snap.status, SnapshotStatus::NoData);
-        assert_eq!(snap.account_label, "Codex CLI");
+        assert_eq!(snap.account_label, "Claude (Pro)");
         assert!(snap.limit.is_none());
         assert!(snap.used.is_none());
         assert!(snap.remaining.is_none());
         assert!(snap.remaining_percent.is_none());
-        assert_eq!(
-            snap.message.as_deref(),
-            Some("Codex CLI directory not found")
-        );
+        assert_eq!(snap.message.as_deref(), Some("login required"));
     }
 }

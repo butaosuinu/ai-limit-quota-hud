@@ -6,7 +6,6 @@ mod providers;
 mod scheduler;
 mod settings;
 mod state;
-mod storage;
 
 use std::sync::Mutex;
 
@@ -294,10 +293,6 @@ pub fn run() {
             update_overlay_settings,
             commands::list_snapshots,
             commands::refresh_now,
-            commands::list_manual_rows,
-            commands::create_manual_row,
-            commands::update_manual_row,
-            commands::delete_manual_row,
             commands::get_refresh_interval,
             commands::set_refresh_interval,
         ])
@@ -349,23 +344,17 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
         .path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir unavailable: {e}"))?;
-    // `Storage::open` creates the parent directory itself, so no need to
-    // pre-create it here.
-    let db_path = data_dir.join("providers.sqlite3");
 
-    let storage = Arc::new(storage::Storage::open(db_path)?);
     let latest = Arc::new(RwLock::new(Vec::new()));
     let interval_seconds = Arc::new(AtomicU64::new(DEFAULT_REFRESH_INTERVAL_SECS));
-    let providers = providers::default_providers(Arc::clone(&storage), &data_dir);
+    let providers = providers::default_providers(&data_dir);
     let scheduler_handle = scheduler::spawn(scheduler::SchedulerDeps {
         app: handle.clone(),
         providers,
-        storage: Arc::clone(&storage),
         latest: Arc::clone(&latest),
         interval_seconds: Arc::clone(&interval_seconds),
     });
     handle.manage(state::ProviderState::new(
-        storage,
         latest,
         scheduler_handle,
         interval_seconds,

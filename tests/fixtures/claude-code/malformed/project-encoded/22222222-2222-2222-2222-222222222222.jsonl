@@ -1,7 +1,0 @@
-{"type":"user","sessionId":"22222222-2222-2222-2222-222222222222","message":{"role":"user","content":"hi"}}
-not-json-at-all-just-a-line
-{"type":"assistant","sessionId":"22222222-2222-2222-2222-222222222222","timestamp":"2026-05-13T11:00:00Z","message":{"model":"claude-fixture-2","usage":{"input_tokens":50,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
-{"type":"assistant","message":{"usage":{"input_tokens":"not-a-number"}}}
-{"type":"assistant","message":{"usage":
-{"type":"assistant","sessionId":"22222222-2222-2222-2222-222222222222","timestamp":"2026-05-13T11:00:01Z","message":null}
-

@@ -10,8 +10,8 @@ import { Overlay } from "./Overlay";
 const baseSnapshot = (
   overrides: Partial<UsageSnapshot> = {},
 ): UsageSnapshot => ({
-  providerId: "manual:row-1",
-  providerKind: "manual",
+  providerId: "webview-claude-ai:default",
+  providerKind: "webview-claude-ai",
   accountLabel: "personal",
   window: "five-hours",
   metric: "messages",
@@ -21,7 +21,7 @@ const baseSnapshot = (
   remainingPercent: 75,
   resetAt: null,
   observedAt: "2026-05-13T12:00:00Z",
-  source: "manual",
+  source: "webview-scrape",
   confidence: "low",
   status: "ok",
   message: null,
@@ -57,12 +57,12 @@ describe("Overlay", () => {
     renderOverlay({
       snapshots: [
         baseSnapshot({
-          providerId: "manual:a",
+          providerId: "webview-claude-ai:a",
           accountLabel: "alice",
           status: "ok",
         }),
         baseSnapshot({
-          providerId: "manual:b",
+          providerId: "webview-chatgpt-codex:b",
           accountLabel: "bob",
           status: "critical",
           remainingPercent: 5,
@@ -105,7 +105,7 @@ describe("Overlay", () => {
     renderOverlay({
       snapshots: [
         baseSnapshot({
-          providerId: "manual:nd",
+          providerId: "webview-claude-ai:nd",
           status: "no-data",
           remainingPercent: null,
           remaining: null,

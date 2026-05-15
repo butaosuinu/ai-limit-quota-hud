@@ -1,6 +1,7 @@
 /**
- * TypeScript mirrors of the Rust `OverlaySettings` / `Position` types.
- * The serde rename rules on the Rust side keep these in camelCase / kebab-case.
+ * TypeScript mirrors of the Rust `OverlaySettings` / `Position` /
+ * `UsageSnapshot` types. The serde rename rules on the Rust side keep these
+ * in camelCase / kebab-case.
  */
 
 export type OverlayCorner =
@@ -34,12 +35,7 @@ export type SnapshotStatus =
   | "no-data"
   | "error";
 
-export type ProviderKind =
-  | "open-ai-api"
-  | "anthropic-api"
-  | "claude-code-local"
-  | "codex-local"
-  | "manual";
+export type ProviderKind = "webview-claude-ai" | "webview-chatgpt-codex";
 
 export type UsageMetric =
   | "requests"
@@ -50,13 +46,7 @@ export type UsageMetric =
   | "percent"
   | "unknown";
 
-export type UsageSource =
-  | "official-api"
-  | "response-header"
-  | "local-log"
-  | "manual"
-  | "estimate"
-  | "unavailable";
+export type UsageSource = "unavailable" | "webview-scrape";
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -85,33 +75,6 @@ export type UsageSnapshot = {
   confidence: Confidence;
   status: SnapshotStatus;
   message: string | null;
-};
-
-export type ManualRow = {
-  id: string;
-  providerLabel: string;
-  accountLabel: string;
-  window: UsageWindow;
-  metric: UsageMetric;
-  limit: number | null;
-  used: number | null;
-  remaining: number | null;
-  resetAt: string | null;
-  note: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ManualRowInput = {
-  providerLabel: string;
-  accountLabel: string;
-  window: UsageWindow;
-  metric: UsageMetric;
-  limit: number | null;
-  used: number | null;
-  remaining: number | null;
-  resetAt: string | null;
-  note: string | null;
 };
 
 export const USAGE_UPDATED_EVENT = "usage://updated";

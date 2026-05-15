@@ -9,8 +9,8 @@ import { UsageRow } from "./UsageRow";
 const baseSnapshot = (
   overrides: Partial<UsageSnapshot> = {},
 ): UsageSnapshot => ({
-  providerId: "manual:row-1",
-  providerKind: "manual",
+  providerId: "webview-claude-ai:default",
+  providerKind: "webview-claude-ai",
   accountLabel: "personal",
   window: "five-hours",
   metric: "messages",
@@ -20,7 +20,7 @@ const baseSnapshot = (
   remainingPercent: 75,
   resetAt: null,
   observedAt: "2026-05-13T12:00:00Z",
-  source: "manual",
+  source: "webview-scrape",
   confidence: "low",
   status: "ok",
   message: null,
@@ -62,7 +62,7 @@ describe("UsageRow", () => {
     expect(screen.getByText("59 req")).toBeTruthy();
   });
 
-  it("falls back to raw used + unit when only used is set (e.g. Codex estimate)", () => {
+  it("falls back to raw used + unit when only used is set (webview snapshot fallback)", () => {
     renderWithSnapshot(
       baseSnapshot({
         remainingPercent: null,
@@ -70,7 +70,7 @@ describe("UsageRow", () => {
         limit: null,
         used: 3,
         metric: "requests",
-        source: "estimate",
+        source: "webview-scrape",
         confidence: "low",
         status: "no-data",
       }),
@@ -110,12 +110,12 @@ describe("UsageRow", () => {
   it("applies a status-specific CSS class for critical rows", () => {
     renderWithSnapshot(
       baseSnapshot({
-        providerId: "manual:row-crit",
+        providerId: "webview-claude-ai:crit",
         remainingPercent: 5,
         status: "critical",
       }),
     );
-    const row = screen.getByTestId("usage-row-manual:row-crit");
+    const row = screen.getByTestId("usage-row-webview-claude-ai:crit");
     expect(row.className.includes("overlay__row--critical")).toBe(true);
   });
 
@@ -141,10 +141,12 @@ describe("UsageRow", () => {
     expect(screen.getByText(/reset 2:05/u)).toBeTruthy();
   });
 
-  it("shows confidence and source badges for manual rows", () => {
+  it("shows confidence and source badges for webview rows", () => {
     renderWithSnapshot(baseSnapshot());
     expect(screen.getByTestId("error-badge-confidence-low")).toBeTruthy();
-    expect(screen.getByTestId("error-badge-source-manual")).toBeTruthy();
+    expect(
+      screen.getByTestId("error-badge-source-webview-scrape"),
+    ).toBeTruthy();
   });
 
   it("propagates the error message into the badge group tooltip", () => {

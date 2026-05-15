@@ -121,8 +121,8 @@ const NO_RESET_LABEL = "--:--";
 
 /**
  * Render a `resetAt` ISO-8601 string as `m:ss` relative to `now` ms. Inlined
- * into `UsageRow` instead of an `atomFamily` so per-row atoms can be garbage
- * collected when a manual row is deleted.
+ * into `UsageRow` instead of an `atomFamily` so per-row atoms don't outlive
+ * the snapshots they describe.
  */
 export function formatResetCountdown(
   resetAt: string | null,
