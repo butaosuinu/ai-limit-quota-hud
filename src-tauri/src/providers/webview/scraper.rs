@@ -479,9 +479,17 @@ impl WebviewScraper {
                     app: app.clone(),
                     label: label_for_main.clone(),
                 };
+                // `clear_all_browsing_data` is only needed for the macOS
+                // `WKWebsiteDataStore` path — Windows / Linux already delete
+                // the per-provider directory in `commands.rs`. Gating the
+                // call also avoids a Windows STATUS_ENTRYPOINT_NOT_FOUND seen
+                // on CI when the WebView2 symbol fails delayed-load.
+                #[cfg(target_os = "macos")]
                 window
                     .clear_all_browsing_data()
                     .map_err(|e| e.to_string())?;
+                #[cfg(not(target_os = "macos"))]
+                let _ = &window;
                 Ok(())
             })();
             let _ = tx.send(outcome);
