@@ -253,8 +253,25 @@ fn apply_session_storage<'a, R: tauri::Runtime, M: Manager<R>>(
     match storage {
         SessionStorage::DataDirectory(path) => builder.data_directory(path.clone()),
         SessionStorage::DataStoreIdentifier(uuid) => {
-            let bytes: [u8; 16] = *uuid.as_bytes();
-            builder.data_store_identifier(bytes)
+            // `data_store_identifier` is a macOS-only WebView2/WKWebView
+            // builder hook. `SessionStorage::for_provider` already only
+            // produces this variant on macOS, but the *call site* must also
+            // be gated so the Windows / Linux binaries don't link the symbol
+            // — Windows test exe was hitting STATUS_ENTRYPOINT_NOT_FOUND
+            // (0xc0000139) during delayed load of this entry point.
+            #[cfg(target_os = "macos")]
+            {
+                let bytes: [u8; 16] = *uuid.as_bytes();
+                builder.data_store_identifier(bytes)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Defensive: this branch is unreachable at runtime because
+                // `for_provider` returns `DataDirectory` on non-macOS, but
+                // the match arm still has to type-check.
+                let _ = uuid;
+                builder
+            }
         }
     }
 }
