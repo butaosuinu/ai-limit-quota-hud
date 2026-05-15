@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use crate::model::{ManualRow, ManualRowInput, ProviderKind, UsageSnapshot};
 use crate::provider_settings::{ProviderSettings, ProviderSettingsError, ProviderSettingsStore};
+use crate::providers::webview::scraper::WebviewScraper;
 use crate::providers::webview::{provider_slug, SessionStorage};
 use crate::providers::DEFAULT_REFRESH_INTERVAL_SECS;
 use crate::scheduler;
@@ -201,7 +202,8 @@ pub async fn delete_provider_data(
     match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
-            delete_session_storage(provider.session_storage()).await
+            let scraper = provider.attach_scraper_for_login();
+            delete_session_storage(provider.session_storage(), scraper.as_ref()).await
         }
         ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
             "Codex WebView provider is not implemented in this branch — see issue #31".into(),
@@ -210,17 +212,21 @@ pub async fn delete_provider_data(
     }
 }
 
-/// Best-effort removal of a provider's session storage.
+/// Force re-login by tearing down a provider's persistent session storage.
 ///
 /// On Windows / Linux this is just an `rm -rf` of the per-provider profile
 /// directory — the next refresh will recreate it empty and the user will be
-/// forced to log in again. On macOS the `WKWebsiteDataStore` keyed by the
-/// `dataStoreIdentifier` is the source of truth, and Tauri 2 does not expose
-/// a public API to drop it. We log a clear warning so the user (and the
-/// reviewer) sees the limitation; the workaround documented in the README
-/// is to use the in-window `clear_all_browsing_data` invoked from a refresh
-/// tick.
-async fn delete_session_storage(storage: &SessionStorage) -> Result<(), AppError> {
+/// forced to log in again. On macOS the `WKWebsiteDataStore` keyed by our
+/// `dataStoreIdentifier` cannot be dropped through Tauri 2's public API, so
+/// we delegate to [`WebviewScraper::clear_session_data`], which builds a
+/// transient hidden window pinned to the same store and asks the WebView to
+/// flush its cookies / cache. Either path reliably puts the next refresh
+/// back into the logged-out state — no more "UI says success but cookies
+/// remain" split.
+async fn delete_session_storage(
+    storage: &SessionStorage,
+    scraper_for_clear: Option<&WebviewScraper>,
+) -> Result<(), AppError> {
     match storage {
         SessionStorage::DataDirectory(path) => {
             let path = path.clone();
@@ -240,13 +246,22 @@ async fn delete_session_storage(storage: &SessionStorage) -> Result<(), AppError
             Ok(())
         }
         SessionStorage::DataStoreIdentifier(uuid) => {
-            log::warn!(
-                "delete_provider_data: macOS WKWebsiteDataStore for identifier {uuid} is not removable through Tauri 2's public API; the next refresh must use `clear_all_browsing_data` to force a re-login. See README WebView limitations."
-            );
-            // We return Ok so the UI registers the action as completed and
-            // updates the "logged in" indicator — the next refresh tick
-            // will clear browsing data via the scraper.
-            Ok(())
+            let Some(scraper) = scraper_for_clear else {
+                // The scraper is attached during `init_provider_runtime`, so
+                // a missing handle here means the user toggled "Delete" before
+                // the app finished initialising. Surface it instead of
+                // silently no-op'ing — the previous version returned `Ok`
+                // here and Codex flagged the resulting split-brain (UI shows
+                // success, cookies still present).
+                return Err(AppError::Internal(format!(
+                    "cannot clear macOS WKWebsiteDataStore {uuid}: scraper has not been attached yet"
+                )));
+            };
+            scraper.clear_session_data().await.map_err(|e| {
+                AppError::Internal(format!(
+                    "failed to clear macOS WKWebsiteDataStore {uuid}: {e}"
+                ))
+            })
         }
     }
 }

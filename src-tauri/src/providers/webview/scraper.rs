@@ -274,6 +274,29 @@ fn apply_hidden_window_flags<'a, R: tauri::Runtime, M: Manager<R>>(
     b
 }
 
+/// RAII guard that destroys the named hidden window on drop.
+///
+/// The previous shape — running the refresh, then unconditionally calling
+/// `window.destroy()` after the `.await` — only worked when the local
+/// `tokio::time::timeout` fired. The scheduler wraps each `provider.refresh()`
+/// in its own outer 15 s `tokio::time::timeout`; when that one fires first,
+/// our future is dropped mid-await and the post-await cleanup is never
+/// reached, leaking the hidden window. A `Drop` impl runs on every
+/// termination path (success, timeout, cancellation, panic), so the window
+/// is always torn down even when the future is cancelled by the caller.
+struct WindowDestroyGuard {
+    app: AppHandle,
+    label: String,
+}
+
+impl Drop for WindowDestroyGuard {
+    fn drop(&mut self) {
+        if let Some(window) = self.app.get_webview_window(&self.label) {
+            let _ = window.destroy();
+        }
+    }
+}
+
 /// Path of a hidden refresh window's data directory, if any. Returned so
 /// `delete_provider_data` can wipe it. `None` on macOS (cookies live in the
 /// `WKWebsiteDataStore` keyed by `data_store_identifier`).
@@ -409,16 +432,71 @@ impl WebviewScraper {
         timeout: Duration,
     ) -> Result<ScraperPayload, ScraperError> {
         let label = self.hidden_label();
-        // The window will be torn down via a guard so an early return / panic
-        // does not leak.
-        let result = tokio::time::timeout(timeout, self.run_hidden_inner(label.clone())).await;
-        // Best-effort cleanup regardless of outcome.
-        if let Some(window) = self.app.get_webview_window(&label) {
-            let _ = window.destroy();
-        }
+        // Drop-based cleanup so the window is destroyed even when the outer
+        // future (e.g. scheduler's `tokio::time::timeout`) cancels us before
+        // the post-`.await` block can run. See `WindowDestroyGuard`.
+        let _guard = WindowDestroyGuard {
+            app: self.app.clone(),
+            label: label.clone(),
+        };
+        let result = tokio::time::timeout(timeout, self.run_hidden_inner(label)).await;
         match result {
             Ok(inner) => inner,
             Err(_) => Err(ScraperError::Timeout(timeout)),
+        }
+    }
+
+    /// Flush all browsing data attached to this scraper's session storage.
+    ///
+    /// On macOS the per-provider [`WKWebsiteDataStore`] keyed by our
+    /// `dataStoreIdentifier` cannot be dropped through Tauri 2's public API,
+    /// so `delete_provider_data` cannot just `rm -rf` a directory. Instead
+    /// we open a transient hidden window pinned to the same store, ask the
+    /// WebView to clear its data, then destroy the window. On the next
+    /// refresh the user must log in again. The same primitive works on
+    /// Windows / Linux for parity even though `commands.rs` deletes the
+    /// `data_directory` directly there.
+    pub async fn clear_session_data(&self) -> Result<(), ScraperError> {
+        let label = self.clear_label();
+        let app_outer = self.app.clone();
+        let app = app_outer.clone();
+        let storage = self.storage.clone();
+        let label_for_main = label.clone();
+
+        let (tx, rx) = oneshot::channel::<Result<(), String>>();
+        let post = app_outer.run_on_main_thread(move || {
+            // The window is owned by the main-thread closure; the guard
+            // ensures it is torn down even if `clear_all_browsing_data`
+            // returns an error.
+            let outcome = (|| -> Result<(), String> {
+                let url = Url::parse("about:blank").map_err(|e| e.to_string())?;
+                let builder =
+                    WebviewWindowBuilder::new(&app, &label_for_main, WebviewUrl::External(url));
+                let builder = apply_session_storage(builder, &storage);
+                let builder = apply_hidden_window_flags(builder);
+                let window = builder.build().map_err(|e| e.to_string())?;
+                let _guard = WindowDestroyGuard {
+                    app: app.clone(),
+                    label: label_for_main.clone(),
+                };
+                window
+                    .clear_all_browsing_data()
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            })();
+            let _ = tx.send(outcome);
+        });
+        if let Err(e) = post {
+            return Err(ScraperError::WindowCreate(format!(
+                "run_on_main_thread failed: {e}"
+            )));
+        }
+        match rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(ScraperError::WindowCreate(e)),
+            Err(_) => Err(ScraperError::WindowCreate(
+                "main-thread channel dropped".into(),
+            )),
         }
     }
 
@@ -555,6 +633,13 @@ impl WebviewScraper {
 
     fn login_label(&self) -> String {
         format!("{}-login", self.config.slug)
+    }
+
+    fn clear_label(&self) -> String {
+        let n = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("{}-clear-{n}", self.config.slug)
     }
 
     /// Helper used by `delete_provider_data` to surface the on-disk session
