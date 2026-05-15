@@ -406,8 +406,20 @@ impl WebviewScraper {
         let app = self.app.clone();
         let storage = self.storage.clone();
         let login_url = self.config.login_url;
+        let allowlist = self.config.host_allowlist;
+        // Derive the target host from the *target* URL (not `login_url`),
+        // so the navigation tracker's "return to target resets the chain"
+        // logic still works after a successful login redirects back to the
+        // usage page.
+        let target_host = host_of(self.config.target_url).unwrap_or_default();
         let label_clone = label.clone();
         let title = format!("{} login", self.config.slug);
+        // The login window navigates through the user's real login flow,
+        // including IDP redirects. The hidden scraper has its own tracker;
+        // the login window needs its own — they don't share state because
+        // they're independent windows.
+        let tracker: Arc<Mutex<LoginRedirectTracker>> =
+            Arc::new(Mutex::new(LoginRedirectTracker::new()));
         // Window construction must happen on the main thread (Wry / macOS
         // requirement). `run_on_main_thread` queues the closure and we
         // observe the outcome via a oneshot.
@@ -430,6 +442,32 @@ impl WebviewScraper {
                 .decorations(true)
                 .inner_size(960.0, 720.0);
             let builder = apply_session_storage(builder, &storage);
+            // Enforce the §14 egress allowlist on the visible login window
+            // too — Codex Review pointed out that without this guard the
+            // login page (or an injected script) could redirect anywhere,
+            // bypassing the constraint that only the provider's own origin
+            // + supporting hosts + chained IDPs are reachable. The static
+            // allow on the initial login URL arms `last_was_static`, so
+            // the subsequent /login → IDP hop is permitted as a redirect.
+            let builder = builder.on_navigation({
+                let target_host = target_host.clone();
+                let tracker = Arc::clone(&tracker);
+                move |url| {
+                    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+                    let mut guard = tracker
+                        .lock()
+                        .expect("login navigation tracker mutex poisoned");
+                    match guard.decide(&host, &target_host, allowlist) {
+                        NavigationDecision::Allow => true,
+                        NavigationDecision::Block => {
+                            log::warn!(
+                                "login window blocked navigation to disallowed host: {host}"
+                            );
+                            false
+                        }
+                    }
+                }
+            });
             match builder.build() {
                 Ok(_window) => {
                     let _ = tx.send(Ok(()));
