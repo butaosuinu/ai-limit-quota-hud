@@ -268,7 +268,10 @@ fn snapshot_from_payload_error(
             now,
             "claude.ai session expired — open Settings → Claude (web) → Login again",
         ),
-        ScraperErrorKind::NoRows => error_snapshot(
+        // Transient NoRows is filtered out by the scraper's title callback
+        // (extractor retries internally); seeing it here is a defensive
+        // fallback that should not happen in normal operation.
+        ScraperErrorKind::NoRows | ScraperErrorKind::NoRowsFinal => error_snapshot(
             CLAUDE_WEB_PROVIDER_ID,
             ProviderKind::WebviewClaudeAi,
             now,

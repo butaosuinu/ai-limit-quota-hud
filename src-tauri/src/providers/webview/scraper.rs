@@ -123,7 +123,14 @@ impl ScraperPayload {
 pub enum ScraperErrorKind {
     CloudflareChallenge,
     LoggedOut,
+    /// Transient: SPA hydration race; the extractor's retry loop will try
+    /// again. The scraper title callback ignores this variant so it does
+    /// not race the next emit.
     NoRows,
+    /// Terminal: the extractor exhausted its retry budget without finding
+    /// usage rows. Surfaced to the awaiter so providers can map it onto an
+    /// error snapshot instead of waiting out the 25 s timeout.
+    NoRowsFinal,
     EmitFailed,
     #[serde(other)]
     Unknown,

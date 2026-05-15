@@ -231,6 +231,20 @@
     }
     if (attempts < MAX_ATTEMPTS) {
       setTimeout(tick, 700);
+    } else {
+      // Retry budget exhausted without ever finding usage rows. Emit a
+      // terminal variant so the Rust side can surface a deterministic
+      // error snapshot instead of timing out at 25 s — the Rust callback
+      // treats plain `no-rows` as transient (SPA hydration race) and only
+      // forwards `no-rows-final` to the awaiter.
+      emit({
+        ok: false,
+        kind: "no-rows-final",
+        message:
+          "claude.ai usage rows did not render within " +
+          MAX_ATTEMPTS +
+          " attempts",
+      });
     }
   }
 

@@ -156,9 +156,16 @@ pub async fn set_provider_enabled(
     kind: ProviderKind,
     enabled: bool,
     store: tauri::State<'_, Arc<ProviderSettingsStore>>,
+    state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
     let slug = webview_slug_for_command(kind)?;
     store.set_enabled(slug, enabled)?;
+    // Wake the scheduler so a toggle (enable or disable) takes effect on
+    // the next tick instead of waiting out the provider's
+    // `min_refresh_interval` (600s for WebView providers). Without this,
+    // disabling could leave stale authenticated rows visible for ~10 min,
+    // and enabling could similarly delay the first snapshot.
+    scheduler::trigger(&state.scheduler);
     Ok(())
 }
 
