@@ -20,6 +20,7 @@ pub mod claude_code_local;
 pub mod codex_local;
 pub mod manual;
 pub mod openai_api;
+pub mod webview;
 
 /// 60 seconds is the floor specified by AGENTS.md — every provider must
 /// respect this unless it has a strong reason to be slower.
@@ -93,10 +94,7 @@ impl ProviderContext {
 /// Build the default provider list. `data_dir` is the app's data directory,
 /// used by file-backed providers (Phase 3a OpenAI) to locate imported header
 /// snapshots; Phase 3b's proxy/import flow writes to the same location.
-pub fn default_providers(
-    storage: Arc<Storage>,
-    data_dir: &Path,
-) -> Vec<Arc<dyn UsageProvider>> {
+pub fn default_providers(storage: Arc<Storage>, data_dir: &Path) -> Vec<Arc<dyn UsageProvider>> {
     vec![
         Arc::new(manual::ManualProvider::new(storage)),
         Arc::new(openai_api::OpenAiApiProvider::new(

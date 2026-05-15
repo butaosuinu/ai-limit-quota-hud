@@ -2,6 +2,7 @@ mod commands;
 mod model;
 mod overlay;
 mod platform;
+mod provider_settings;
 mod providers;
 mod scheduler;
 mod settings;
@@ -16,8 +17,7 @@ use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::overlay::{
-    apply_to_window, emit_settings_changed, overlay_window, settings_window,
-    OVERLAY_WINDOW_LABEL,
+    apply_to_window, emit_settings_changed, overlay_window, settings_window, OVERLAY_WINDOW_LABEL,
 };
 use crate::settings::{OverlaySettings, Position};
 
@@ -175,8 +175,7 @@ fn build_tray(app: &AppHandle, initial: &OverlaySettings) -> tauri::Result<()> {
         initial.locked,
         None::<&str>,
     )?;
-    let settings_item =
-        MenuItem::with_id(app, MENU_ID_SETTINGS, "Settings…", true, None::<&str>)?;
+    let settings_item = MenuItem::with_id(app, MENU_ID_SETTINGS, "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, MENU_ID_QUIT, "Quit QuotaHUD", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
 
@@ -228,9 +227,7 @@ fn register_click_through_shortcut(app: &AppHandle) {
     let result =
         app.global_shortcut()
             .on_shortcut(CLICK_THROUGH_SHORTCUT, move |_app, _shortcut, event| {
-                if event.state()
-                    == tauri_plugin_global_shortcut::ShortcutState::Pressed
-                {
+                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                     apply_mutation(&app_for_handler, |s| s.click_through = !s.click_through);
                 }
             });
@@ -300,6 +297,10 @@ pub fn run() {
             commands::delete_manual_row,
             commands::get_refresh_interval,
             commands::set_refresh_interval,
+            commands::get_provider_settings,
+            commands::set_provider_enabled,
+            commands::open_provider_login_window,
+            commands::delete_provider_data,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -313,9 +314,7 @@ pub fn run() {
                     .state::<AppState>()
                     .expect_programmatic_move(moved_to);
             } else {
-                log::error!(
-                    "overlay window `{OVERLAY_WINDOW_LABEL}` missing from tauri.conf.json"
-                );
+                log::error!("overlay window `{OVERLAY_WINDOW_LABEL}` missing from tauri.conf.json");
             }
 
             build_tray(&handle, &initial)?;
@@ -328,9 +327,7 @@ pub fn run() {
             // commands will surface their own error to the frontend via the
             // missing-managed-state error.
             if let Err(err) = init_provider_runtime(&handle) {
-                log::error!(
-                    "provider runtime init failed; provider features disabled: {err}"
-                );
+                log::error!("provider runtime init failed; provider features disabled: {err}");
             }
 
             Ok(())
@@ -349,6 +346,10 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
         .path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir unavailable: {e}"))?;
+    let config_dir = handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app_config_dir unavailable: {e}"))?;
     // `Storage::open` creates the parent directory itself, so no need to
     // pre-create it here.
     let db_path = data_dir.join("providers.sqlite3");
@@ -370,5 +371,22 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
         scheduler_handle,
         interval_seconds,
     ));
+
+    // Load opt-in state for WebView-backed providers from a separate JSON
+    // file (PROJECT_SPEC §10.2). Failure to parse is non-fatal: we fall
+    // back to an in-memory empty store so the rest of the app keeps
+    // running, but the error is logged so a corrupted file is visible. The
+    // "everything off by default" semantics ensure no provider is silently
+    // re-enabled by the fallback.
+    let provider_settings_store = match provider_settings::ProviderSettingsStore::load(&config_dir)
+    {
+        Ok(store) => Arc::new(store),
+        Err(err) => {
+            log::warn!("could not load provider_settings.json; falling back to defaults: {err}");
+            Arc::new(provider_settings::ProviderSettingsStore::empty(&config_dir))
+        }
+    };
+    handle.manage(provider_settings_store);
+
     Ok(())
 }
