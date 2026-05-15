@@ -173,15 +173,21 @@ pub async fn set_provider_enabled(
 pub async fn open_provider_login_window(
     kind: ProviderKind,
     webview: tauri::State<'_, WebviewProviders>,
-    state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
     let _slug = webview_slug_for_command(kind)?;
-    let outcome = match kind {
+    match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
             // The provider's own scraper carries an `AppHandle`; reuse it
             // rather than re-deriving one so the login window shares the
-            // same session storage as the hidden refresh.
+            // same session storage as the hidden refresh. The scheduler is
+            // woken from inside the scraper's navigation callback when the
+            // login flow returns to the target origin — not here, because
+            // this command resolves the moment the window opens (well
+            // before the user has actually authenticated). Triggering at
+            // open-time would force a refresh that captures the still-
+            // logged-out state, update `last_run`, and then make the user
+            // wait out the 600 s interval for the post-login snapshot.
             let scraper = provider.attach_scraper_for_login().ok_or_else(|| {
                 AppError::Internal(
                     "WebView runtime not initialized; cannot open login window".into(),
@@ -191,24 +197,14 @@ pub async fn open_provider_login_window(
                 .open_visible_login()
                 .await
                 .map_err(|e| AppError::Internal(format!("login window failed: {e}")))?;
-            Ok::<_, AppError>(())
+            Ok(())
         }
         ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
             "Codex WebView provider is not implemented in this branch — see issue #31".into(),
         )),
         // `webview_slug_for_command` already rejects non-WebView kinds.
         _ => unreachable!("webview_slug_for_command already validated the kind"),
-    };
-    // Wake the scheduler so the first refresh after a successful login does
-    // not have to wait out the 600s minimum interval. Without this, the
-    // common "enable → see logged-out snapshot → login" flow leaves the
-    // logged-out row visible for up to ~10 min after the user finishes the
-    // login form, making the login look ineffective. We only trigger on
-    // success to avoid wasting a refresh slot on a failed open.
-    if outcome.is_ok() {
-        scheduler::trigger(&state.scheduler);
     }
-    outcome
 }
 
 #[tauri::command]

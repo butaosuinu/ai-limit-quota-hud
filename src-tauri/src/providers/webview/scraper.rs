@@ -477,6 +477,11 @@ impl WebviewScraper {
             // + supporting hosts + chained IDPs are reachable. The static
             // allow on the initial login URL arms `last_was_static`, so
             // the subsequent /login → IDP hop is permitted as a redirect.
+            // We use a separate clone of `app` for the navigation callback
+            // because the surrounding closure has already moved its own
+            // `app` by the time the callback fires.
+            let app_for_callback = app.clone();
+            let target_host_for_callback = target_host.clone();
             let builder = builder.on_navigation({
                 let target_host = target_host.clone();
                 let tracker = Arc::clone(&tracker);
@@ -485,8 +490,30 @@ impl WebviewScraper {
                     let mut guard = tracker
                         .lock()
                         .expect("login navigation tracker mutex poisoned");
-                    match guard.decide(&host, &target_host, allowlist) {
-                        NavigationDecision::Allow => true,
+                    let decision = guard.decide(&host, &target_host, allowlist);
+                    drop(guard);
+                    match decision {
+                        NavigationDecision::Allow => {
+                            // When the login flow lands back on the target
+                            // host (e.g. claude.ai/settings/usage after the
+                            // user completed authentication), nudge the
+                            // scheduler so the freshly authenticated
+                            // snapshot replaces the stale `logged-out`
+                            // row instead of waiting out the provider's
+                            // 600 s minimum refresh interval. The previous
+                            // open-time trigger captured the still-
+                            // logged-out state and was effectively
+                            // counter-productive — wiring the trigger to
+                            // the actual completion event fixes that.
+                            if host == target_host_for_callback {
+                                if let Some(state) =
+                                    app_for_callback.try_state::<crate::state::ProviderState>()
+                                {
+                                    crate::scheduler::trigger(&state.scheduler);
+                                }
+                            }
+                            true
+                        }
                         NavigationDecision::Block => {
                             log::warn!(
                                 "login window blocked navigation to disallowed host: {host}"
