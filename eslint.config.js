@@ -16,6 +16,7 @@ export default tseslint.config(
       "vitest.config.ts",
       "src-tauri/target/",
       "src-tauri/gen/",
+      "src-tauri/src/providers/webview/extractors/",
       "src/types/**/*.d.ts",
       ".claude/",
       ".mcp.json",

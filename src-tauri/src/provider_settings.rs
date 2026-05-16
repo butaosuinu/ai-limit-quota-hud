@@ -29,6 +29,11 @@ pub struct ProviderSettings {
 }
 
 impl ProviderSettings {
+    // Used by the store's own `is_enabled` and by the WebView provider PRs
+    // (#30 / #31) that gate `default_providers()` on opt-in state. The
+    // attribute prevents `-D warnings` builds from failing until those
+    // providers land.
+    #[allow(dead_code)]
     pub fn is_enabled(&self, provider_id: &str) -> bool {
         self.enabled.get(provider_id).copied().unwrap_or(false)
     }
@@ -112,6 +117,10 @@ impl ProviderSettingsStore {
             .clone()
     }
 
+    // Same rationale as `ProviderSettings::is_enabled` — exercised by tests
+    // today, called by the WebView provider PRs (#30 / #31) once those
+    // providers gate themselves on opt-in state.
+    #[allow(dead_code)]
     pub fn is_enabled(&self, provider_id: &str) -> bool {
         self.inner
             .lock()
@@ -122,23 +131,31 @@ impl ProviderSettingsStore {
     /// Persist a single enable/disable toggle. Writes the entire JSON file
     /// atomically (write-then-rename) so a crash mid-write cannot leave a
     /// half-truncated file that mass-disables every provider on next launch.
+    ///
+    /// The in-memory state is only updated **after** the disk write
+    /// succeeds. Building the next state on a clone keeps `inner` aligned
+    /// with `provider_settings.json` at all times — a write failure
+    /// (permission denied, disk full, ENOSPC) returns the error without
+    /// leaving the cache toggled, so subsequent reads in the same session
+    /// match what a fresh restart would load.
     pub fn set_enabled(
         &self,
         provider_id: &str,
         enabled: bool,
     ) -> Result<(), ProviderSettingsError> {
         let mut guard = self.inner.lock().expect("provider settings mutex poisoned");
-        guard.set_enabled(provider_id, enabled);
-        let body = serde_json::to_string_pretty(&*guard).map_err(|source| {
-            ProviderSettingsError::Parse {
+        let mut next = guard.clone();
+        next.set_enabled(provider_id, enabled);
+        let body =
+            serde_json::to_string_pretty(&next).map_err(|source| ProviderSettingsError::Parse {
                 path: self.path.clone(),
                 source,
-            }
-        })?;
+            })?;
         write_atomic(&self.path, body.as_bytes()).map_err(|source| ProviderSettingsError::Io {
             path: self.path.clone(),
             source,
         })?;
+        *guard = next;
         Ok(())
     }
 }
@@ -192,6 +209,39 @@ mod tests {
         std::fs::write(tmp.path().join("provider_settings.json"), "").unwrap();
         let store = ProviderSettingsStore::load(tmp.path()).unwrap();
         assert_eq!(store.snapshot(), ProviderSettings::default());
+    }
+
+    // Verifies the split-brain guard described on `set_enabled`:
+    // a failed atomic write must leave `inner` aligned with disk, not the
+    // would-have-been new value. Gated on Unix because `chmod`-based
+    // forcing of write failures has no portable Windows equivalent —
+    // CI covers macOS and Ubuntu, which is enough for the invariant.
+    #[cfg(unix)]
+    #[test]
+    fn set_enabled_does_not_mutate_inner_when_write_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let store = ProviderSettingsStore::load(tmp.path()).unwrap();
+
+        // Read-only parent dir → `write_atomic`'s tempfile creation fails.
+        let mut perms = std::fs::metadata(tmp.path()).unwrap().permissions();
+        perms.set_mode(0o555);
+        std::fs::set_permissions(tmp.path(), perms).unwrap();
+
+        let result = store.set_enabled("webview-claude-ai", true);
+        assert!(
+            result.is_err(),
+            "expected write failure to surface, got {result:?}"
+        );
+        assert!(
+            !store.is_enabled("webview-claude-ai"),
+            "in-memory state must not drift ahead of disk on write failure",
+        );
+
+        // Restore permissions so TempDir's Drop can clean up.
+        let mut perms = std::fs::metadata(tmp.path()).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(tmp.path(), perms).unwrap();
     }
 
     #[test]

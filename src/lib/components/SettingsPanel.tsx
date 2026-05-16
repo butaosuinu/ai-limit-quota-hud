@@ -7,6 +7,7 @@ import {
 } from "../atoms/overlayAtoms";
 import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
 import { ManualRowsPanel } from "./ManualRowsPanel";
+import { WebviewProvidersPanel } from "./WebviewProvidersPanel";
 
 const OPACITY_STEP = 0.01;
 const OPACITY_MIN = 0.15;
@@ -99,6 +100,8 @@ export function SettingsPanel() {
       </section>
 
       <ManualRowsPanel />
+
+      <WebviewProvidersPanel />
 
       <footer className="settings__footer">
         <button

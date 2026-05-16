@@ -8,6 +8,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 
 use crate::model::UsageSnapshot;
+use crate::providers::webview::claude_web::ClaudeWebProvider;
+use crate::providers::webview::codex_web::CodexWebProvider;
 use crate::scheduler::SchedulerHandle;
 use crate::storage::Storage;
 
@@ -35,6 +37,24 @@ impl ProviderState {
             latest,
             scheduler,
             refresh_interval_seconds,
+        }
+    }
+}
+
+/// Tauri-managed handle to the WebView-backed providers. Kept separate from
+/// [`ProviderState`] so the `open_provider_login_window` and
+/// `delete_provider_data` Tauri commands can resolve the right provider via
+/// `State<WebviewProviders>` without taking a lock on the snapshot list.
+pub struct WebviewProviders {
+    pub claude_web: Arc<ClaudeWebProvider>,
+    pub codex_web: Arc<CodexWebProvider>,
+}
+
+impl WebviewProviders {
+    pub fn new(claude_web: Arc<ClaudeWebProvider>, codex_web: Arc<CodexWebProvider>) -> Self {
+        Self {
+            claude_web,
+            codex_web,
         }
     }
 }

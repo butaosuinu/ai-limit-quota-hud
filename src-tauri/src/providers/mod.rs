@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use time::OffsetDateTime;
 
 use crate::model::{ProviderKind, UsageSnapshot, DEFAULT_CRITICAL_PCT, DEFAULT_WARN_PCT};
+use crate::provider_settings::ProviderSettingsStore;
 use crate::storage::Storage;
 
 pub mod anthropic_api;
@@ -91,11 +92,39 @@ impl ProviderContext {
     }
 }
 
+/// Bundle returned alongside the provider list so `lib.rs` can attach a
+/// Tauri `AppHandle` to the WebView-backed providers once the app is fully
+/// constructed. The handle isn't available when `default_providers` runs
+/// (the scheduler is spawned from inside `setup()`), so we delay binding it.
+pub struct DefaultProviders {
+    pub providers: Vec<Arc<dyn UsageProvider>>,
+    pub claude_web: Arc<webview::claude_web::ClaudeWebProvider>,
+    pub codex_web: Arc<webview::codex_web::CodexWebProvider>,
+}
+
 /// Build the default provider list. `data_dir` is the app's data directory,
 /// used by file-backed providers (Phase 3a OpenAI) to locate imported header
 /// snapshots; Phase 3b's proxy/import flow writes to the same location.
-pub fn default_providers(storage: Arc<Storage>, data_dir: &Path) -> Vec<Arc<dyn UsageProvider>> {
-    vec![
+///
+/// The WebView providers (PROJECT_SPEC §8.7) are always registered with the
+/// scheduler so they participate in the refresh loop, but their `refresh()`
+/// short-circuits to an empty `Vec` while the opt-in toggle is off. That
+/// keeps the provider order stable across enable/disable cycles and avoids
+/// having to respawn the scheduler when the user flips a toggle.
+pub fn default_providers(
+    storage: Arc<Storage>,
+    data_dir: &Path,
+    provider_settings: Arc<ProviderSettingsStore>,
+) -> DefaultProviders {
+    let claude_web = Arc::new(webview::claude_web::ClaudeWebProvider::new(
+        data_dir.to_path_buf(),
+        Arc::clone(&provider_settings),
+    ));
+    let codex_web = Arc::new(webview::codex_web::CodexWebProvider::new(
+        data_dir.to_path_buf(),
+        Arc::clone(&provider_settings),
+    ));
+    let providers: Vec<Arc<dyn UsageProvider>> = vec![
         Arc::new(manual::ManualProvider::new(storage)),
         Arc::new(openai_api::OpenAiApiProvider::new(
             openai_api::OpenAiApiProvider::default_snapshot_path(data_dir),
@@ -103,5 +132,12 @@ pub fn default_providers(storage: Arc<Storage>, data_dir: &Path) -> Vec<Arc<dyn 
         Arc::new(claude_code_local::ClaudeCodeLocalProvider::new()),
         Arc::new(anthropic_api::AnthropicApiProvider::new()),
         Arc::new(codex_local::CodexLocalProvider::new()),
-    ]
+        Arc::clone(&claude_web) as Arc<dyn UsageProvider>,
+        Arc::clone(&codex_web) as Arc<dyn UsageProvider>,
+    ];
+    DefaultProviders {
+        providers,
+        claude_web,
+        codex_web,
+    }
 }
