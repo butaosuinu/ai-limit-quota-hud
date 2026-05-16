@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useAtomValue } from "jotai";
 
 import { formatResetCountdown, nowAtom } from "../atoms/usageAtoms";
@@ -20,6 +21,10 @@ const METRIC_SHORT: Record<UsageMetric, string> = {
 };
 
 const PERCENT_BASE = 100;
+
+function clampPercent(value: number): number {
+  return Math.min(PERCENT_BASE, Math.max(0, value));
+}
 
 function formatDetail(snapshot: UsageSnapshot): string {
   if (snapshot.remainingPercent !== null) {
@@ -47,10 +52,43 @@ function formatDetail(snapshot: UsageSnapshot): string {
   return "—";
 }
 
+function barPercent(snapshot: UsageSnapshot): number | null {
+  if (snapshot.status === "no-data" || snapshot.status === "error") {
+    return null;
+  }
+  if (snapshot.remainingPercent !== null) {
+    return clampPercent(snapshot.remainingPercent);
+  }
+  if (snapshot.limit !== null && snapshot.used !== null && snapshot.limit > 0) {
+    const remaining = Math.max(0, snapshot.limit - snapshot.used);
+    return clampPercent((remaining / snapshot.limit) * PERCENT_BASE);
+  }
+  return null;
+}
+
+const UsageBar = memo(function UsageBar({
+  percent,
+}: {
+  percent: number | null;
+}) {
+  return (
+    <div className="overlay__bar" data-testid="usage-bar" aria-hidden="true">
+      {percent !== null && (
+        <div
+          className="overlay__bar-fill"
+          data-testid="usage-bar-fill"
+          style={{ width: `${percent.toString()}%` }}
+        />
+      )}
+    </div>
+  );
+});
+
 export function UsageRow({ snapshot, compact }: Props) {
   const now = useAtomValue(nowAtom);
   const reset = formatResetCountdown(snapshot.resetAt, now);
   const detail = formatDetail(snapshot);
+  const percent = barPercent(snapshot);
   return (
     <li
       className={`overlay__row overlay__row--${snapshot.status}`}
@@ -65,6 +103,7 @@ export function UsageRow({ snapshot, compact }: Props) {
         source={snapshot.source}
         message={snapshot.message}
       />
+      <UsageBar percent={percent} />
     </li>
   );
 }
