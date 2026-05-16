@@ -37,6 +37,16 @@ export type SnapshotStatus =
 
 export type ProviderKind = "webview-claude-ai" | "webview-chatgpt-codex";
 
+/** Set of provider kinds backed by an embedded WebView (PROJECT_SPEC §8). */
+export const WEBVIEW_PROVIDER_KINDS: readonly ProviderKind[] = [
+  "webview-claude-ai",
+  "webview-chatgpt-codex",
+];
+
+export function isWebviewProviderKind(kind: ProviderKind): boolean {
+  return WEBVIEW_PROVIDER_KINDS.includes(kind);
+}
+
 export type UsageMetric =
   | "requests"
   | "tokens"
@@ -75,6 +85,19 @@ export type UsageSnapshot = {
   confidence: Confidence;
   status: SnapshotStatus;
   message: string | null;
+};
+
+/** Per-provider opt-in / enable state (PROJECT_SPEC §8, §10.2). */
+export type ProviderSettings = {
+  /**
+   * Map of provider id (e.g. `"webview-claude-ai"`) to its enable flag.
+   * Missing keys default to disabled on the Rust side.
+   */
+  enabled: Record<string, boolean>;
+};
+
+export const DEFAULT_PROVIDER_SETTINGS: ProviderSettings = {
+  enabled: {},
 };
 
 export const USAGE_UPDATED_EVENT = "usage://updated";
