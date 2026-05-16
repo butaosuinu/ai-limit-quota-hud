@@ -30,7 +30,7 @@ type ProviderEntry = {
   kind: ProviderKind;
   label: string;
   description: string;
-  helpTooltip: string;
+  help: string;
   icon: ReactNode;
 };
 
@@ -40,8 +40,7 @@ const PROVIDER_ENTRIES: readonly ProviderEntry[] = [
     label: "Claude (web)",
     description:
       "claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。",
-    helpTooltip:
-      "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。",
+    help: "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。",
     icon: <SparkleIcon />,
   },
   {
@@ -49,8 +48,7 @@ const PROVIDER_ENTRIES: readonly ProviderEntry[] = [
     label: "ChatGPT Codex (web)",
     description:
       "chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示。confidence は常に low。",
-    helpTooltip:
-      "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。",
+    help: "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。",
     icon: <ChatIcon />,
   },
 ];
@@ -92,8 +90,8 @@ export function WebviewProvidersPanel() {
               testId={`webview-provider-${entry.kind}`}
               icon={entry.icon}
               title={entry.label}
-              helpTooltip={entry.helpTooltip}
               description={entry.description}
+              help={entry.help}
               accessory={
                 <>
                   <span

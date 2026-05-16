@@ -486,12 +486,6 @@ body,
   min-width: 0;
 }
 
-.row__title-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .row__title {
   font-size: 13px;
   font-weight: 500;
@@ -499,38 +493,16 @@ body,
   letter-spacing: -0.005em;
 }
 
-.row__info {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: help;
-  transition: color 120ms ease-out;
-}
-
-.row__info:hover {
-  color: var(--text-secondary);
-}
-
-.row__info:focus-visible {
-  outline: none;
-  color: var(--text-secondary);
-  box-shadow: 0 0 0 3px var(--accent-ring);
-}
-
-.row__info svg {
-  width: 11px;
-  height: 11px;
-}
-
 .row__description {
   font-size: 11.5px;
   color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.row__help {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
   line-height: 1.5;
 }
 
