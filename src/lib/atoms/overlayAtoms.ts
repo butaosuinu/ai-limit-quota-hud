@@ -9,8 +9,8 @@ import {
   type SettingsChangedPayload,
 } from "../types";
 
-const MIN_OPACITY = 0.15;
-const MAX_OPACITY = 1.0;
+export const MIN_OPACITY = 0.15;
+export const MAX_OPACITY = 1.0;
 
 export const overlaySettingsAtom = atom<OverlaySettings>(
   DEFAULT_OVERLAY_SETTINGS,
