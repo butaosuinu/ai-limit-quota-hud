@@ -4,7 +4,7 @@ type Props = {
 
 export function Kbd({ keys }: Props) {
   return (
-    <span className="kbd-cluster" aria-hidden="true">
+    <span className="kbd-cluster">
       {keys.map((key, index) => (
         <kbd key={`${key}-${index.toString()}`} className="kbd">
           {key}
