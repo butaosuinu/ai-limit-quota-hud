@@ -33,16 +33,27 @@
 
   // Labels we look for on each usage "card" — case-insensitive substrings,
   // because chatgpt.com mixes "5h session", "weekly", and friendly variants.
+  // The auto-formatter has historically dropped Japanese regex literals
+  // when collapsing these arrays to one line — keep each pattern on its
+  // own line so a future reformat can't silently lose them.
   var SESSION_LABEL_PATTERNS = [
     /5\s*h\s*session/i,
     /5-?hour\s*session/i,
     /session\s+limit/i,
     /5\s*hour/i,
+    /5時間.*使用制限/,
+    /5時間.*制限/,
+    /5時間/,
+    /セッション/,
   ];
   var WEEKLY_LABEL_PATTERNS = [
     /weekly/i,
     /per\s+week/i,
     /this\s+week/i,
+    /週あたり.*使用制限/,
+    /週あたり.*制限/,
+    /週あたり/,
+    /週間/,
   ];
 
   function emit(payload) {
@@ -101,11 +112,21 @@
       if (pathname.indexOf("/auth/login") === 0) return true;
       if (pathname.indexOf("/login") === 0) return true;
       if (pathname === "/" || pathname === "") {
-        var rootText = bodyText().toLowerCase();
+        // chatgpt.com renders the marketing root in the user's locale; the
+        // login CTA is therefore translated. Match the English forms
+        // (lower-cased body) and the most common non-English ones in their
+        // native script — toLowerCase is a no-op on those characters, so
+        // they survive the lowering step intact.
+        var rootBody = bodyText();
+        var rootText = rootBody.toLowerCase();
         if (
           rootText.indexOf("log in") !== -1 ||
           rootText.indexOf("sign up") !== -1 ||
-          rootText.indexOf("get started") !== -1
+          rootText.indexOf("get started") !== -1 ||
+          rootBody.indexOf("ログイン") !== -1 ||
+          rootBody.indexOf("サインアップ") !== -1 ||
+          rootBody.indexOf("無料で始める") !== -1 ||
+          rootBody.indexOf("アカウントを作成") !== -1
         ) {
           return true;
         }
@@ -116,104 +137,6 @@
     return false;
   }
 
-  // Find the smallest DOM container that mentions one of `patterns`
-  // (case-insensitive). The narrowest ancestor whose text still satisfies
-  // the label match is preferred — chatgpt.com often nests label + value
-  // inside the same `<section>` / `<article>` block, so the smallest one is
-  // typically the actual usage card.
-  function findCardByLabel(patterns) {
-    var bodyEl = document.body;
-    if (!bodyEl) return null;
-    var walker;
-    try {
-      walker = document.createTreeWalker(
-        bodyEl,
-        NodeFilter.SHOW_ELEMENT,
-        null,
-      );
-    } catch (e) {
-      return null;
-    }
-    var current = walker.currentNode;
-    var best = null;
-    while (current) {
-      var text = current.textContent || "";
-      if (text.length > 0 && text.length < 1200) {
-        var matched = false;
-        for (var i = 0; i < patterns.length; i += 1) {
-          if (patterns[i].test(text)) {
-            matched = true;
-            break;
-          }
-        }
-        if (matched) {
-          if (!best || text.length < (best.textContent || "").length) {
-            best = current;
-          }
-        }
-      }
-      current = walker.nextNode();
-    }
-    return best;
-  }
-
-  // Extract a percent value from a string. Returns `null` if no plausible
-  // percent is present. We accept both "85%" and "85 percent" forms.
-  function parsePercent(text) {
-    if (!text) return null;
-    var m = text.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
-    if (m) {
-      var pct = parseFloat(m[1]);
-      if (isFinite(pct) && pct >= 0 && pct <= 100) return pct;
-    }
-    var m2 = text.match(/(\d{1,3}(?:\.\d+)?)\s*percent/i);
-    if (m2) {
-      var pct2 = parseFloat(m2[1]);
-      if (isFinite(pct2) && pct2 >= 0 && pct2 <= 100) return pct2;
-    }
-    return null;
-  }
-
-  // Pull a percent out of a card. The chatgpt.com analytics page sometimes
-  // renders the *used* half of the progress bar instead of the *remaining*
-  // half. We never invert — we always emit `percentUsed` because that is
-  // what the Rust side expects, and chatgpt.com primarily displays used %.
-  // If the surrounding text mentions "remaining" / "left" rather than
-  // "used" / "consumed", we flip so we return percent-used.
-  function extractPercentFromCard(card) {
-    if (!card) return null;
-    var text = card.textContent || "";
-    var pct = parsePercent(text);
-    if (pct === null) return null;
-    // If the card explicitly says "remaining" / "left" (and not "used" /
-    // "consumed"), the number is the remaining %, so invert.
-    if (/remaining|left/i.test(text) && !/used|consumed/i.test(text)) {
-      var inverted = 100 - pct;
-      if (inverted >= 0 && inverted <= 100) return inverted;
-    }
-    return pct;
-  }
-
-  // Reset-time extraction tolerates ISO 8601 ("2026-05-16T17:00:00Z"),
-  // "in 3h 12m", "Resets in 3 hours", and "Renews May 20" style. We never
-  // invent a value — `null` is fine and surfaces sensibly as "no reset
-  // info" in the overlay.
-  function pickResetLabel(card) {
-    if (!card) return null;
-    var text = card.textContent || "";
-    // Prefer an explicit ISO timestamp if present.
-    var iso = text.match(
-      /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?/,
-    );
-    if (iso) return iso[0];
-    // Match "Resets in 3 hours", "Renews May 20", etc.
-    var m = text.match(/(?:resets?|renews?|refreshes?)\s+(?:in|at|on)?\s*([^.\n|]+)/i);
-    if (!m) return null;
-    var label = m[1].replace(/\s+/g, " ").trim();
-    if (label.length === 0 || label.length > 80) return null;
-    return label;
-  }
-
   function deriveResetAt(label) {
     if (!label) return null;
     // If the label already looks like an ISO-8601 timestamp, surface it
@@ -222,13 +145,54 @@
       /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?/,
     );
     if (iso) return iso[0];
+    // chatgpt.com's Codex Analytics card uses two locale-formatted absolute
+    // shapes: `YYYY/MM/DD HH:MM` for resets more than 24h away (the weekly
+    // window), and bare `HH:MM` for resets later today (the 5h window).
+    // Both are local-time and need to be converted to a UTC ISO string so
+    // the overlay's `formatResetCountdown` can render them consistently.
+    var ymdhm = label.match(
+      /(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})/,
+    );
+    if (ymdhm) {
+      var ymd = new Date(
+        parseInt(ymdhm[1], 10),
+        parseInt(ymdhm[2], 10) - 1,
+        parseInt(ymdhm[3], 10),
+        parseInt(ymdhm[4], 10),
+        parseInt(ymdhm[5], 10),
+      );
+      if (!isNaN(ymd.getTime())) return ymd.toISOString();
+    }
+    var hm = label.match(/^\s*(\d{1,2}):(\d{2})\s*$/);
+    if (hm) {
+      var hh = parseInt(hm[1], 10);
+      var mm = parseInt(hm[2], 10);
+      if (hh >= 0 && hh < 24 && mm >= 0 && mm < 60) {
+        var now = new Date();
+        var dt = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          hh,
+          mm,
+        );
+        // If the wall-clock time already passed today, assume it's the
+        // *next* occurrence (chatgpt.com only shows the short HH:MM form
+        // when reset is within ~24h, so this is the right default).
+        if (dt.getTime() < Date.now()) {
+          dt.setDate(dt.getDate() + 1);
+        }
+        return dt.toISOString();
+      }
+    }
     // Walk every duration component in the label and sum them. This handles
     // both the long form (`3 hours`, `12 minutes`, `2 days`) and the compact
     // form chatgpt.com tends to render (`in 3h 12m`, `2d 4h`, `45m`). Using
     // a single global regex lets us add up mixed labels — `1h 30m` becomes
     // 5400_000 ms — instead of taking only the first component the previous
     // single-match version captured.
-    var pattern = /(\d+)\s*(weeks?|w|days?|d|hours?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
+    var pattern =
+      /(\d+)\s*(weeks?|w|days?|d|hours?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
     var totalMs = 0;
     var matched = false;
     var match;
@@ -265,20 +229,124 @@
     return new Date(Date.now() + totalMs).toISOString();
   }
 
-  function rowForWindow(windowKind, patterns, sharedResetCard) {
-    var card = findCardByLabel(patterns);
-    var pct = extractPercentFromCard(card);
-    if (pct === null) return null;
-    var resetCard = card || sharedResetCard;
-    var label = pickResetLabel(resetCard);
-    var raw = (card && card.textContent) || "";
-    return {
-      windowKind: windowKind,
-      percentUsed: pct,
-      resetAt: deriveResetAt(label),
-      resetLabel: label,
-      raw: raw.slice(0, 200),
-    };
+  function diagSnippet(text) {
+    return (text || "").slice(0, 600).replace(/\s+/g, " ").trim();
+  }
+
+  function diagPath() {
+    try {
+      return (location && location.pathname) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Walk every visible percent text node and gather a few ancestors' worth
+  // of text as context for label classification. We don't need a single
+  // container that holds both label and percent — a label keyword anywhere
+  // in the climbed text is enough.
+  function collectPercentSamples() {
+    var samples = [];
+    var walker;
+    try {
+      walker = document.createTreeWalker(
+        document.body || document.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null,
+      );
+    } catch (e) {
+      return samples;
+    }
+    var node;
+    while ((node = walker.nextNode())) {
+      var nodeText = (node.nodeValue || "").trim();
+      if (nodeText.length === 0) continue;
+      var pm = nodeText.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+      if (!pm) continue;
+      var pct = parseFloat(pm[1]);
+      if (!isFinite(pct) || pct < 0 || pct > 100) continue;
+      // Climbing past depth=3 starts capturing both 5時間 and 週あたり
+      // cards in the same context, collapsing classifyContext to "unknown"
+      // — reset-time text is recovered later by `findResetForWindow`.
+      // `textContent` (not `innerText`) keeps this cheap by avoiding
+      // layout reflow inside the polling loop.
+      var ctxNode = node.parentNode;
+      var ctxLines = [];
+      var depth = 0;
+      while (ctxNode && depth < 3) {
+        var ctxText = (ctxNode.textContent || "").trim();
+        if (ctxText && ctxText.length < 400) {
+          ctxLines.push(ctxText);
+        }
+        ctxNode = ctxNode.parentNode;
+        depth += 1;
+      }
+      samples.push({ pct: pct, context: ctxLines.join(" | ") });
+    }
+    return samples;
+  }
+
+  function classifyContext(context) {
+    var i;
+    var matchesSession = false;
+    var matchesWeekly = false;
+    for (i = 0; i < SESSION_LABEL_PATTERNS.length; i += 1) {
+      if (SESSION_LABEL_PATTERNS[i].test(context)) {
+        matchesSession = true;
+        break;
+      }
+    }
+    for (i = 0; i < WEEKLY_LABEL_PATTERNS.length; i += 1) {
+      if (WEEKLY_LABEL_PATTERNS[i].test(context)) {
+        matchesWeekly = true;
+        break;
+      }
+    }
+    // Ambiguous: context mentions both window kinds — we can't tell which
+    // percent the sample belongs to, so drop it. This typically happens
+    // when the ancestor walk climbed too high and captured the whole
+    // analytics section. The caller will simply skip it.
+    if (matchesSession && matchesWeekly) return "unknown";
+    if (matchesSession) return "five-hours";
+    if (matchesWeekly) return "weekly";
+    return "unknown";
+  }
+
+  function flipIfRemaining(pct, context) {
+    var saysRemaining =
+      /remaining|left/i.test(context) || /残り|残量/.test(context);
+    var saysUsed =
+      /used|consumed/i.test(context) || /使用済|消費/.test(context);
+    if (saysRemaining && !saysUsed) {
+      var inverted = 100 - pct;
+      if (inverted >= 0 && inverted <= 100) return inverted;
+    }
+    return pct;
+  }
+
+  // Locate the reset label belonging to a specific usage card by anchoring
+  // on its header text and scanning a short region forward. The percent and
+  // the reset text live in sibling subtrees whose only common ancestor is
+  // the analytics section — at that scope `classifyContext` would see both
+  // 5時間 and 週あたり cards at once and return "unknown" for every sample,
+  // so this lookup deliberately runs at the page level instead of expanding
+  // `collectPercentSamples`'s ancestor walk.
+  function findResetForWindow(bodyTxt, windowKind) {
+    if (!bodyTxt) return null;
+    var anchor = windowKind === "weekly" ? "週あたり" : "5時間";
+    var idx = bodyTxt.indexOf(anchor);
+    if (idx === -1) return null;
+    // 240 chars covers "<label> NN% 残り リセット：…" including a long
+    // YYYY/MM/DD HH:MM stamp without drifting into the next card.
+    var region = bodyTxt.slice(idx, idx + 240);
+    // Take the FIRST リセット in the region via a single alternation — a
+    // two-pass "prefer YYYY/MM/DD" version skipped past the closer 5h
+    // HH:MM and grabbed the weekly card's longer stamp instead.
+    var m = region.match(
+      /リセット[：:]\s*(\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2})/,
+    );
+    if (m) return m[1].replace(/\s+/g, " ").trim();
+    return null;
   }
 
   function extract() {
@@ -291,17 +359,73 @@
       emit({ ok: false, kind: "logged-out" });
       return;
     }
+    var samples = collectPercentSamples();
+    var perWindow = {};
+    var bestIsMain = {};
+    var classCounts = { five: 0, weekly: 0, unknown: 0 };
+    for (var i = 0; i < samples.length; i += 1) {
+      var s = samples[i];
+      var kind = classifyContext(s.context);
+      if (kind === "five-hours") classCounts.five += 1;
+      else if (kind === "weekly") classCounts.weekly += 1;
+      else classCounts.unknown += 1;
+      if (kind === "unknown") continue;
+      // Per-model breakdown rows ("GPT-5.3-Codex-Spark 5時間の…0%") also
+      // classify as five-hours; prefer a sample whose context names the
+      // high-level "使用制限" / "limit" header so we don't surface a
+      // per-model 0%.
+      var isMain =
+        /使用制限|limit/i.test(s.context) || /per\s+week/i.test(s.context);
+      if (perWindow[kind] && (!isMain || bestIsMain[kind])) continue;
+      perWindow[kind] = {
+        windowKind: kind,
+        percentUsed: flipIfRemaining(s.pct, s.context),
+        resetAt: null,
+        resetLabel: null,
+        raw: s.context.slice(0, 200),
+      };
+      bestIsMain[kind] = isMain;
+    }
+    ["five-hours", "weekly"].forEach(function (kind) {
+      var row = perWindow[kind];
+      if (!row) return;
+      var label = findResetForWindow(text, kind);
+      if (label) {
+        row.resetLabel = label;
+        row.resetAt = deriveResetAt(label);
+      }
+    });
     var rows = [];
-    var sessionRow = rowForWindow("five-hours", SESSION_LABEL_PATTERNS, null);
-    if (sessionRow) rows.push(sessionRow);
-    var weeklyRow = rowForWindow("weekly", WEEKLY_LABEL_PATTERNS, null);
-    if (weeklyRow) rows.push(weeklyRow);
+    if (perWindow["five-hours"]) rows.push(perWindow["five-hours"]);
+    if (perWindow["weekly"]) rows.push(perWindow["weekly"]);
     if (rows.length === 0) {
       // The page may still be hydrating. Caller polls again on a delay.
+      var ctx0 =
+        samples.length > 0 ? samples[0].context.slice(0, 120) : "(none)";
       emit({
         ok: false,
         kind: "no-rows",
-        message: "no codex usage cards visible yet",
+        message:
+          "path=" +
+          diagPath() +
+          " len=" +
+          text.length +
+          " samples=" +
+          samples.length +
+          " cls=5h:" +
+          classCounts.five +
+          "/wk:" +
+          classCounts.weekly +
+          "/?:" +
+          classCounts.unknown +
+          " pw=5h:" +
+          (perWindow["five-hours"] ? "Y" : "N") +
+          "/wk:" +
+          (perWindow["weekly"] ? "Y" : "N") +
+          " head=" +
+          diagSnippet(text).slice(0, 160) +
+          " ctx0=" +
+          ctx0,
       });
       return;
     }
@@ -326,18 +450,20 @@
     if (attempts < MAX_ATTEMPTS) {
       setTimeout(tick, 700);
     } else {
-      // Retry budget exhausted without ever finding usage rows. Emit a
-      // terminal variant so the Rust side can surface a deterministic
-      // error snapshot instead of timing out at 25 s — the Rust callback
-      // treats plain `no-rows` as transient (SPA hydration race) and only
-      // forwards `no-rows-final` to the awaiter.
+      var finalText = bodyText();
       emit({
         ok: false,
         kind: "no-rows-final",
         message:
           "chatgpt.com codex usage rows did not render within " +
           MAX_ATTEMPTS +
-          " attempts",
+          " attempts (path=" +
+          diagPath() +
+          " len=" +
+          finalText.length +
+          " head=" +
+          diagSnippet(finalText) +
+          ")",
       });
     }
   }

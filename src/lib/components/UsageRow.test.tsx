@@ -129,16 +129,23 @@ describe("UsageRow", () => {
     expect(screen.getByText(/reset --:--/u)).toBeTruthy();
   });
 
-  it("renders mm:ss when resetAt is in the future", () => {
+  it("renders absolute HH:MM when resetAt is in the future", () => {
     const now = Date.UTC(2026, 4, 13, 12, 0, 0);
+    // +2 hours from `now`; in any TZ within ±10h of UTC this stays on the
+    // same calendar day, which is the regime the row's short format
+    // expects. Computing the expected label from the same Date object the
+    // component will see keeps the assertion timezone-independent.
+    const reset = new Date(now + 2 * 60 * 60 * 1000);
+    const hh = reset.getHours().toString().padStart(2, "0");
+    const mm = reset.getMinutes().toString().padStart(2, "0");
     renderWithSnapshot(
       baseSnapshot({
-        resetAt: new Date(now + 125_000).toISOString(),
+        resetAt: reset.toISOString(),
       }),
       false,
       now,
     );
-    expect(screen.getByText(/reset 2:05/u)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`reset ${hh}:${mm}`, "u"))).toBeTruthy();
   });
 
   it("shows confidence and source badges for webview rows", () => {

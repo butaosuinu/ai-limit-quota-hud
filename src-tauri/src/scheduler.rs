@@ -20,7 +20,10 @@ use crate::model::{error_snapshot, UsageSnapshot};
 use crate::providers::{Clock, ProviderContext, SystemClock, UsageProvider};
 use crate::state::USAGE_UPDATED_EVENT;
 
-const REFRESH_TIMEOUT_SECS: u64 = 15;
+// Must exceed `scraper::DEFAULT_REFRESH_TIMEOUT` (25 s) so a slow but
+// successful WebView extract isn't cancelled into a false failure that
+// triggers exponential backoff.
+const REFRESH_TIMEOUT_SECS: u64 = 30;
 const BACKOFF_CAP_SECS: u64 = 3600;
 const MAX_BACKOFF_SHIFT: u32 = 6;
 

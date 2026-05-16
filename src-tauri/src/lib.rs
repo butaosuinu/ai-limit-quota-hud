@@ -283,6 +283,14 @@ fn persist_position(app: &AppHandle, x: i32, y: i32) {
 }
 
 pub fn run() {
+    // Route `log` macros to stderr so WebView nav/extractor observations
+    // surface under `pnpm tauri dev`. `RUST_LOG` overrides the default.
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,quotahud_lib=debug"),
+    )
+    .format_timestamp_millis()
+    .try_init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![

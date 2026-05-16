@@ -44,10 +44,9 @@ pub const CLAUDE_TARGET_URL: &str = "https://claude.ai/settings/usage";
 pub const CLAUDE_LOGIN_URL: &str = "https://claude.ai/login";
 pub const CLAUDE_ACCOUNT_LABEL: &str = "Claude";
 
-/// 600 seconds default, with the 300 s floor enforced at the settings
-/// boundary (PROJECT_SPEC §8.7). The scheduler also tracks failures and will
-/// back this off exponentially on repeated extractor errors.
-pub const MIN_REFRESH_INTERVAL_SECS: u64 = 600;
+/// AGENTS.md floor (≥60 s). Scheduler backs this off exponentially on
+/// repeated extractor errors so a misbehaving page won't hammer claude.ai.
+pub const MIN_REFRESH_INTERVAL_SECS: u64 = 60;
 
 /// Static allowlist for claude.ai's web app (§14). The page renders behind
 /// Cloudflare; first-party XHR and static-asset hosts belong to Anthropic.

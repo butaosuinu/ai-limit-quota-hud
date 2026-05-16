@@ -116,19 +116,23 @@
 
   function classifyWindow(context) {
     var lower = context.toLowerCase();
-    // Claude exposes a 5-hour rolling window and a weekly window. Some plans
-    // additionally surface a separate Opus weekly cap.
+    // Opus weekly takes precedence over the bare weekly window when both
+    // keywords are present.
+    var isWeekly =
+      lower.indexOf("week") !== -1 ||
+      context.indexOf("週間") !== -1 ||
+      context.indexOf("毎週") !== -1;
+    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
     if (
       lower.indexOf("5-hour") !== -1 ||
       lower.indexOf("5 hour") !== -1 ||
-      lower.indexOf("five-hour") !== -1
+      lower.indexOf("five-hour") !== -1 ||
+      lower.indexOf("session") !== -1 ||
+      context.indexOf("セッション") !== -1
     ) {
       return "five-hours";
     }
-    if (lower.indexOf("weekly") !== -1 || lower.indexOf("week") !== -1) {
-      if (lower.indexOf("opus") !== -1) return "weekly-opus";
-      return "weekly";
-    }
+    if (isWeekly) return "weekly";
     return "unknown";
   }
 
@@ -137,29 +141,62 @@
   // the Rust side knows the observation time and can compute a reset_at if
   // needed. We just return the raw label.
   function pickResetLabel(context) {
-    // Match "Resets in 3 hours", "Resets at 5:00 PM", "Resets May 20" etc.
+    // English: "Resets in 3 hours", "Resets at 5:00 PM", "Resets May 20" etc.
     var m = context.match(/Resets?\s+(?:in|at|on)?\s*([^|]+?)(?:\s*\||$)/i);
-    if (!m) return null;
-    var label = m[1].trim();
-    if (label.length === 0 || label.length > 80) return null;
-    return label;
+    if (m) {
+      var label = m[1].trim();
+      if (label.length > 0 && label.length <= 80) return label;
+    }
+    // Japanese: "4時間17分後にリセット" — at least one numeric component
+    // is required so the optional-only group cannot match "後" alone.
+    var jp = context.match(
+      /((?:\d+\s*(?:週間?|日|時間|分)\s*)+)後(?:に|で)?(?:リセット|更新)?/,
+    );
+    if (jp && jp[1]) {
+      var jpLabel = jp[1].replace(/\s+/g, "").trim();
+      if (jpLabel.length > 0 && jpLabel.length <= 40) {
+        return jpLabel + "後";
+      }
+    }
+    return null;
   }
 
   function deriveResetAt(label) {
     if (!label) return null;
-    // Match "in <n> <unit>(s)".
+    // English form: a single "<n> <minute|hour|day|week>(s)" component is
+    // enough for the page's relative labels.
     var m = label.match(/(\d+)\s*(minute|hour|day|week)s?/i);
-    if (!m) return null;
-    var n = parseInt(m[1], 10);
-    if (!isFinite(n) || n < 0) return null;
-    var unit = m[2].toLowerCase();
-    var ms = 0;
-    if (unit === "minute") ms = n * 60 * 1000;
-    else if (unit === "hour") ms = n * 60 * 60 * 1000;
-    else if (unit === "day") ms = n * 24 * 60 * 60 * 1000;
-    else if (unit === "week") ms = n * 7 * 24 * 60 * 60 * 1000;
-    else return null;
-    return new Date(Date.now() + ms).toISOString();
+    if (m) {
+      var n = parseInt(m[1], 10);
+      if (isFinite(n) && n >= 0) {
+        var unit = m[2].toLowerCase();
+        var ms = 0;
+        if (unit === "minute") ms = n * 60 * 1000;
+        else if (unit === "hour") ms = n * 60 * 60 * 1000;
+        else if (unit === "day") ms = n * 24 * 60 * 60 * 1000;
+        else if (unit === "week") ms = n * 7 * 24 * 60 * 60 * 1000;
+        if (ms > 0) return new Date(Date.now() + ms).toISOString();
+      }
+    }
+    // Japanese form: sum every "N(週|日|時間|分)" component so "4時間17分後"
+    // resolves correctly (a single-match version would round to just 4h).
+    var jpPattern = /(\d+)\s*(週間?|日|時間|分)/g;
+    var totalMs = 0;
+    var matched = false;
+    var jp;
+    while ((jp = jpPattern.exec(label)) !== null) {
+      var jn = parseInt(jp[1], 10);
+      if (!isFinite(jn) || jn < 0) continue;
+      var jUnit = jp[2];
+      if (jUnit.indexOf("週") === 0) totalMs += jn * 7 * 24 * 60 * 60 * 1000;
+      else if (jUnit === "日") totalMs += jn * 24 * 60 * 60 * 1000;
+      else if (jUnit === "時間") totalMs += jn * 60 * 60 * 1000;
+      else if (jUnit === "分") totalMs += jn * 60 * 1000;
+      else continue;
+      matched = true;
+    }
+    if (matched) return new Date(Date.now() + totalMs).toISOString();
+    return null;
   }
 
   function dedupeByWindow(rows) {
@@ -175,6 +212,18 @@
     return out;
   }
 
+  function diagSnippet(text) {
+    return (text || "").slice(0, 150).replace(/\s+/g, " ").trim();
+  }
+
+  function diagPath() {
+    try {
+      return (location && location.pathname) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
   function extract() {
     var text = bodyText();
     if (detectCloudflareChallenge(text)) {
@@ -188,19 +237,34 @@
     var samples = collectPercentSamples();
     if (samples.length === 0) {
       // The page may still be hydrating. Caller polls again on a delay.
+      // Include diag info so the Rust-side log surfaces what the page
+      // looked like at the time the extractor gave up on this attempt.
       emit({
         ok: false,
         kind: "no-rows",
-        message: "no percent values visible yet",
+        message:
+          "path=" +
+          diagPath() +
+          " len=" +
+          text.length +
+          " head=" +
+          diagSnippet(text),
       });
       return;
     }
     var rows = [];
     for (var i = 0; i < samples.length; i++) {
       var s = samples[i];
+      var kind = classifyWindow(s.context);
+      // Drop "unknown" samples — without a window-kind keyword nearby
+      // (5-hour / weekly / opus), the percent value is almost certainly a
+      // false positive (sidebar chat titles like "100%キーボードの代替"
+      // showed up as `unknown` rows in the wild). The Rust side then
+      // treats an empty rows array as `no-rows` and retries.
+      if (kind === "unknown") continue;
       var label = pickResetLabel(s.context);
       rows.push({
-        windowKind: classifyWindow(s.context),
+        windowKind: kind,
         percentUsed: s.pct,
         resetAt: deriveResetAt(label),
         resetLabel: label,
@@ -208,6 +272,29 @@
       });
     }
     rows = dedupeByWindow(rows);
+    if (rows.length === 0) {
+      // Surface the first sample's context so the Rust-side log can show
+      // *what* the page presented as a percent (e.g. sidebar chat title vs
+      // an actual usage card whose label we don't yet recognise). Keeps
+      // the payload small enough to fit in document.title.
+      var firstCtx = samples.length > 0 ? samples[0].context.slice(0, 150) : "";
+      emit({
+        ok: false,
+        kind: "no-rows",
+        message:
+          "path=" +
+          diagPath() +
+          " len=" +
+          text.length +
+          " samples=" +
+          samples.length +
+          " head=" +
+          diagSnippet(text) +
+          " ctx0=" +
+          firstCtx,
+      });
+      return;
+    }
     emit({ ok: true, rows: rows });
   }
 
@@ -237,13 +324,20 @@
       // error snapshot instead of timing out at 25 s — the Rust callback
       // treats plain `no-rows` as transient (SPA hydration race) and only
       // forwards `no-rows-final` to the awaiter.
+      var finalText = bodyText();
       emit({
         ok: false,
         kind: "no-rows-final",
         message:
           "claude.ai usage rows did not render within " +
           MAX_ATTEMPTS +
-          " attempts",
+          " attempts (path=" +
+          diagPath() +
+          " len=" +
+          finalText.length +
+          " head=" +
+          diagSnippet(finalText) +
+          ")",
       });
     }
   }
