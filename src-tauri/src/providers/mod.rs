@@ -52,6 +52,10 @@ pub struct ProviderContext {
 }
 
 impl ProviderContext {
+    // Only called from webview provider tests (under `#[cfg(test)]`); the
+    // scheduler builds its own context inline with a test-injectable clock.
+    // The non-test lib build sees this as dead until a runtime caller appears.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             clock: Arc::new(SystemClock),
