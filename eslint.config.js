@@ -19,6 +19,7 @@ export default tseslint.config(
       "src/types/**/*.d.ts",
       ".claude/",
       ".mcp.json",
+      "vite.config.ts.timestamp-*.mjs",
     ],
   },
   js.configs.recommended,
