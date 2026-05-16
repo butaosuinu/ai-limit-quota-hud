@@ -37,16 +37,6 @@ export type SnapshotStatus =
 
 export type ProviderKind = "webview-claude-ai" | "webview-chatgpt-codex";
 
-/** Set of provider kinds backed by an embedded WebView (PROJECT_SPEC §8). */
-export const WEBVIEW_PROVIDER_KINDS: readonly ProviderKind[] = [
-  "webview-claude-ai",
-  "webview-chatgpt-codex",
-];
-
-export function isWebviewProviderKind(kind: ProviderKind): boolean {
-  return WEBVIEW_PROVIDER_KINDS.includes(kind);
-}
-
 export type UsageMetric =
   | "requests"
   | "tokens"

@@ -52,19 +52,12 @@ pub struct ProviderContext {
 }
 
 impl ProviderContext {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             clock: Arc::new(SystemClock),
             warn_pct: DEFAULT_WARN_PCT,
             critical_pct: DEFAULT_CRITICAL_PCT,
         }
-    }
-}
-
-impl Default for ProviderContext {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

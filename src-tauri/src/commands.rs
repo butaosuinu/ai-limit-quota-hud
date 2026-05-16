@@ -113,7 +113,6 @@ pub async fn open_provider_login_window(
     kind: ProviderKind,
     webview: tauri::State<'_, WebviewProviders>,
 ) -> Result<(), AppError> {
-    let _slug = webview_slug_for_command(kind)?;
     match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
@@ -164,7 +163,6 @@ pub async fn delete_provider_data(
     webview: tauri::State<'_, WebviewProviders>,
     state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
-    let _slug = webview_slug_for_command(kind)?;
     let outcome = match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
@@ -209,15 +207,14 @@ async fn delete_session_storage(
         SessionStorage::DataDirectory(path) => {
             let path = path.clone();
             tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
-                if !path.exists() {
-                    return Ok(());
-                }
-                std::fs::remove_dir_all(&path).map_err(|e| {
-                    AppError::Internal(format!(
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(e) => Err(AppError::Internal(format!(
                         "could not remove WebView data directory {}: {e}",
                         path.display()
-                    ))
-                })
+                    ))),
+                }
             })
             .await
             .map_err(|e| AppError::Internal(format!("join error: {e}")))??;
