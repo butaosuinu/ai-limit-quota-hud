@@ -14,28 +14,16 @@ Read AGENTS.md, CLAUDE.md if available, docs/PROJECT_SPEC.md, and docs/ACCEPTANC
 Implement Phase 1 from docs/PROJECT_SPEC.md. Add a transparent undecorated overlay with static sample provider rows, opacity control, compact mode, drag/lock behavior, click-through toggle, and tray/menu controls for show/hide/settings/click-through where Tauri supports it. Keep platform-specific code isolated under src-tauri/src/platform. Do not add Python or external sidecars. Add tests for settings persistence and UI/Jotai state where practical. Run lint/tests.
 ```
 
-## Phase 2 prompt — provider framework
+## Phase 2 prompt — WebView providers (opt-in)
 
 ```text
-Implement Phase 2 from docs/PROJECT_SPEC.md. Add the UsageSnapshot model, provider trait, scheduler, backend Tauri commands/events, and manual provider. The UI should render real backend snapshots and handle provider no-data/error states. Persist manual rows and overlay settings. Add Rust unit tests for model/status logic and frontend tests for row rendering and relevant Jotai atoms/derived atoms. Run lint/tests.
+Implement Phase 2 from docs/PROJECT_SPEC.md §8 / §13. Add the shared `WebviewScraper` actor under src-tauri/src/providers/webview/ plus `claude_web.rs` (https://claude.ai/settings/usage) and `codex_web.rs` (https://chatgpt.com/codex/cloud/settings/analytics). Each provider must be opt-in (default off), persist its enable flag to provider_settings.json, open a visible login window on first enable, run hidden refresh windows with platform-correct flags (data_directory on Windows/Linux; dataStoreIdentifier on macOS 14+), expose Tauri commands `open_provider_login_window` / `set_provider_enabled` / `get_provider_settings` / `delete_provider_data`, and surface every snapshot as `source=webview-scrape`, `confidence=low`. Default min_refresh_interval=600s with a floor of 300s. Cloudflare challenges and DOM-extractor null payloads must surface as row statuses, not crashes. Add unit tests against captured extractor JSON fixtures.
 ```
 
-## Phase 3 prompt — API header providers
+## Phase 3 prompt — release packaging
 
 ```text
-Implement Phase 3 from docs/PROJECT_SPEC.md. Add OpenAI and Anthropic API response-header parsers using deterministic fixtures. Do not send API requests automatically and do not consume quota. The providers may read previously observed header snapshots from local storage or a manually imported test snapshot. Missing headers should return NoData. Run Rust tests and frontend tests.
-```
-
-## Phase 4 prompt — local CLI providers
-
-```text
-Implement Phase 4 from docs/PROJECT_SPEC.md. Explore the local environment only enough to identify stable structured Claude Code and Codex CLI usage/session files. Do not read unrelated files. If stable formats are found, implement parsers with sanitized fixtures. If not, implement safe NoData providers with clear messages and TODO docs. All inferred values must be marked source=local-log or estimate and confidence=medium/low. Run tests.
-```
-
-## Phase 5 prompt — release packaging
-
-```text
-Implement Phase 5 from docs/PROJECT_SPEC.md. Add GitHub Actions CI and release workflows for macOS, Windows, and Linux. Build unsigned artifacts first. Include README sections for installation, no-Python guarantee, privacy, exact vs estimated sources, and OS-specific overlay limitations. Do not add updater until signing keys and release hosting are decided. Run local validation commands possible on this OS.
+Implement Phase 3 from docs/PROJECT_SPEC.md. Add GitHub Actions CI and release workflows for macOS, Windows, and Linux. Build unsigned artifacts first. Include README sections for installation, no-Python guarantee, privacy, the webview-scrape estimate caveat, and OS-specific overlay limitations. Do not add updater until signing keys and release hosting are decided. Run local validation commands possible on this OS.
 ```
 
 ## Debugging prompt
@@ -47,7 +35,7 @@ Investigate the failing behavior without changing code first. Read relevant file
 ## Review prompt
 
 ```text
-Review the current diff against AGENTS.md and docs/ACCEPTANCE_CHECKLIST.md. Look for Python dependencies, accidental non-React frontend framework drift, unnecessary state libraries besides Jotai, plaintext secret storage, hidden network calls, unlabeled estimates, platform-specific overlay regressions, and missing tests. Provide a prioritized issue list, then fix only the high-confidence issues.
+Review the current diff against AGENTS.md and docs/ACCEPTANCE_CHECKLIST.md. Look for Python dependencies, accidental non-React frontend framework drift, unnecessary state libraries besides Jotai, plaintext secret storage, hidden network calls, unlabeled estimates, platform-specific overlay regressions, WebView providers running outside opt-in, and missing tests. Provide a prioritized issue list, then fix only the high-confidence issues.
 ```
 
 ## Release-readiness prompt

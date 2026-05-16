@@ -1,22 +1,19 @@
 # QuotaHUD
 
-A small cross-platform desktop overlay that surfaces remaining AI usage / rate-limit headroom across multiple providers (Claude, Claude Code, OpenAI, Anthropic, Codex, …). Built with **Tauri 2 + Rust** and **React + TypeScript + Vite**.
+A small cross-platform desktop overlay that surfaces remaining AI subscription-usage headroom for **Claude (Pro/Max)** on `claude.ai` and **ChatGPT (Plus/Pro/Codex agent)** on `chatgpt.com`. Built with **Tauri 2 + Rust** and **React + TypeScript + Vite**.
 
-> Status: **Phase 1 (overlay UX) + Phase 5 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up against static sample rows. Provider integrations land in Phase 2+ (see `docs/PROJECT_SPEC.md`).
+> Status: **Phase 1 (overlay UX) + Phase 3 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up against an empty provider list. WebView providers (Phase 2) are being built next; see `docs/PROJECT_SPEC.md` §8 / §13.
 
-## What is and is not exact
+## Data source caveat
 
-QuotaHUD always labels every snapshot with a `source` and a `confidence` value so that estimates are never confused with measurements.
+QuotaHUD labels every snapshot with a `source` and a `confidence` value so estimates are never confused with measurements.
 
-| `source`                           | `confidence` | Examples                                                          | Treat as     |
-| ---------------------------------- | ------------ | ----------------------------------------------------------------- | ------------ |
-| `official-api` / `response-header` | `high`       | OpenAI / Anthropic rate-limit response headers                    | **Exact**    |
-| `local-log`                        | `medium`     | Claude Code / Codex on-disk usage files when the format is stable | Approximate  |
-| `estimate`                         | `low`        | Derived windows where reset semantics had to be inferred          | **Estimate** |
-| `manual`                           | `low`        | Rows the user typed in                                            | **Estimate** |
-| `unavailable`                      | —            | Provider configured but no reliable data yet (`NoData`)           | No claim     |
+| `source`         | `confidence` | What it is                                                                       | Treat as     |
+| ---------------- | ------------ | -------------------------------------------------------------------------------- | ------------ |
+| `webview-scrape` | `low`        | DOM extracted from the vendor's own usage page inside an opt-in WebView          | **Estimate** |
+| `unavailable`    | —            | Provider configured but no reliable data yet (`NoData` / `Error`)                | No claim     |
 
-Phase 1 still renders sample rows; nothing in the current build is a real measurement.
+All shipped providers scrape the vendor web UI — the DOM is not a stable contract, so every value is an estimate that may break when the vendor changes their layout. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
 
 ## Installation
 
@@ -90,13 +87,12 @@ No secrets live here — provider tokens go through the OS credential store in l
 
 ## Providers
 
-Phase 1 ships no provider integrations. The roadmap (see `docs/PROJECT_SPEC.md` §8) introduces them in this order:
+Phase 1 ships no provider integrations. Phase 2 (see `docs/PROJECT_SPEC.md` §8 / §13) adds two opt-in WebView providers:
 
-1. **Manual** rows (user-entered).
-2. **OpenAI / Anthropic API** providers — parse rate-limit response headers from observed traffic. No automatic quota-spending probes.
-3. **Claude Code / Codex local** providers — best-effort parsing of on-disk usage files. Returns `NoData` cleanly when no stable format is present.
+- **`webview-claude-ai`** — loads `https://claude.ai/settings/usage` inside an isolated WebView session and scrapes the visible remaining-usage figure.
+- **`webview-chatgpt-codex`** — loads `https://chatgpt.com/codex/cloud/settings/analytics` the same way.
 
-Providers can be enabled/disabled (and given account labels) from the settings panel once Phase 2 lands. Every snapshot will carry an honest `source` + `confidence` label.
+Both providers are **disabled by default**. Each one is enabled from Settings, opens a visible vendor login window on first use (QuotaHUD never renders its own login form), and refreshes via a hidden WebView at a 600s default (300s floor). Session cookies stay in the OS-native WebView cookie store; a "Delete provider data" button forces re-login. Every snapshot is `source=webview-scrape`, `confidence=low`.
 
 ## WebView providers (opt-in)
 
@@ -132,10 +128,9 @@ QuotaHUD does not require Python at any point — not at runtime, not during `pn
 ## Privacy and security
 
 - No telemetry. No automatic upload of usage data.
-- No network call on startup unless the user has configured a provider that requires it.
-- API keys and other provider secrets are stored in the OS credential store (`keyring`), never in plaintext on disk or in frontend state. (Phase 2+ feature.)
-- Local log parsers read only expected directories and file extensions.
-- Browser cookies are never read or stored in v0.
+- No network call on startup unless the user has opted into a WebView provider.
+- QuotaHUD does not handle API keys, OAuth tokens, or proxy credentials. The only persisted authentication material is the OS-native WebView cookie store for opt-in WebView providers — QuotaHUD code never reads individual cookie values, and "Delete provider data" wipes the per-provider session.
+- During the vendor login flow, redirects to well-known identity providers (Google, Apple, Microsoft, Okta, Cloudflare Access, GitHub, …) are allowed because the vendor's own auth requires them. Outside the login redirect chain, the WebView is restricted to the configured target origin.
 
 ## Roadmap / Future work
 
@@ -144,11 +139,11 @@ Tracked but **not** in this release:
 - **macOS Developer ID signing + notarization** for direct distribution (`.dmg` / `.app.tar.gz` are currently unsigned).
 - **Windows code signing** to remove SmartScreen friction on `.msi` / `.exe` artifacts.
 - **Tauri updater** for in-app updates — gated on the signing keys above and on a decision about release hosting.
-- Provider integrations (manual rows, API header parsers, local CLI parsers) — see `docs/PROJECT_SPEC.md` §13 phases 2–4.
+- WebView provider integrations (`webview-claude-ai`, `webview-chatgpt-codex`) — see `docs/PROJECT_SPEC.md` §13 Phase 2.
 
-## Reporting a parser issue
+## Reporting an extractor issue
 
-Open an issue with **sanitized** excerpts of the offending file (strip identifiers, tokens, conversation content). Do not paste raw logs.
+Open an issue with **sanitized** DOM excerpts (strip identifiers, conversation content, anything that would reveal account-specific data). Do not paste raw page dumps.
 
 ## License
 

@@ -1,11 +1,12 @@
-//! Per-provider refresh loop with exponential backoff (Phase 2).
+//! Per-provider refresh loop with exponential backoff.
 //!
-//! - Each provider has a minimum interval (defaults to 60s per AGENTS.md).
+//! - Each provider has a minimum interval (defaults to 60s per AGENTS.md;
+//!   WebView providers raise that to a 300s floor / 600s default per spec §8).
 //! - Repeated failures double the effective interval, capped at 1 hour.
 //! - A success resets the backoff for that provider.
 //! - Failures are isolated: one provider erroring out turns into an `Error`
 //!   snapshot row, never a panic or a cross-provider stall.
-//! - `trigger_tx.try_send(())` debounces manual nudges (channel capacity = 1).
+//! - `trigger_tx.try_send(())` debounces explicit triggers (channel capacity = 1).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,14 +19,13 @@ use tokio::sync::mpsc;
 use crate::model::{error_snapshot, UsageSnapshot};
 use crate::providers::{Clock, ProviderContext, SystemClock, UsageProvider};
 use crate::state::USAGE_UPDATED_EVENT;
-use crate::storage::Storage;
 
 const REFRESH_TIMEOUT_SECS: u64 = 15;
 const BACKOFF_CAP_SECS: u64 = 3600;
 const MAX_BACKOFF_SHIFT: u32 = 6;
 
 /// Handle held by the rest of the app — lets commands wake the scheduler
-/// immediately after a CRUD mutation.
+/// immediately after a settings change or explicit refresh request.
 pub struct SchedulerHandle {
     pub trigger_tx: mpsc::Sender<()>,
 }
@@ -33,7 +33,6 @@ pub struct SchedulerHandle {
 pub struct SchedulerDeps {
     pub app: AppHandle,
     pub providers: Vec<Arc<dyn UsageProvider>>,
-    pub storage: Arc<Storage>,
     pub latest: Arc<RwLock<Vec<UsageSnapshot>>>,
     /// Shared with `ProviderState::refresh_interval_seconds` so that
     /// `set_refresh_interval` is picked up on the next iteration without
@@ -57,17 +56,21 @@ async fn run_loop(
     let SchedulerDeps {
         app,
         providers,
-        storage,
         latest,
         interval_seconds,
     } = deps;
+    if providers.is_empty() {
+        // Keep the handle alive so `trigger` calls don't error out, but skip
+        // the timer loop entirely — there is nothing to refresh.
+        while trigger_rx.recv().await.is_some() {}
+        return;
+    }
     let mut state = SchedulerState::default();
     // Tick once immediately so a fresh app shows snapshots without waiting
     // 60 seconds for the first interval to elapse.
     refresh_once(
         &app,
         &providers,
-        &storage,
         &latest,
         &clock,
         &mut state,
@@ -84,8 +87,9 @@ async fn run_loop(
                 }
                 // Drain any extra triggers that arrived while we were sleeping.
                 while trigger_rx.try_recv().is_ok() {}
-                // Manual nudges (CRUD mutations) must bypass the per-provider
-                // throttle so newly written rows surface immediately.
+                // Explicit triggers (settings changes, refresh_now) must
+                // bypass the per-provider throttle so the next tick is
+                // immediate.
                 state.force_next = true;
             }
         }
@@ -93,7 +97,6 @@ async fn run_loop(
         refresh_once(
             &app,
             &providers,
-            &storage,
             &latest,
             &clock,
             &mut state,
@@ -121,7 +124,6 @@ impl SchedulerState {
 async fn refresh_once(
     app: &AppHandle,
     providers: &[Arc<dyn UsageProvider>],
-    storage: &Arc<Storage>,
     latest: &Arc<RwLock<Vec<UsageSnapshot>>>,
     clock: &Arc<dyn Clock>,
     state: &mut SchedulerState,
@@ -141,9 +143,7 @@ async fn refresh_once(
             }
         }
         let ctx = ProviderContext {
-            storage: Arc::clone(storage),
             clock: Arc::clone(clock),
-            credentials: Arc::new(crate::providers::NoopCredentialGetter),
             warn_pct: crate::model::DEFAULT_WARN_PCT,
             critical_pct: crate::model::DEFAULT_CRITICAL_PCT,
         };
@@ -229,7 +229,7 @@ fn merge_refreshed_snapshots(
         } else {
             // Carry the previous snapshots for this provider forward — by
             // filtering on `provider_root_id` we keep namespaced rows like
-            // `manual:<uuid>` grouped under their owning provider.
+            // `webview-claude-ai:<account>` grouped under their owning provider.
             next.extend(
                 prev.iter()
                     .filter(|snap| provider_root_id(&snap.provider_id) == id)
@@ -265,9 +265,9 @@ fn snapshots_equivalent(a: &[UsageSnapshot], b: &[UsageSnapshot]) -> bool {
     })
 }
 
-/// Snapshot provider IDs may be namespaced like `manual:<uuid>`. The first
-/// segment is the owning provider — used so we replace rows owned by the
-/// provider that just refreshed without disturbing other providers.
+/// Snapshot provider IDs may be namespaced like `webview-claude-ai:<account>`.
+/// The first segment is the owning provider — used so we replace rows owned
+/// by the provider that just refreshed without disturbing other providers.
 fn provider_root_id(provider_id: &str) -> &str {
     provider_id.split(':').next().unwrap_or(provider_id)
 }
@@ -321,7 +321,7 @@ mod tests {
     fn snap(provider_id: &str) -> UsageSnapshot {
         UsageSnapshot {
             provider_id: provider_id.to_string(),
-            provider_kind: ProviderKind::Manual,
+            provider_kind: ProviderKind::WebviewClaudeAi,
             account_label: provider_id.to_string(),
             window: UsageWindow::Unknown,
             metric: UsageMetric::Unknown,
@@ -331,7 +331,7 @@ mod tests {
             remaining_percent: None,
             reset_at: None,
             observed_at: "2026-05-13T12:00:00Z".into(),
-            source: UsageSource::Manual,
+            source: UsageSource::WebviewScrape,
             confidence: Confidence::Low,
             status: SnapshotStatus::Ok,
             message: None,
@@ -352,9 +352,15 @@ mod tests {
 
     #[test]
     fn provider_root_id_splits_on_colon() {
-        assert_eq!(provider_root_id("manual:abc-uuid"), "manual");
-        assert_eq!(provider_root_id("manual"), "manual");
-        assert_eq!(provider_root_id("openai-api:account"), "openai-api");
+        assert_eq!(
+            provider_root_id("webview-claude-ai:default"),
+            "webview-claude-ai"
+        );
+        assert_eq!(provider_root_id("webview-claude-ai"), "webview-claude-ai");
+        assert_eq!(
+            provider_root_id("webview-chatgpt-codex:work"),
+            "webview-chatgpt-codex"
+        );
     }
 
     #[test]
@@ -366,11 +372,11 @@ mod tests {
         let providers: Vec<Arc<dyn UsageProvider>> = vec![
             Arc::new(FakeProvider {
                 id: "a",
-                kind: ProviderKind::Manual,
+                kind: ProviderKind::WebviewClaudeAi,
             }),
             Arc::new(FakeProvider {
                 id: "b",
-                kind: ProviderKind::Manual,
+                kind: ProviderKind::WebviewChatgptCodex,
             }),
         ];
         let prev = vec![snap("a:1"), snap("a:2"), snap("b:1")];
@@ -391,11 +397,11 @@ mod tests {
         let providers: Vec<Arc<dyn UsageProvider>> = vec![
             Arc::new(FakeProvider {
                 id: "a",
-                kind: ProviderKind::Manual,
+                kind: ProviderKind::WebviewClaudeAi,
             }),
             Arc::new(FakeProvider {
                 id: "b",
-                kind: ProviderKind::Manual,
+                kind: ProviderKind::WebviewChatgptCodex,
             }),
         ];
         let prev = vec![snap("a:1"), snap("b:1"), snap("b:2")];
@@ -414,7 +420,7 @@ mod tests {
         // No entries in per_provider → all rows carried over unchanged.
         let providers: Vec<Arc<dyn UsageProvider>> = vec![Arc::new(FakeProvider {
             id: "a",
-            kind: ProviderKind::Manual,
+            kind: ProviderKind::WebviewClaudeAi,
         })];
         let prev = vec![snap("a:1"), snap("a:2")];
         let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =

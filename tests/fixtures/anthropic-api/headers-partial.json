@@ -1,8 +1,0 @@
-{
-  "anthropic-ratelimit-requests-limit": "50",
-  "anthropic-ratelimit-requests-remaining": "30",
-  "anthropic-ratelimit-requests-reset": "2026-05-14T18:00:00Z",
-  "anthropic-ratelimit-tokens-limit": "40000",
-  "anthropic-ratelimit-tokens-remaining": "25000",
-  "anthropic-ratelimit-tokens-reset": "2026-05-14T18:05:00Z"
-}

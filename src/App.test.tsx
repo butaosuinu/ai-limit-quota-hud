@@ -24,9 +24,4 @@ describe("App", () => {
     expect(screen.getByTestId("settings-root")).toBeTruthy();
     expect(screen.getByText(/QuotaHUD Settings/u)).toBeTruthy();
   });
-
-  it("includes the manual rows panel inside the settings window", () => {
-    renderApp("settings");
-    expect(screen.getByTestId("manual-rows-panel")).toBeTruthy();
-  });
 });

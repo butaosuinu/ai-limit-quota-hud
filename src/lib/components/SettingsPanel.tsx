@@ -6,7 +6,6 @@ import {
   updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
 import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
-import { ManualRowsPanel } from "./ManualRowsPanel";
 import { WebviewProvidersPanel } from "./WebviewProvidersPanel";
 
 const OPACITY_STEP = 0.01;
@@ -39,8 +38,8 @@ export function SettingsPanel() {
       <header className="settings__header">
         <h1>QuotaHUD Settings</h1>
         <p className="settings__hint">
-          overlay の外観と挙動、および manual provider の行を編集できます。API
-          プロバイダは Phase 3 以降で追加されます。
+          overlay の外観と挙動を編集できます。WebView providers (Claude /
+          ChatGPT) は opt-in で別途有効化します。
         </p>
       </header>
 
@@ -98,8 +97,6 @@ export function SettingsPanel() {
             : "(まだ未保存。overlay をドラッグすると保存されます)"}
         </p>
       </section>
-
-      <ManualRowsPanel />
 
       <WebviewProvidersPanel />
 

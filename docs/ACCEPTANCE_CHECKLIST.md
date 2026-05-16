@@ -7,7 +7,7 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] No Python dependency exists in `package.json`, `Cargo.toml`, CI, build scripts, test scripts, or docs as a required step.
 - [ ] Frontend is React + TypeScript + Vite, not Svelte/Vue/Solid.
 - [ ] Shared frontend state, if present, uses Jotai atoms/derived atoms rather than Redux/Zustand/Recoil/MobX.
-- [ ] No secrets are stored in React state or Jotai atoms.
+- [ ] No secrets are stored in React state or Jotai atoms. Session cookies live only in the OS-native WebView cookie store (see PROJECT_SPEC §10.2).
 - [ ] `pnpm install` succeeds.
 - [ ] `pnpm lint` succeeds or has a documented temporary exception.
 - [ ] `pnpm test` succeeds.
@@ -16,7 +16,6 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] `pnpm tauri build` builds on the current OS.
 - [ ] All provider results include `source` and `confidence`.
 - [ ] Provider errors are shown as row/status errors, not process crashes.
-- [ ] Secrets are not written to plaintext storage.
 - [ ] No telemetry or hidden network calls happen by default.
 
 ## Overlay behavior
@@ -56,45 +55,7 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 
 ## Provider checks
 
-### Manual provider
-
-- [ ] Add/edit/delete manual rows.
-- [ ] Manual rows persist after restart.
-- [ ] Reset countdown renders correctly.
-- [ ] `confidence` defaults to `low`.
-
-### OpenAI API provider
-
-- [ ] Header parser handles request limits.
-- [ ] Header parser handles token limits.
-- [ ] Header parser handles reset values.
-- [ ] Missing headers return `NoData`.
-- [ ] No startup probe consumes quota without explicit user action.
-
-### Anthropic API provider
-
-- [ ] Header parser handles request limits.
-- [ ] Header parser handles token limits.
-- [ ] Header parser handles input-token limits.
-- [ ] Header parser handles output-token limits.
-- [ ] Missing headers return `NoData`.
-- [ ] No startup probe consumes quota without explicit user action.
-
-### Claude Code local provider
-
-- [ ] Absence of Claude Code data returns `NoData`.
-- [ ] Malformed files do not panic.
-- [ ] Sanitized fixtures cover the parser.
-- [ ] Estimated windows are labeled as estimates.
-
-### Codex local provider
-
-- [ ] Absence of Codex data returns `NoData`.
-- [ ] Malformed files do not panic.
-- [ ] Sanitized fixtures cover the parser.
-- [ ] Estimated windows are labeled as estimates.
-
-### WebView providers (opt-in, see PROJECT_SPEC §8.7)
+### WebView providers (opt-in, see PROJECT_SPEC §8)
 
 > Status: `webview-claude-ai` provider implemented (issue #30); the
 > `webview-chatgpt-codex` provider lands in #31. The boxes below cover the
@@ -116,7 +77,7 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [x] Cookie persistence is scoped per provider using a platform-specific
       mechanism: `data_directory(app_data_dir/webview-<provider>/)` on
       Windows / Linux, and a deterministic `dataStoreIdentifier` plus
-      `WKWebsiteDataStore` on macOS (see PROJECT_SPEC §8.7). The macOS <14
+      `WKWebsiteDataStore` on macOS (see PROJECT_SPEC §8). The macOS <14
       fallback is documented as a known limitation in the README.
 - [x] A "Delete provider data" action forces re-login on the next refresh on
       every supported platform: removes `webview-<provider>/` on Windows /
@@ -164,5 +125,5 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [ ] GitHub Actions CI runs for macOS, Windows, and Linux.
 - [ ] Release workflow uploads artifacts.
 - [ ] README explains unsigned-app warnings if signing is not configured.
-- [ ] README explains exact vs estimated providers.
+- [ ] README explains that WebView snapshots are estimates (`confidence=low`).
 - [ ] README explains privacy model.

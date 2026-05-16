@@ -591,8 +591,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let settings = Arc::new(ProviderSettingsStore::load(tmp.path()).unwrap());
         let provider = CodexWebProvider::new(tmp.path().to_path_buf(), Arc::clone(&settings));
-        let storage = Arc::new(crate::storage::Storage::open_in_memory().unwrap());
-        let ctx = ProviderContext::new(storage);
+        let ctx = ProviderContext::new();
         let snaps = provider.refresh(&ctx).await.unwrap();
         assert!(snaps.is_empty(), "disabled provider must emit no rows");
     }
@@ -604,8 +603,7 @@ mod tests {
         // Flip the toggle on so the gate doesn't short-circuit.
         settings.set_enabled(CODEX_WEB_PROVIDER_ID, true).unwrap();
         let provider = CodexWebProvider::new(tmp.path().to_path_buf(), Arc::clone(&settings));
-        let storage = Arc::new(crate::storage::Storage::open_in_memory().unwrap());
-        let ctx = ProviderContext::new(storage);
+        let ctx = ProviderContext::new();
         let snaps = provider.refresh(&ctx).await.unwrap();
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].status, SnapshotStatus::NoData);

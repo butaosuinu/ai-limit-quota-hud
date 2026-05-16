@@ -8,7 +8,6 @@ import {
 } from "../api";
 import {
   DEFAULT_PROVIDER_SETTINGS,
-  isWebviewProviderKind,
   type ProviderKind,
   type ProviderSettings,
 } from "../types";
@@ -102,10 +101,8 @@ export const providerSettingsErrorAtom = atom((get) => get(stateAtom).error);
 /** Derived helper for "is this WebView provider enabled in the cache?". */
 export const isProviderEnabledAtom = atom(
   (get) =>
-    (kind: ProviderKind): boolean => {
-      if (!isWebviewProviderKind(kind)) return false;
-      return get(stateAtom).settings.enabled[kind] ?? false;
-    },
+    (kind: ProviderKind): boolean =>
+      get(stateAtom).settings.enabled[kind] ?? false,
 );
 
 /**
@@ -122,13 +119,6 @@ export const setProviderEnabledAtom = atom(
     set,
     payload: { kind: ProviderKind; enabled: boolean },
   ): Promise<void> => {
-    if (!isWebviewProviderKind(payload.kind)) {
-      set(stateAtom, (prev) => ({
-        ...prev,
-        error: `非対応の provider kind: ${payload.kind}`,
-      }));
-      return;
-    }
     const result = await setProviderEnabled(
       payload.kind,
       payload.enabled,
@@ -161,13 +151,6 @@ export const setProviderEnabledAtom = atom(
 export const openProviderLoginAtom = atom(
   null,
   async (_get, set, kind: ProviderKind): Promise<void> => {
-    if (!isWebviewProviderKind(kind)) {
-      set(stateAtom, (prev) => ({
-        ...prev,
-        error: `非対応の provider kind: ${kind}`,
-      }));
-      return;
-    }
     const result = await openProviderLoginWindow(kind).catch(
       (err: unknown): Failure =>
         failure(describeError("ログインウィンドウを開けませんでした", err)),
@@ -189,13 +172,6 @@ export const openProviderLoginAtom = atom(
 export const deleteProviderDataAtom = atom(
   null,
   async (_get, set, kind: ProviderKind): Promise<void> => {
-    if (!isWebviewProviderKind(kind)) {
-      set(stateAtom, (prev) => ({
-        ...prev,
-        error: `非対応の provider kind: ${kind}`,
-      }));
-      return;
-    }
     const result = await deleteProviderData(kind).catch(
       (err: unknown): Failure =>
         failure(describeError("プロバイダデータの削除に失敗", err)),

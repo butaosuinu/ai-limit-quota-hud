@@ -1,6 +1,7 @@
 /**
- * TypeScript mirrors of the Rust `OverlaySettings` / `Position` types.
- * The serde rename rules on the Rust side keep these in camelCase / kebab-case.
+ * TypeScript mirrors of the Rust `OverlaySettings` / `Position` /
+ * `UsageSnapshot` types. The serde rename rules on the Rust side keep these
+ * in camelCase / kebab-case.
  */
 
 export type OverlayCorner =
@@ -34,26 +35,7 @@ export type SnapshotStatus =
   | "no-data"
   | "error";
 
-export type ProviderKind =
-  | "open-ai-api"
-  | "anthropic-api"
-  | "claude-code-local"
-  | "codex-local"
-  | "manual"
-  | "webview-claude-ai"
-  | "webview-chatgpt-codex";
-
-/** Set of provider kinds backed by an embedded WebView (PROJECT_SPEC §8.7). */
-export const WEBVIEW_PROVIDER_KINDS: readonly ProviderKind[] = [
-  "webview-claude-ai",
-  "webview-chatgpt-codex",
-];
-
-export function isWebviewProviderKind(
-  kind: ProviderKind,
-): kind is "webview-claude-ai" | "webview-chatgpt-codex" {
-  return kind === "webview-claude-ai" || kind === "webview-chatgpt-codex";
-}
+export type ProviderKind = "webview-claude-ai" | "webview-chatgpt-codex";
 
 export type UsageMetric =
   | "requests"
@@ -64,14 +46,7 @@ export type UsageMetric =
   | "percent"
   | "unknown";
 
-export type UsageSource =
-  | "official-api"
-  | "response-header"
-  | "local-log"
-  | "manual"
-  | "estimate"
-  | "unavailable"
-  | "webview-scrape";
+export type UsageSource = "unavailable" | "webview-scrape";
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -102,34 +77,7 @@ export type UsageSnapshot = {
   message: string | null;
 };
 
-export type ManualRow = {
-  id: string;
-  providerLabel: string;
-  accountLabel: string;
-  window: UsageWindow;
-  metric: UsageMetric;
-  limit: number | null;
-  used: number | null;
-  remaining: number | null;
-  resetAt: string | null;
-  note: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ManualRowInput = {
-  providerLabel: string;
-  accountLabel: string;
-  window: UsageWindow;
-  metric: UsageMetric;
-  limit: number | null;
-  used: number | null;
-  remaining: number | null;
-  resetAt: string | null;
-  note: string | null;
-};
-
-/** Per-provider opt-in / enable state (PROJECT_SPEC §8.7, §10.2). */
+/** Per-provider opt-in / enable state (PROJECT_SPEC §8, §10.2). */
 export type ProviderSettings = {
   /**
    * Map of provider id (e.g. `"webview-claude-ai"`) to its enable flag.

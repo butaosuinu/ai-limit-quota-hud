@@ -33,7 +33,6 @@ pub fn provider_slug(kind: ProviderKind) -> Option<&'static str> {
     match kind {
         ProviderKind::WebviewClaudeAi => Some("webview-claude-ai"),
         ProviderKind::WebviewChatgptCodex => Some("webview-chatgpt-codex"),
-        _ => None,
     }
 }
 
@@ -166,8 +165,6 @@ mod tests {
             provider_slug(ProviderKind::WebviewChatgptCodex),
             Some("webview-chatgpt-codex")
         );
-        assert_eq!(provider_slug(ProviderKind::Manual), None);
-        assert_eq!(provider_slug(ProviderKind::OpenAiApi), None);
     }
 
     #[cfg(not(target_os = "macos"))]

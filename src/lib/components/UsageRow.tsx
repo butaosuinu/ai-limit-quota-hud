@@ -37,7 +37,7 @@ function formatDetail(snapshot: UsageSnapshot): string {
     return `${percent.toString()}%`;
   }
   // No limit / remaining derivable — fall back to raw cumulative usage so
-  // count-only estimates (e.g. Codex local sessions/24h) stay visible.
+  // count-only estimates stay visible.
   if (snapshot.used !== null) {
     const unit = METRIC_SHORT[snapshot.metric];
     return unit === ""

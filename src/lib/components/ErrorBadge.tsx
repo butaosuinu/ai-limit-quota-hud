@@ -16,11 +16,6 @@ const STATUS_LABEL: Record<SnapshotStatus, string | null> = {
 };
 
 const SOURCE_LABEL: Record<UsageSource, string> = {
-  "official-api": "official",
-  "response-header": "header",
-  "local-log": "log",
-  manual: "manual",
-  estimate: "estimate",
   unavailable: "n/a",
   // WebView-scraped sources (PROJECT_SPEC §6.3): always render with the
   // explicit label so the user sees the value comes from a vendor's web UI,
@@ -28,19 +23,12 @@ const SOURCE_LABEL: Record<UsageSource, string> = {
   "webview-scrape": "webview",
 };
 
-const SHOWN_SOURCES: ReadonlySet<UsageSource> = new Set([
-  "manual",
-  "estimate",
-  "unavailable",
-  "webview-scrape",
-]);
-
 function shouldShowConfidence(confidence: Confidence | undefined): boolean {
-  return confidence !== undefined && confidence === "low";
+  return confidence === "low";
 }
 
 function shouldShowSource(source: UsageSource | undefined): boolean {
-  return source !== undefined && SHOWN_SOURCES.has(source);
+  return source !== undefined;
 }
 
 export function ErrorBadge({ status, confidence, source, message }: Props) {

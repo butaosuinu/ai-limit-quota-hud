@@ -1,8 +1,5 @@
-//! Tauri command handlers added by Phase 2.
-//!
-//! All SQLite work runs on the blocking pool — rusqlite is synchronous and
-//! must not occupy the async runtime. Each mutation wakes the scheduler so
-//! the UI sees the change without waiting for the next refresh tick.
+//! Tauri command handlers for usage snapshots, scheduler control, and
+//! WebView provider settings (spec §8).
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -10,19 +7,16 @@ use std::sync::Arc;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::model::{ManualRow, ManualRowInput, ProviderKind, UsageSnapshot};
+use crate::model::{ProviderKind, UsageSnapshot};
 use crate::provider_settings::{ProviderSettings, ProviderSettingsError, ProviderSettingsStore};
 use crate::providers::webview::scraper::WebviewScraper;
 use crate::providers::webview::{provider_slug, SessionStorage};
 use crate::providers::DEFAULT_REFRESH_INTERVAL_SECS;
 use crate::scheduler;
 use crate::state::{ProviderState, WebviewProviders};
-use crate::storage::{Storage, StorageError};
 
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("storage error: {0}")]
-    Storage(#[from] StorageError),
     #[error("provider settings error: {0}")]
     ProviderSettings(#[from] ProviderSettingsError),
     #[error("internal error: {0}")]
@@ -33,18 +27,6 @@ impl Serialize for AppError {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_string())
     }
-}
-
-async fn run_storage<T, F>(state: &ProviderState, f: F) -> Result<T, AppError>
-where
-    T: Send + 'static,
-    F: FnOnce(&Storage) -> Result<T, StorageError> + Send + 'static,
-{
-    let storage = Arc::clone(&state.storage);
-    tauri::async_runtime::spawn_blocking(move || f(&storage))
-        .await
-        .map_err(|e| AppError::Internal(format!("join error: {e}")))?
-        .map_err(AppError::from)
 }
 
 #[tauri::command]
@@ -65,48 +47,9 @@ pub async fn refresh_now(state: tauri::State<'_, ProviderState>) -> Result<(), A
 }
 
 #[tauri::command]
-pub async fn list_manual_rows(
+pub async fn get_refresh_interval(
     state: tauri::State<'_, ProviderState>,
-) -> Result<Vec<ManualRow>, AppError> {
-    run_storage(&state, |storage| storage.list_manual_rows()).await
-}
-
-#[tauri::command]
-pub async fn create_manual_row(
-    input: ManualRowInput,
-    state: tauri::State<'_, ProviderState>,
-) -> Result<ManualRow, AppError> {
-    let row = run_storage(&state, move |storage| storage.create_manual_row(&input)).await?;
-    scheduler::trigger(&state.scheduler);
-    Ok(row)
-}
-
-#[tauri::command]
-pub async fn update_manual_row(
-    id: String,
-    input: ManualRowInput,
-    state: tauri::State<'_, ProviderState>,
-) -> Result<ManualRow, AppError> {
-    let row = run_storage(&state, move |storage| {
-        storage.update_manual_row(&id, &input)
-    })
-    .await?;
-    scheduler::trigger(&state.scheduler);
-    Ok(row)
-}
-
-#[tauri::command]
-pub async fn delete_manual_row(
-    id: String,
-    state: tauri::State<'_, ProviderState>,
-) -> Result<(), AppError> {
-    run_storage(&state, move |storage| storage.delete_manual_row(&id)).await?;
-    scheduler::trigger(&state.scheduler);
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_refresh_interval(state: tauri::State<'_, ProviderState>) -> Result<u64, AppError> {
+) -> Result<u64, AppError> {
     Ok(state.refresh_interval_seconds.load(Ordering::Relaxed))
 }
 
@@ -126,15 +69,11 @@ pub async fn set_refresh_interval(
 }
 
 // ---------------------------------------------------------------------------
-// WebView provider settings (PROJECT_SPEC §8.7).
+// WebView provider settings (PROJECT_SPEC §8).
 //
 // These commands are deliberately scoped to WebView-backed kinds. Passing any
 // other `ProviderKind` is a frontend bug, so we surface it as an error rather
-// than silently no-op'ing it. The login and delete commands are stubs in the
-// foundation PR — they validate the input and then return a clear error
-// pointing at the concrete provider PRs (#30 / #31) that wire up the real
-// behavior. This keeps the IPC surface stable so the frontend can be written
-// against the final command shape today.
+// than silently no-op'ing it.
 
 fn webview_slug_for_command(kind: ProviderKind) -> Result<&'static str, AppError> {
     provider_slug(kind).ok_or_else(|| {
@@ -174,7 +113,6 @@ pub async fn open_provider_login_window(
     kind: ProviderKind,
     webview: tauri::State<'_, WebviewProviders>,
 ) -> Result<(), AppError> {
-    let _slug = webview_slug_for_command(kind)?;
     match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
@@ -216,8 +154,6 @@ pub async fn open_provider_login_window(
                 .map_err(|e| AppError::Internal(format!("login window failed: {e}")))?;
             Ok(())
         }
-        // `webview_slug_for_command` already rejects non-WebView kinds.
-        _ => unreachable!("webview_slug_for_command already validated the kind"),
     }
 }
 
@@ -227,7 +163,6 @@ pub async fn delete_provider_data(
     webview: tauri::State<'_, WebviewProviders>,
     state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
-    let _slug = webview_slug_for_command(kind)?;
     let outcome = match kind {
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
@@ -239,7 +174,6 @@ pub async fn delete_provider_data(
             let scraper = provider.attach_scraper_for_login();
             delete_session_storage(provider.session_storage(), scraper.as_ref()).await
         }
-        _ => unreachable!("webview_slug_for_command already validated the kind"),
     };
     // Wake the scheduler so the next refresh emits the post-delete (logged-
     // out) snapshot immediately. Without this, `min_refresh_interval = 600s`
@@ -273,15 +207,14 @@ async fn delete_session_storage(
         SessionStorage::DataDirectory(path) => {
             let path = path.clone();
             tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
-                if !path.exists() {
-                    return Ok(());
-                }
-                std::fs::remove_dir_all(&path).map_err(|e| {
-                    AppError::Internal(format!(
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(e) => Err(AppError::Internal(format!(
                         "could not remove WebView data directory {}: {e}",
                         path.display()
-                    ))
-                })
+                    ))),
+                }
             })
             .await
             .map_err(|e| AppError::Internal(format!("join error: {e}")))??;

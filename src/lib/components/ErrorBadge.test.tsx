@@ -30,8 +30,10 @@ describe("ErrorBadge", () => {
     expect(screen.getByTestId("error-badge-confidence-low")).toBeTruthy();
   });
 
-  it("renders the manual source pill", () => {
-    render(<ErrorBadge status="ok" source="manual" />);
-    expect(screen.getByTestId("error-badge-source-manual")).toBeTruthy();
+  it("renders the webview source pill", () => {
+    render(<ErrorBadge status="ok" source="webview-scrape" />);
+    expect(
+      screen.getByTestId("error-badge-source-webview-scrape"),
+    ).toBeTruthy();
   });
 });
