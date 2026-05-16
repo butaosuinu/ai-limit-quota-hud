@@ -12,10 +12,11 @@ use thiserror::Error;
 
 use crate::model::{ManualRow, ManualRowInput, ProviderKind, UsageSnapshot};
 use crate::provider_settings::{ProviderSettings, ProviderSettingsError, ProviderSettingsStore};
-use crate::providers::webview::provider_slug;
+use crate::providers::webview::scraper::WebviewScraper;
+use crate::providers::webview::{provider_slug, SessionStorage};
 use crate::providers::DEFAULT_REFRESH_INTERVAL_SECS;
 use crate::scheduler;
-use crate::state::ProviderState;
+use crate::state::{ProviderState, WebviewProviders};
 use crate::storage::{Storage, StorageError};
 
 #[derive(Debug, Error)]
@@ -155,24 +156,138 @@ pub async fn set_provider_enabled(
     kind: ProviderKind,
     enabled: bool,
     store: tauri::State<'_, Arc<ProviderSettingsStore>>,
+    state: tauri::State<'_, ProviderState>,
 ) -> Result<(), AppError> {
     let slug = webview_slug_for_command(kind)?;
     store.set_enabled(slug, enabled)?;
+    // Wake the scheduler so a toggle (enable or disable) takes effect on
+    // the next tick instead of waiting out the provider's
+    // `min_refresh_interval` (600s for WebView providers). Without this,
+    // disabling could leave stale authenticated rows visible for ~10 min,
+    // and enabling could similarly delay the first snapshot.
+    scheduler::trigger(&state.scheduler);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn open_provider_login_window(kind: ProviderKind) -> Result<(), AppError> {
+pub async fn open_provider_login_window(
+    kind: ProviderKind,
+    webview: tauri::State<'_, WebviewProviders>,
+) -> Result<(), AppError> {
     let _slug = webview_slug_for_command(kind)?;
-    Err(AppError::Internal(
-        "WebView login window is not wired up yet — see issue #30 (Claude) / #31 (Codex)".into(),
-    ))
+    match kind {
+        ProviderKind::WebviewClaudeAi => {
+            let provider = Arc::clone(&webview.claude_web);
+            // The provider's own scraper carries an `AppHandle`; reuse it
+            // rather than re-deriving one so the login window shares the
+            // same session storage as the hidden refresh. The scheduler is
+            // woken from inside the scraper's navigation callback when the
+            // login flow returns to the target origin — not here, because
+            // this command resolves the moment the window opens (well
+            // before the user has actually authenticated). Triggering at
+            // open-time would force a refresh that captures the still-
+            // logged-out state, update `last_run`, and then make the user
+            // wait out the 600 s interval for the post-login snapshot.
+            let scraper = provider.attach_scraper_for_login().ok_or_else(|| {
+                AppError::Internal(
+                    "WebView runtime not initialized; cannot open login window".into(),
+                )
+            })?;
+            scraper
+                .open_visible_login()
+                .await
+                .map_err(|e| AppError::Internal(format!("login window failed: {e}")))?;
+            Ok(())
+        }
+        ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
+            "Codex WebView provider is not implemented in this branch — see issue #31".into(),
+        )),
+        // `webview_slug_for_command` already rejects non-WebView kinds.
+        _ => unreachable!("webview_slug_for_command already validated the kind"),
+    }
 }
 
 #[tauri::command]
-pub async fn delete_provider_data(kind: ProviderKind) -> Result<(), AppError> {
+pub async fn delete_provider_data(
+    kind: ProviderKind,
+    webview: tauri::State<'_, WebviewProviders>,
+    state: tauri::State<'_, ProviderState>,
+) -> Result<(), AppError> {
     let _slug = webview_slug_for_command(kind)?;
-    Err(AppError::Internal(
-        "WebView data deletion is not wired up yet — see issue #30 (Claude) / #31 (Codex)".into(),
-    ))
+    let outcome = match kind {
+        ProviderKind::WebviewClaudeAi => {
+            let provider = Arc::clone(&webview.claude_web);
+            let scraper = provider.attach_scraper_for_login();
+            delete_session_storage(provider.session_storage(), scraper.as_ref()).await
+        }
+        ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
+            "Codex WebView provider is not implemented in this branch — see issue #31".into(),
+        )),
+        _ => unreachable!("webview_slug_for_command already validated the kind"),
+    };
+    // Wake the scheduler so the next refresh emits the post-delete (logged-
+    // out) snapshot immediately. Without this, `min_refresh_interval = 600s`
+    // would leave the stale authenticated rows visible for up to ~10 min
+    // after the user clicked "Delete provider data", contradicting the
+    // "delete + re-login required" UX. Trigger only on success so a failed
+    // delete doesn't waste a refresh slot showing the still-authenticated
+    // state.
+    if outcome.is_ok() {
+        scheduler::trigger(&state.scheduler);
+    }
+    outcome
+}
+
+/// Force re-login by tearing down a provider's persistent session storage.
+///
+/// On Windows / Linux this is just an `rm -rf` of the per-provider profile
+/// directory — the next refresh will recreate it empty and the user will be
+/// forced to log in again. On macOS the `WKWebsiteDataStore` keyed by our
+/// `dataStoreIdentifier` cannot be dropped through Tauri 2's public API, so
+/// we delegate to [`WebviewScraper::clear_session_data`], which builds a
+/// transient hidden window pinned to the same store and asks the WebView to
+/// flush its cookies / cache. Either path reliably puts the next refresh
+/// back into the logged-out state — no more "UI says success but cookies
+/// remain" split.
+async fn delete_session_storage(
+    storage: &SessionStorage,
+    scraper_for_clear: Option<&WebviewScraper>,
+) -> Result<(), AppError> {
+    match storage {
+        SessionStorage::DataDirectory(path) => {
+            let path = path.clone();
+            tauri::async_runtime::spawn_blocking(move || -> Result<(), AppError> {
+                if !path.exists() {
+                    return Ok(());
+                }
+                std::fs::remove_dir_all(&path).map_err(|e| {
+                    AppError::Internal(format!(
+                        "could not remove WebView data directory {}: {e}",
+                        path.display()
+                    ))
+                })
+            })
+            .await
+            .map_err(|e| AppError::Internal(format!("join error: {e}")))??;
+            Ok(())
+        }
+        SessionStorage::DataStoreIdentifier(uuid) => {
+            let Some(scraper) = scraper_for_clear else {
+                // The scraper is attached during `init_provider_runtime`, so
+                // a missing handle here means the user toggled "Delete" before
+                // the app finished initialising. Surface it instead of
+                // silently no-op'ing — the previous version returned `Ok`
+                // here and Codex flagged the resulting split-brain (UI shows
+                // success, cookies still present).
+                return Err(AppError::Internal(format!(
+                    "cannot clear macOS WKWebsiteDataStore {uuid}: scraper has not been attached yet"
+                )));
+            };
+            scraper.clear_session_data().await.map_err(|e| {
+                AppError::Internal(format!(
+                    "failed to clear macOS WKWebsiteDataStore {uuid}: {e}"
+                ))
+            })
+        }
+    }
 }

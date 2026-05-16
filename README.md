@@ -98,6 +98,27 @@ Phase 1 ships no provider integrations. The roadmap (see `docs/PROJECT_SPEC.md` 
 
 Providers can be enabled/disabled (and given account labels) from the settings panel once Phase 2 lands. Every snapshot will carry an honest `source` + `confidence` label.
 
+## WebView providers (opt-in)
+
+Starting in v1 QuotaHUD supports **opt-in** WebView-backed providers that read each vendor's own usage page directly in an embedded Tauri WebView. These providers are **disabled by default**: nothing navigates out to the network until you toggle them on in **Settings → WebView プロバイダ**.
+
+- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans). Implemented in this build (`webview-claude-ai`).
+- **ChatGPT Codex (web)** — reads `chatgpt.com` Codex analytics. Backend lands separately ([issue #31](https://github.com/butaosuinu/ai-limit-quota-hud/issues/31)); the UI toggle is present but the Tauri commands return an error today.
+
+All WebView snapshots are labeled `source = webview-scrape`, `confidence = low`. The DOM contract of a third-party web app is **not** a stable interface — when the page layout changes the extractor falls back to `Error` or `NoData` instead of guessing.
+
+**Hard rules (see `docs/PROJECT_SPEC.md` §8.7):**
+
+- Refresh interval has a 600 s default and a 300 s floor — we do not poll vendor sites more often than that.
+- The hidden refresh window has `visible=false`, `focused=false`, `decorations=false`, `resizable=false`. On Windows / Linux it also has `skip_taskbar=true`; on macOS the AppKit `NSWindow` has no per-window taskbar concept, so `visible=false` is sufficient.
+- Tauri's internal IPC (`__TAURI__`) is **not** exposed on `claude.ai`. The extractor JS reports its result via `document.title` only; QuotaHUD never reads keystrokes, passwords, or individual cookies.
+
+### Known limitations
+
+- **macOS WKWebView session deletion is best-effort.** Tauri 2 / Wry expose `data_store_identifier([u8; 16])` for per-provider session isolation, but they do **not** expose a public API to remove a `WKWebsiteDataStore` after the fact. The **Delete provider data** button on macOS therefore logs a warning and relies on the next refresh tick to call `clear_all_browsing_data` on the in-process WebView. On macOS 13 and older the per-`dataStoreIdentifier` store is non-persistent across launches — that is documented here so users do not assume "Delete data" wipes a cookie store they cannot otherwise see. On Windows / Linux the action simply `rm -rf`'s the per-provider `webview-<provider>/` directory under the app data directory.
+- **Cloudflare challenges interrupt refresh.** When claude.ai serves a "Verify you are human" interstitial we surface `SnapshotStatus::Error` rather than trying to bypass it. Open claude.ai in a normal browser to clear the challenge, then trigger a refresh from the overlay.
+- **Login session expiry.** If the cookie store has aged out, the next refresh surfaces `SnapshotStatus::NoData` ("session expired"). Use **Settings → WebView プロバイダ → ログイン** to re-authenticate in a visible window.
+
 ## OS-specific overlay limitations
 
 - **macOS**: transparent overlay relies on Tauri's `macOSPrivateApi: true`. Acceptable for direct binary distribution; not Mac App Store-friendly. The Phase 1 native hook asks AppKit to join every Space and stay above full-screen apps (`NSWindowCollectionBehavior::CanJoinAllSpaces | Stationary | FullScreenAuxiliary`).

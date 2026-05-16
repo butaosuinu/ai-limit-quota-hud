@@ -1,8 +1,3 @@
-// These helpers are exercised by their unit tests and by the WebView
-// provider PRs that follow (#30 / #31). They are deliberately landed in
-// this foundation PR so the data model + IPC surface can stabilize first.
-#![allow(dead_code)]
-
 //! Shared scaffolding for WebView-backed providers (PROJECT_SPEC §8.7).
 //!
 //! Concrete providers live in sibling modules (`claude_web`, `codex_web` —
@@ -25,6 +20,9 @@ use std::path::{Path, PathBuf};
 
 use crate::model::ProviderKind;
 
+pub mod claude_web;
+pub mod scraper;
+
 /// Slug used as the provider identifier (matches the `ProviderKind` serde
 /// kebab form) and as the on-disk directory / dataStoreIdentifier seed.
 ///
@@ -46,6 +44,12 @@ pub fn provider_slug(kind: ProviderKind) -> Option<&'static str> {
 /// `WKWebsiteDataStore` keyed by a stable `dataStoreIdentifier`. We derive
 /// the identifier deterministically (UUIDv5 over the slug) so it survives
 /// app restarts.
+// The two variants are platform-exclusive: `DataDirectory` is only
+// constructed on Windows / Linux, `DataStoreIdentifier` only on macOS. From
+// the compiler's POV one of them is always dead on a given target — silence
+// the warning rather than fragmenting the enum behind cfg flags (which
+// would force every consumer to match on the wrong shape per platform).
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionStorage {
     /// Windows / Linux: dedicated on-disk profile directory.
