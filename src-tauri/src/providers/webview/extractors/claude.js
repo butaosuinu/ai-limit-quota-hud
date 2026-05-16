@@ -126,13 +126,14 @@
       lower.indexOf("five-hour") !== -1 ||
       lower.indexOf("session") !== -1 ||
       context.indexOf("セッション") !== -1;
-    // The Opus weekly card mentions Opus + weekly but not session, so the
-    // weekly-opus check is safe before the ambiguity guard.
-    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
-    // When the ancestor walk captures both cards (5h + weekly siblings
-    // sharing a parent), classification is ambiguous — drop the sample
-    // instead of forcing a `five-hours` answer that hides the weekly row.
+    // Ambiguity comes first — when the ancestor walk captures both cards
+    // (5h + weekly siblings sharing a parent, including the Opus weekly
+    // variant) classification is unsafe in every direction: returning
+    // `five-hours` would hide the weekly row, returning `weekly-opus`
+    // when only Opus happens to be present in the joined context would
+    // mislabel a 5h sample. Drop the sample and retry instead.
     if (isWeekly && isSession) return "unknown";
+    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
     if (isSession) return "five-hours";
     if (isWeekly) return "weekly";
     return "unknown";

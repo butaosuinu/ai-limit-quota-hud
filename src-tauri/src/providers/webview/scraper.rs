@@ -158,6 +158,21 @@ pub enum ScraperError {
     BlockedNavigation(String),
 }
 
+/// Decide whether a hostless top-level navigation (no `host_str`) should be
+/// allowed through the WebView. Only inert internal schemes (`about:`,
+/// `data:`, `blob:`) pass; `javascript:` / `file:` / unknown schemes are
+/// blocked and logged so they can't bypass the host allowlist via an
+/// empty-host shortcut.
+fn permit_hostless_scheme(scheme: &str, window_label: &str) -> bool {
+    if matches!(scheme, "about" | "data" | "blob") {
+        return true;
+    }
+    log::warn!(
+        "webview blocked hostless navigation window={window_label} scheme={scheme}"
+    );
+    false
+}
+
 /// Parse a `document.title` value emitted by an extractor JS. Returns `None`
 /// when the title does not carry the `QHJSON:` prefix (the page's own title,
 /// not our payload).
@@ -498,11 +513,8 @@ impl WebviewScraper {
                 let tracker = Arc::clone(&tracker);
                 move |url| {
                     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
-                    // about:blank / data: / blob: have no host and don't
-                    // egress, so let them through without touching the
-                    // allowlist — same guard as in the hidden-window cb.
                     if host.is_empty() {
-                        return true;
+                        return permit_hostless_scheme(url.scheme(), &login_slug);
                     }
                     let mut guard = tracker
                         .lock()
@@ -732,12 +744,8 @@ impl WebviewScraper {
                 let tracker = Arc::clone(&tracker_nav);
                 move |url| {
                     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
-                    // Hostless URLs (about:blank, data:, blob:, javascript:)
-                    // are internal WebView preloads / iframe shims; egress
-                    // enforcement is meaningless for them and would only
-                    // generate BLOCK noise.
                     if host.is_empty() {
-                        return true;
+                        return permit_hostless_scheme(url.scheme(), &nav_label);
                     }
                     let mut guard = tracker
                         .lock()
@@ -1082,5 +1090,24 @@ mod tests {
     fn data_directory_for_data_store_identifier_returns_none() {
         let storage = SessionStorage::DataStoreIdentifier(uuid::Uuid::from_bytes([0u8; 16]));
         assert_eq!(data_directory_for(&storage), None);
+    }
+
+    #[test]
+    fn permit_hostless_scheme_admits_inert_internal_schemes() {
+        assert!(permit_hostless_scheme("about", "test"));
+        assert!(permit_hostless_scheme("data", "test"));
+        assert!(permit_hostless_scheme("blob", "test"));
+    }
+
+    #[test]
+    fn permit_hostless_scheme_blocks_unsafe_schemes() {
+        // `javascript:` could execute attacker-controlled code in the
+        // scraper context, `file:` could exfiltrate local content — both
+        // appear as hostless top-level navigations and must not bypass
+        // the host allowlist via the empty-host shortcut.
+        assert!(!permit_hostless_scheme("javascript", "test"));
+        assert!(!permit_hostless_scheme("file", "test"));
+        assert!(!permit_hostless_scheme("ftp", "test"));
+        assert!(!permit_hostless_scheme("", "test"));
     }
 }
