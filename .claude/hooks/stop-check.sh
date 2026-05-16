@@ -28,7 +28,15 @@ run() {
 run lint       pnpm lint
 run typecheck  pnpm typecheck
 run test       pnpm test
-run cargo      cargo test --manifest-path src-tauri/Cargo.toml
+# tauri::generate_context!() validates frontendDist (../dist) at compile time, so
+# cargo test needs the bundle present. Build on demand; skip when already there.
+run cargo      bash -c '
+  set -e
+  if [ ! -f dist/index.html ]; then
+    pnpm exec vite build
+  fi
+  cargo test --manifest-path src-tauri/Cargo.toml
+'
 
 FAILED=0
 SUMMARY=""
