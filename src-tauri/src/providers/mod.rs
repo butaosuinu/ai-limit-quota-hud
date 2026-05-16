@@ -99,6 +99,7 @@ impl ProviderContext {
 pub struct DefaultProviders {
     pub providers: Vec<Arc<dyn UsageProvider>>,
     pub claude_web: Arc<webview::claude_web::ClaudeWebProvider>,
+    pub codex_web: Arc<webview::codex_web::CodexWebProvider>,
 }
 
 /// Build the default provider list. `data_dir` is the app's data directory,
@@ -119,6 +120,10 @@ pub fn default_providers(
         data_dir.to_path_buf(),
         Arc::clone(&provider_settings),
     ));
+    let codex_web = Arc::new(webview::codex_web::CodexWebProvider::new(
+        data_dir.to_path_buf(),
+        Arc::clone(&provider_settings),
+    ));
     let providers: Vec<Arc<dyn UsageProvider>> = vec![
         Arc::new(manual::ManualProvider::new(storage)),
         Arc::new(openai_api::OpenAiApiProvider::new(
@@ -128,9 +133,11 @@ pub fn default_providers(
         Arc::new(anthropic_api::AnthropicApiProvider::new()),
         Arc::new(codex_local::CodexLocalProvider::new()),
         Arc::clone(&claude_web) as Arc<dyn UsageProvider>,
+        Arc::clone(&codex_web) as Arc<dyn UsageProvider>,
     ];
     DefaultProviders {
         providers,
         claude_web,
+        codex_web,
     }
 }

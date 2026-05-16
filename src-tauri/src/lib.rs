@@ -377,6 +377,7 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     let providers::DefaultProviders {
         providers,
         claude_web,
+        codex_web,
     } = providers::default_providers(
         Arc::clone(&storage),
         &data_dir,
@@ -387,7 +388,11 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     // first scheduler tick (run immediately) sees an initialized scraper
     // if the user has already enabled the provider on a previous launch.
     claude_web.attach_app(handle.clone());
-    handle.manage(state::WebviewProviders::new(Arc::clone(&claude_web)));
+    codex_web.attach_app(handle.clone());
+    handle.manage(state::WebviewProviders::new(
+        Arc::clone(&claude_web),
+        Arc::clone(&codex_web),
+    ));
 
     let scheduler_handle = scheduler::spawn(scheduler::SchedulerDeps {
         app: handle.clone(),

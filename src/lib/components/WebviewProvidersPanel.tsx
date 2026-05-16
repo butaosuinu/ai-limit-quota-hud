@@ -49,7 +49,7 @@ const PROVIDER_ENTRIES: readonly ProviderEntry[] = [
     description:
       "chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示します。confidence は常に low です。",
     helpTooltip:
-      "Codex provider は現在 Rust 側未実装 (issue #31)。ログイン/削除ボタンはエラーを返します。",
+      "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『プロバイダのデータを削除』でいつでもクリアできます。",
   },
 ];
 
