@@ -116,22 +116,24 @@
 
   function classifyWindow(context) {
     var lower = context.toLowerCase();
-    // Opus weekly takes precedence over the bare weekly window when both
-    // keywords are present.
     var isWeekly =
       lower.indexOf("week") !== -1 ||
       context.indexOf("週間") !== -1 ||
       context.indexOf("毎週") !== -1;
-    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
-    if (
+    var isSession =
       lower.indexOf("5-hour") !== -1 ||
       lower.indexOf("5 hour") !== -1 ||
       lower.indexOf("five-hour") !== -1 ||
       lower.indexOf("session") !== -1 ||
-      context.indexOf("セッション") !== -1
-    ) {
-      return "five-hours";
-    }
+      context.indexOf("セッション") !== -1;
+    // The Opus weekly card mentions Opus + weekly but not session, so the
+    // weekly-opus check is safe before the ambiguity guard.
+    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
+    // When the ancestor walk captures both cards (5h + weekly siblings
+    // sharing a parent), classification is ambiguous — drop the sample
+    // instead of forcing a `five-hours` answer that hides the weekly row.
+    if (isWeekly && isSession) return "unknown";
+    if (isSession) return "five-hours";
     if (isWeekly) return "weekly";
     return "unknown";
   }

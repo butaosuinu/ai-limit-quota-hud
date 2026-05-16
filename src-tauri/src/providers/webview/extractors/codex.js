@@ -333,42 +333,44 @@
   // `collectPercentSamples`'s ancestor walk.
   function findResetForWindow(bodyTxt, windowKind) {
     if (!bodyTxt) return null;
-    // Anchors covering both locales chatgpt.com is known to render. The
-    // first hit wins so order matters only for ambiguous documents;
-    // Japanese is listed first because that's the default chatgpt.com
-    // returns on Pro accounts. Non-ASCII anchors are case-sensitive
-    // (toLowerCase is a no-op on them anyway); ASCII anchors fold via
-    // `bodyLower`.
+    // Anchors covering both locales chatgpt.com is known to render.
+    // Japanese first because that's the default on Pro accounts; ASCII
+    // anchors fold via `bodyLower` so they match regardless of casing.
     var anchors =
       windowKind === "weekly"
         ? ["週あたり", "weekly", "per week"]
         : ["5時間", "5h session", "5-hour session", "session limit", "5 hour"];
     var bodyLower = bodyTxt.toLowerCase();
+    // Japanese リセット first via a single alternation so the FIRST one in
+    // a region wins. A two-pass "prefer YYYY/MM/DD" version skipped past a
+    // closer 5h HH:MM and grabbed the weekly card's longer stamp instead.
+    var JP =
+      /リセット[：:]\s*(\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2})/;
+    var EN = /(?:resets?|renews?|refreshes?)\s+(?:in|at|on)?\s*([^.\n|]+)/i;
     for (var ai = 0; ai < anchors.length; ai += 1) {
       var anchor = anchors[ai];
       var anchorIsAscii = anchor.charCodeAt(0) < 128;
-      var idx = anchorIsAscii
-        ? bodyLower.indexOf(anchor)
-        : bodyTxt.indexOf(anchor);
-      if (idx === -1) continue;
-      // 240 chars covers "<label> NN% 残り リセット：…" (and the English
-      // "Resets in 3h 12m" form) without drifting into the next card.
-      var region = bodyTxt.slice(idx, idx + 240);
-      // Japanese first via a single alternation so the FIRST リセット in
-      // the region wins. A two-pass "prefer YYYY/MM/DD" version skipped
-      // past the closer 5h HH:MM and grabbed the weekly card's longer
-      // stamp instead.
-      var jp = region.match(
-        /リセット[：:]\s*(\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2})/,
-      );
-      if (jp) return jp[1].replace(/\s+/g, " ").trim();
-      // English: "Resets in 3h 12m", "Renews May 20", "Refreshes at 7:00 PM".
-      var en = region.match(
-        /(?:resets?|renews?|refreshes?)\s+(?:in|at|on)?\s*([^.\n|]+)/i,
-      );
-      if (en) {
-        var enLabel = en[1].replace(/\s+/g, " ").trim();
-        if (enLabel.length > 0 && enLabel.length <= 80) return enLabel;
+      var searchIn = anchorIsAscii ? bodyLower : bodyTxt;
+      // Iterate every occurrence — per-model breakdown rows (e.g.
+      // "GPT-5.3-Codex-Spark 5時間") can precede the main usage card, and
+      // their region never contains a リセット, so the first indexOf would
+      // otherwise return null and hide the real reset label sitting later
+      // in the document.
+      var pos = 0;
+      while (pos < searchIn.length) {
+        var idx = searchIn.indexOf(anchor, pos);
+        if (idx === -1) break;
+        // 240 chars covers "<label> NN% 残り リセット：…" plus the long
+        // YYYY/MM/DD HH:MM stamp without drifting into the next card.
+        var region = bodyTxt.slice(idx, idx + 240);
+        var jp = region.match(JP);
+        if (jp) return jp[1].replace(/\s+/g, " ").trim();
+        var en = region.match(EN);
+        if (en) {
+          var enLabel = en[1].replace(/\s+/g, " ").trim();
+          if (enLabel.length > 0 && enLabel.length <= 80) return enLabel;
+        }
+        pos = idx + anchor.length;
       }
     }
     return null;
