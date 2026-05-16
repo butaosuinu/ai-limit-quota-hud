@@ -86,11 +86,25 @@
   }
 
   function detectLoggedOut() {
-    // The /auth/login redirect changes the URL; also a visible "Log in" CTA
-    // tends to surface on the settings page when the session has expired.
+    // chatgpt.com's unauthenticated handling for `/codex/cloud/settings/analytics`
+    // isn't a clean redirect to `/auth/login` — the server frequently lands
+    // the user on the root `/` with a login modal instead. We treat any of
+    // the following as "logged out so the user must re-authenticate":
+    //
+    // 1. URL pathname is `/auth/login` or `/login` (explicit redirect).
+    // 2. URL pathname is not the analytics target (i.e. the navigation was
+    //    silently bounced — the page should be `/codex/cloud/settings/...`).
+    // 3. A `/auth/login` anchor is visible in the rendered page (the inline
+    //    login CTA the marketing root renders).
     if (location && typeof location.pathname === "string") {
-      if (location.pathname.indexOf("/auth/login") === 0) return true;
-      if (location.pathname.indexOf("/login") === 0) return true;
+      var pathname = location.pathname;
+      if (pathname.indexOf("/auth/login") === 0) return true;
+      if (pathname.indexOf("/login") === 0) return true;
+      // Anything that isn't the analytics route is considered an unauth
+      // redirect. The target path begins with `/codex/cloud/settings/`; the
+      // ChatGPT root `/`, marketing pages, and any other landing fall
+      // through to this branch and signal a logged-out state.
+      if (pathname.indexOf("/codex/cloud/settings/") !== 0) return true;
     }
     var anchors = document.querySelectorAll('a[href*="/auth/login"]');
     if (anchors && anchors.length > 0) return true;
