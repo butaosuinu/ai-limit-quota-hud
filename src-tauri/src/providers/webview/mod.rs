@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use crate::model::ProviderKind;
 
 pub mod claude_web;
+pub mod codex_web;
 pub mod scraper;
 
 /// Slug used as the provider identifier (matches the `ProviderKind` serde

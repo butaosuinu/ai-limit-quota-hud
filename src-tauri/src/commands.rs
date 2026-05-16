@@ -199,9 +199,23 @@ pub async fn open_provider_login_window(
                 .map_err(|e| AppError::Internal(format!("login window failed: {e}")))?;
             Ok(())
         }
-        ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
-            "Codex WebView provider is not implemented in this branch — see issue #31".into(),
-        )),
+        ProviderKind::WebviewChatgptCodex => {
+            let provider = Arc::clone(&webview.codex_web);
+            // Mirror the Claude branch: reuse the provider's own scraper so
+            // the visible login window shares the same `SessionStorage` as
+            // the hidden refresh, and avoid triggering the scheduler here
+            // (it would race the still-logged-out state into `last_run`).
+            let scraper = provider.attach_scraper_for_login().ok_or_else(|| {
+                AppError::Internal(
+                    "WebView runtime not initialized; cannot open login window".into(),
+                )
+            })?;
+            scraper
+                .open_visible_login()
+                .await
+                .map_err(|e| AppError::Internal(format!("login window failed: {e}")))?;
+            Ok(())
+        }
         // `webview_slug_for_command` already rejects non-WebView kinds.
         _ => unreachable!("webview_slug_for_command already validated the kind"),
     }
@@ -220,9 +234,11 @@ pub async fn delete_provider_data(
             let scraper = provider.attach_scraper_for_login();
             delete_session_storage(provider.session_storage(), scraper.as_ref()).await
         }
-        ProviderKind::WebviewChatgptCodex => Err(AppError::Internal(
-            "Codex WebView provider is not implemented in this branch — see issue #31".into(),
-        )),
+        ProviderKind::WebviewChatgptCodex => {
+            let provider = Arc::clone(&webview.codex_web);
+            let scraper = provider.attach_scraper_for_login();
+            delete_session_storage(provider.session_storage(), scraper.as_ref()).await
+        }
         _ => unreachable!("webview_slug_for_command already validated the kind"),
     };
     // Wake the scheduler so the next refresh emits the post-delete (logged-
