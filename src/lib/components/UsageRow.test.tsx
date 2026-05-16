@@ -160,4 +160,77 @@ describe("UsageRow", () => {
     const group = container.querySelector(".error-badge-group");
     expect(group?.getAttribute("title")).toBe("provider unavailable: timeout");
   });
+
+  it("renders a usage bar whose fill width matches remainingPercent for ok rows", () => {
+    renderWithSnapshot(baseSnapshot());
+    const fill = screen.getByTestId("usage-bar-fill");
+    expect(fill.style.width).toBe("75%");
+  });
+
+  it("draws the bar fill under a critical row with the matching width", () => {
+    renderWithSnapshot(
+      baseSnapshot({
+        providerId: "webview-claude-ai:crit",
+        remainingPercent: 5,
+        status: "critical",
+      }),
+    );
+    const row = screen.getByTestId("usage-row-webview-claude-ai:crit");
+    expect(row.className.includes("overlay__row--critical")).toBe(true);
+    const fill = screen.getByTestId("usage-bar-fill");
+    expect(fill.style.width).toBe("5%");
+    expect(row.contains(fill)).toBe(true);
+  });
+
+  it("derives bar width from limit/used when remainingPercent is missing", () => {
+    renderWithSnapshot(
+      baseSnapshot({
+        remainingPercent: null,
+        limit: 40,
+        used: 10,
+      }),
+    );
+    const fill = screen.getByTestId("usage-bar-fill");
+    expect(fill.style.width).toBe("75%");
+  });
+
+  it("renders an empty track without a fill for no-data rows", () => {
+    renderWithSnapshot(
+      baseSnapshot({
+        remainingPercent: null,
+        remaining: null,
+        used: null,
+        limit: null,
+        status: "no-data",
+        message: "no data yet",
+      }),
+    );
+    expect(screen.getByTestId("usage-bar")).toBeTruthy();
+    expect(screen.queryByTestId("usage-bar-fill")).toBeNull();
+  });
+
+  it("renders the bar in compact mode", () => {
+    renderWithSnapshot(baseSnapshot(), true);
+    expect(screen.getByTestId("usage-bar")).toBeTruthy();
+    expect(screen.getByTestId("usage-bar-fill")).toBeTruthy();
+  });
+
+  it("clamps remainingPercent above 100 to a full bar", () => {
+    renderWithSnapshot(
+      baseSnapshot({
+        remainingPercent: 142,
+      }),
+    );
+    const fill = screen.getByTestId("usage-bar-fill");
+    expect(fill.style.width).toBe("100%");
+  });
+
+  it("renders row children flat without a row-main wrapper (subgrid alignment)", () => {
+    const { container } = renderWithSnapshot(baseSnapshot());
+    expect(container.querySelector(".overlay__row-main")).toBeNull();
+    const row = screen.getByTestId("usage-row-webview-claude-ai:default");
+    expect(row.querySelector(":scope > .overlay__row-label")).not.toBeNull();
+    expect(row.querySelector(":scope > .overlay__row-detail")).not.toBeNull();
+    expect(row.querySelector(":scope > .overlay__bar")).not.toBeNull();
+  });
 });

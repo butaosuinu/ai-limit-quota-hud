@@ -42,7 +42,7 @@ use crate::providers::{ProviderContext, UsageProvider};
 pub const CLAUDE_WEB_PROVIDER_ID: &str = "webview-claude-ai";
 pub const CLAUDE_TARGET_URL: &str = "https://claude.ai/settings/usage";
 pub const CLAUDE_LOGIN_URL: &str = "https://claude.ai/login";
-pub const CLAUDE_ACCOUNT_LABEL: &str = "Claude (web)";
+pub const CLAUDE_ACCOUNT_LABEL: &str = "Claude";
 
 /// 600 seconds default, with the 300 s floor enforced at the settings
 /// boundary (PROJECT_SPEC §8.7). The scheduler also tracks failures and will
@@ -202,9 +202,9 @@ fn classify_window(window_kind: Option<&str>) -> UsageWindow {
 
 fn account_label_for_window(window_kind: Option<&str>) -> String {
     match window_kind {
-        Some("weekly-opus") => format!("{CLAUDE_ACCOUNT_LABEL} (Opus weekly)"),
-        Some("weekly") => format!("{CLAUDE_ACCOUNT_LABEL} (weekly)"),
-        Some("five-hours") => format!("{CLAUDE_ACCOUNT_LABEL} (5h)"),
+        Some("weekly-opus") => format!("{CLAUDE_ACCOUNT_LABEL} Opus wk"),
+        Some("weekly") => format!("{CLAUDE_ACCOUNT_LABEL} weekly"),
+        Some("five-hours") => format!("{CLAUDE_ACCOUNT_LABEL} 5h"),
         _ => CLAUDE_ACCOUNT_LABEL.to_string(),
     }
 }
@@ -373,17 +373,17 @@ mod tests {
     fn account_label_distinguishes_windows() {
         assert_eq!(
             account_label_for_window(Some("five-hours")),
-            "Claude (web) (5h)"
+            "Claude 5h"
         );
         assert_eq!(
             account_label_for_window(Some("weekly")),
-            "Claude (web) (weekly)"
+            "Claude weekly"
         );
         assert_eq!(
             account_label_for_window(Some("weekly-opus")),
-            "Claude (web) (Opus weekly)"
+            "Claude Opus wk"
         );
-        assert_eq!(account_label_for_window(None), "Claude (web)");
+        assert_eq!(account_label_for_window(None), "Claude");
     }
 
     #[test]

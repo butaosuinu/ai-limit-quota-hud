@@ -44,7 +44,7 @@ use crate::providers::{ProviderContext, UsageProvider};
 pub const CODEX_WEB_PROVIDER_ID: &str = "webview-chatgpt-codex";
 pub const CODEX_TARGET_URL: &str = "https://chatgpt.com/codex/cloud/settings/analytics";
 pub const CODEX_LOGIN_URL: &str = "https://chatgpt.com/auth/login";
-pub const CODEX_ACCOUNT_LABEL: &str = "Codex (web)";
+pub const CODEX_ACCOUNT_LABEL: &str = "Codex";
 
 /// 600 seconds default, with the 300 s floor enforced at the settings
 /// boundary (PROJECT_SPEC §8.7). The scheduler also tracks failures and will
@@ -207,8 +207,8 @@ fn classify_window(window_kind: Option<&str>) -> UsageWindow {
 
 fn account_label_for_window(window_kind: Option<&str>) -> String {
     match window_kind {
-        Some("weekly") => format!("{CODEX_ACCOUNT_LABEL} (weekly)"),
-        Some("five-hours") => format!("{CODEX_ACCOUNT_LABEL} (5h)"),
+        Some("weekly") => format!("{CODEX_ACCOUNT_LABEL} weekly"),
+        Some("five-hours") => format!("{CODEX_ACCOUNT_LABEL} 5h"),
         _ => CODEX_ACCOUNT_LABEL.to_string(),
     }
 }
@@ -381,14 +381,14 @@ mod tests {
     fn account_label_distinguishes_windows() {
         assert_eq!(
             account_label_for_window(Some("five-hours")),
-            "Codex (web) (5h)"
+            "Codex 5h"
         );
         assert_eq!(
             account_label_for_window(Some("weekly")),
-            "Codex (web) (weekly)"
+            "Codex weekly"
         );
-        assert_eq!(account_label_for_window(None), "Codex (web)");
-        assert_eq!(account_label_for_window(Some("mystery")), "Codex (web)");
+        assert_eq!(account_label_for_window(None), "Codex");
+        assert_eq!(account_label_for_window(Some("mystery")), "Codex");
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
         assert_eq!(snap.status, SnapshotStatus::Ok);
         assert!(snap.message.as_deref().unwrap().contains("resets"));
         assert_eq!(snap.provider_id, "webview-chatgpt-codex:five-hours");
-        assert_eq!(snap.account_label, "Codex (web) (5h)");
+        assert_eq!(snap.account_label, "Codex 5h");
     }
 
     #[test]
@@ -453,7 +453,7 @@ mod tests {
         let snap = snapshot_from_row(row, &now_fixture());
         assert_eq!(snap.window, UsageWindow::Unknown);
         assert_eq!(snap.provider_id, "webview-chatgpt-codex:unknown");
-        assert_eq!(snap.account_label, "Codex (web)");
+        assert_eq!(snap.account_label, "Codex");
     }
 
     #[test]
@@ -567,8 +567,8 @@ mod tests {
         // 12% remaining → Warning.
         assert_eq!(snaps[1].remaining_percent, Some(12.0));
         assert_eq!(snaps[1].status, SnapshotStatus::Warning);
-        assert_eq!(snaps[0].account_label, "Codex (web) (5h)");
-        assert_eq!(snaps[1].account_label, "Codex (web) (weekly)");
+        assert_eq!(snaps[0].account_label, "Codex 5h");
+        assert_eq!(snaps[1].account_label, "Codex weekly");
     }
 
     #[test]
