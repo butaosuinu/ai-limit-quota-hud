@@ -21,3 +21,8 @@ yarn-error.log*
 
 # Claude Code: ローカル上書き設定のみ ignore。settings.json と hooks/ は共有する。
 .claude/settings.local.json
+
+# global gitignore に "Icon" (macOS Finder custom icon) ルールがあり、case-insensitive FS で
+# tools/icon/ ディレクトリ全体が誤って ignore されるため明示的に un-ignore する。
+!tools/icon/
+!tools/icon/**
