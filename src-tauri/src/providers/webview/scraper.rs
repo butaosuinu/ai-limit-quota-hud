@@ -158,6 +158,22 @@ pub enum ScraperError {
     BlockedNavigation(String),
 }
 
+/// Render an extractor payload as a privacy-safe one-liner — counts and
+/// kinds only, never the raw row text. Used for info-level logging so
+/// scraped page content (sidebar chat titles, error messages, etc.) only
+/// reaches the log stream when the operator opts in at `debug`.
+fn payload_summary(parsed: &Option<Result<ScraperPayload, String>>) -> String {
+    match parsed {
+        Some(Ok(ScraperPayload::Ok { rows })) => {
+            let n = rows.as_array().map(|a| a.len()).unwrap_or(0);
+            format!("ok rows={n}")
+        }
+        Some(Ok(ScraperPayload::Err { kind, .. })) => format!("err kind={kind:?}"),
+        Some(Err(_)) => "parse-error".into(),
+        None => "no-prefix".into(),
+    }
+}
+
 /// Decide whether a hostless top-level navigation (no `host_str`) should be
 /// allowed through the WebView. Only inert internal schemes (`about:`,
 /// `data:`, `blob:`) pass; `javascript:` / `file:` / unknown schemes are
@@ -776,6 +792,12 @@ impl WebviewScraper {
             // the extractor emits and retries during SPA hydration —
             // resolving on that would race the retry and false-error the
             // snapshot. The outer `tokio::time::timeout` bounds the wait.
+            //
+            // Logging is split by level to keep scraped page content out of
+            // default `info` logs: info-level only emits a privacy-safe
+            // summary (`ok rows=N` / `err kind=…`), while the full payload
+            // — which embeds `raw` / `head` / `ctx0` page snippets — is
+            // gated on `debug`.
             let title_label = label_clone.clone();
             let builder = builder.on_document_title_changed({
                 let tx_slot = Arc::clone(&tx_slot_clone);
@@ -783,26 +805,32 @@ impl WebviewScraper {
                     if !title.starts_with(TITLE_PREFIX) {
                         return;
                     }
+                    let parsed = parse_title_payload(&title);
                     let is_transient_no_rows = matches!(
-                        parse_title_payload(&title),
+                        parsed,
                         Some(Ok(ScraperPayload::Err {
                             kind: ScraperErrorKind::NoRows,
                             ..
                         }))
                     );
+                    if log::log_enabled!(log::Level::Debug) {
+                        let label = if is_transient_no_rows {
+                            "extractor title (transient no-rows)"
+                        } else {
+                            "extractor title"
+                        };
+                        log::debug!(
+                            "{label} window={title_label} payload={}",
+                            title.chars().take(500).collect::<String>()
+                        );
+                    }
                     if is_transient_no_rows {
-                        if log::log_enabled!(log::Level::Debug) {
-                            log::debug!(
-                                "extractor title (transient no-rows) window={title_label} payload={}",
-                                title.chars().take(500).collect::<String>()
-                            );
-                        }
                         return;
                     }
                     if log::log_enabled!(log::Level::Info) {
                         log::info!(
-                            "extractor title window={title_label} payload={}",
-                            title.chars().take(500).collect::<String>()
+                            "extractor result window={title_label} {}",
+                            payload_summary(&parsed)
                         );
                     }
                     let mut slot = tx_slot
@@ -1097,6 +1125,36 @@ mod tests {
         assert!(permit_hostless_scheme("about", "test"));
         assert!(permit_hostless_scheme("data", "test"));
         assert!(permit_hostless_scheme("blob", "test"));
+    }
+
+    #[test]
+    fn payload_summary_redacts_row_text() {
+        // The summary must never echo the raw row contents (chat-sidebar
+        // text on Claude, model-breakdown labels on Codex). Only counts /
+        // kinds may surface in info-level logs.
+        let parsed = parse_title_payload(&format!(
+            "{TITLE_PREFIX}{{\"ok\":true,\"rows\":[{{\"raw\":\"100%キーボード\"}},{{\"raw\":\"another secret\"}}]}}"
+        ));
+        let summary = payload_summary(&parsed);
+        assert_eq!(summary, "ok rows=2");
+        assert!(!summary.contains("キーボード"));
+        assert!(!summary.contains("secret"));
+    }
+
+    #[test]
+    fn payload_summary_surfaces_error_kind_without_message() {
+        let parsed = parse_title_payload(&format!(
+            "{TITLE_PREFIX}{{\"ok\":false,\"kind\":\"logged-out\",\"message\":\"some private path\"}}"
+        ));
+        let summary = payload_summary(&parsed);
+        assert!(summary.starts_with("err kind="));
+        assert!(!summary.contains("private path"));
+    }
+
+    #[test]
+    fn payload_summary_handles_unparseable_input() {
+        assert_eq!(payload_summary(&Some(Err("bad json".into()))), "parse-error");
+        assert_eq!(payload_summary(&None), "no-prefix");
     }
 
     #[test]

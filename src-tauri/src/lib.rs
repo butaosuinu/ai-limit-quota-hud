@@ -283,10 +283,12 @@ fn persist_position(app: &AppHandle, x: i32, y: i32) {
 }
 
 pub fn run() {
-    // Route `log` macros to stderr so WebView nav/extractor observations
-    // surface under `pnpm tauri dev`. `RUST_LOG` overrides the default.
+    // Route `log` macros to stderr. The default stays at `info` so release
+    // binaries don't accidentally include scraped page content (which only
+    // appears at `debug`); developers opt in via `RUST_LOG=debug` or
+    // `RUST_LOG=quotahud_lib=debug`.
     let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info,quotahud_lib=debug"),
+        env_logger::Env::default().default_filter_or("info"),
     )
     .format_timestamp_millis()
     .try_init();
