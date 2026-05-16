@@ -86,25 +86,30 @@
   }
 
   function detectLoggedOut() {
-    // chatgpt.com's unauthenticated handling for `/codex/cloud/settings/analytics`
-    // isn't a clean redirect to `/auth/login` — the server frequently lands
-    // the user on the root `/` with a login modal instead. We treat any of
-    // the following as "logged out so the user must re-authenticate":
+    // Layered signals for "session expired / user must re-authenticate":
     //
-    // 1. URL pathname is `/auth/login` or `/login` (explicit redirect).
-    // 2. URL pathname is not the analytics target (i.e. the navigation was
-    //    silently bounced — the page should be `/codex/cloud/settings/...`).
-    // 3. A `/auth/login` anchor is visible in the rendered page (the inline
-    //    login CTA the marketing root renders).
+    // 1. Explicit redirect to a login route (`/auth/login`, `/login`).
+    // 2. ChatGPT root bounce: unauth requests to the analytics page often
+    //    don't redirect cleanly — they land on `/` with the marketing /
+    //    login modal page. Only treat the *root* pathname as logged-out
+    //    (and only when the marketing-side login CTA is visible) so we
+    //    don't misclassify other authenticated routes — e.g. a future
+    //    `/codex/settings/...` move would be a route change, not a logout.
+    // 3. A `/auth/login` anchor is visible (the marketing root renders it).
     if (location && typeof location.pathname === "string") {
       var pathname = location.pathname;
       if (pathname.indexOf("/auth/login") === 0) return true;
       if (pathname.indexOf("/login") === 0) return true;
-      // Anything that isn't the analytics route is considered an unauth
-      // redirect. The target path begins with `/codex/cloud/settings/`; the
-      // ChatGPT root `/`, marketing pages, and any other landing fall
-      // through to this branch and signal a logged-out state.
-      if (pathname.indexOf("/codex/cloud/settings/") !== 0) return true;
+      if (pathname === "/" || pathname === "") {
+        var rootText = bodyText().toLowerCase();
+        if (
+          rootText.indexOf("log in") !== -1 ||
+          rootText.indexOf("sign up") !== -1 ||
+          rootText.indexOf("get started") !== -1
+        ) {
+          return true;
+        }
+      }
     }
     var anchors = document.querySelectorAll('a[href*="/auth/login"]');
     if (anchors && anchors.length > 0) return true;
@@ -217,19 +222,47 @@
       /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?/,
     );
     if (iso) return iso[0];
-    // Match "in <n> <unit>(s)" or just "<n> <unit>(s)".
-    var m = label.match(/(\d+)\s*(minute|hour|day|week)s?/i);
-    if (!m) return null;
-    var n = parseInt(m[1], 10);
-    if (!isFinite(n) || n < 0) return null;
-    var unit = m[2].toLowerCase();
-    var ms = 0;
-    if (unit === "minute") ms = n * 60 * 1000;
-    else if (unit === "hour") ms = n * 60 * 60 * 1000;
-    else if (unit === "day") ms = n * 24 * 60 * 60 * 1000;
-    else if (unit === "week") ms = n * 7 * 24 * 60 * 60 * 1000;
-    else return null;
-    return new Date(Date.now() + ms).toISOString();
+    // Walk every duration component in the label and sum them. This handles
+    // both the long form (`3 hours`, `12 minutes`, `2 days`) and the compact
+    // form chatgpt.com tends to render (`in 3h 12m`, `2d 4h`, `45m`). Using
+    // a single global regex lets us add up mixed labels — `1h 30m` becomes
+    // 5400_000 ms — instead of taking only the first component the previous
+    // single-match version captured.
+    var pattern = /(\d+)\s*(weeks?|w|days?|d|hours?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
+    var totalMs = 0;
+    var matched = false;
+    var match;
+    while ((match = pattern.exec(label)) !== null) {
+      var n = parseInt(match[1], 10);
+      if (!isFinite(n) || n < 0) continue;
+      var unit = match[2].toLowerCase();
+      if (unit === "w" || unit.indexOf("week") === 0) {
+        totalMs += n * 7 * 24 * 60 * 60 * 1000;
+      } else if (unit === "d" || unit.indexOf("day") === 0) {
+        totalMs += n * 24 * 60 * 60 * 1000;
+      } else if (unit === "h" || unit.indexOf("hour") === 0) {
+        totalMs += n * 60 * 60 * 1000;
+      } else if (
+        unit === "m" ||
+        unit === "min" ||
+        unit === "mins" ||
+        unit.indexOf("minute") === 0
+      ) {
+        totalMs += n * 60 * 1000;
+      } else if (
+        unit === "s" ||
+        unit === "sec" ||
+        unit === "secs" ||
+        unit.indexOf("second") === 0
+      ) {
+        totalMs += n * 1000;
+      } else {
+        continue;
+      }
+      matched = true;
+    }
+    if (!matched) return null;
+    return new Date(Date.now() + totalMs).toISOString();
   }
 
   function rowForWindow(windowKind, patterns, sharedResetCard) {
