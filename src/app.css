@@ -4,6 +4,9 @@
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   color: #f5f5f5;
+  --status-ok: #9be7a4;
+  --status-warning: #f5d27a;
+  --status-critical: #f08a8a;
 }
 
 html,
@@ -53,15 +56,17 @@ body,
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  row-gap: 4px;
+  column-gap: 10px;
 }
 
 .overlay__row {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
-  gap: 10px;
+  grid-template-columns: subgrid;
+  row-gap: 4px;
   align-items: baseline;
   font-variant-numeric: tabular-nums;
 }
@@ -71,7 +76,7 @@ body,
 }
 
 .overlay__row-detail {
-  color: #9be7a4;
+  color: var(--status-ok);
 }
 
 .overlay__row-reset {
@@ -80,16 +85,45 @@ body,
 }
 
 .overlay__row--warning .overlay__row-detail {
-  color: #f5d27a;
+  color: var(--status-warning);
 }
 
 .overlay__row--critical .overlay__row-detail {
-  color: #f08a8a;
+  color: var(--status-critical);
 }
 
 .overlay__row--no-data .overlay__row-detail,
 .overlay__row--error .overlay__row-detail {
   color: rgba(245, 245, 245, 0.4);
+}
+
+.overlay__bar {
+  grid-column: 1 / -1;
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(245, 245, 245, 0.08);
+  overflow: hidden;
+}
+
+.overlay__bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--status-ok);
+  transition: width 120ms linear;
+}
+
+.overlay__row--warning .overlay__bar-fill {
+  background: var(--status-warning);
+}
+
+.overlay__row--critical .overlay__bar-fill {
+  background: var(--status-critical);
+}
+
+.overlay--compact .overlay__bar {
+  height: 3px;
 }
 
 .overlay__footer {
