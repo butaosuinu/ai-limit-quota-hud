@@ -104,9 +104,18 @@ export const USAGE_UPDATED_EVENT = "usage://updated";
 
 export const OVERLAY_SETTINGS_CHANGED_EVENT = "overlay://settings-changed";
 
+export const UPDATER_STATUS_EVENT = "updater://status";
+
 export type SettingsChangedPayload = {
   settings: OverlaySettings;
 };
+
+/** Mirrors `UpdateStatusPayload` on the Rust side (camelCase + status tag). */
+export type UpdateStatusPayload =
+  | { status: "checking" }
+  | { status: "noUpdate" }
+  | { status: "available"; version: string; notes: string }
+  | { status: "error"; message: string };
 
 export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   opacity: 0.72,

@@ -1,12 +1,13 @@
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { atom } from "jotai";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 
 import { i18n } from "../i18n";
+import { UPDATER_STATUS_EVENT, type UpdateStatusPayload } from "../types";
 
 /**
  * Tauri 2 auto-updater bridge.
@@ -28,75 +29,82 @@ export type UpdateStatus =
   | { kind: "ready" }
   | { kind: "error"; message: string };
 
-/** Mirrors `UpdateStatusPayload` on the Rust side (camelCase + status tag). */
-type BackendStatusPayload =
-  | { status: "checking" }
-  | { status: "noUpdate" }
-  | { status: "available"; version: string; notes: string }
-  | { status: "error"; message: string };
-
-export const UPDATER_STATUS_EVENT = "updater://status";
-
 export const updateStatusAtom = atom<UpdateStatus>({ kind: "idle" });
 export const currentVersionAtom = atom<string | null>(null);
 
-type StatusSetter = (next: UpdateStatus) => void;
+type Lifecycle = {
+  cancelled: boolean;
+  unlisten: (() => void) | null;
+};
+
+type StatusUpdater = UpdateStatus | ((prev: UpdateStatus) => UpdateStatus);
+type StatusSetter = (next: StatusUpdater) => void;
 
 updateStatusAtom.onMount = (set: StatusSetter) => {
-  let unlisten: UnlistenFn | null = null;
-  let cancelled = false;
-
-  void (async () => {
-    const off = await listen<BackendStatusPayload>(
-      UPDATER_STATUS_EVENT,
-      (event) => {
-        applyBackendStatus(set, event.payload);
-      },
-    ).catch(() => null);
-    if (off === null) return;
-    if (cancelled) off();
-    else unlisten = off;
-  })();
-
+  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
+  void subscribeToBackendStatus(set, lifecycle);
   return () => {
-    cancelled = true;
-    if (unlisten !== null) unlisten();
+    lifecycle.cancelled = true;
+    if (lifecycle.unlisten !== null) lifecycle.unlisten();
   };
 };
 
-function applyBackendStatus(
+async function subscribeToBackendStatus(
   set: StatusSetter,
-  payload: BackendStatusPayload,
-): void {
-  if (payload.status === "checking") {
-    set({ kind: "checking" });
+  lifecycle: Lifecycle,
+): Promise<void> {
+  const unlisten = await listen<UpdateStatusPayload>(
+    UPDATER_STATUS_EVENT,
+    (event) => {
+      set((prev) => nextStatusFromBackend(prev, event.payload));
+    },
+  ).catch(() => null);
+  if (unlisten === null) return;
+  if (lifecycle.cancelled) {
+    unlisten();
     return;
   }
-  if (payload.status === "noUpdate") {
-    set({ kind: "idle" });
-    return;
-  }
-  if (payload.status === "available") {
-    set({
-      kind: "available",
-      version: payload.version,
-      notes: payload.notes,
-    });
-    return;
-  }
-  set({ kind: "error", message: payload.message });
+  lifecycle.unlisten = unlisten;
 }
 
-type VersionSetter = (next: string | null) => void;
+function nextStatusFromBackend(
+  prev: UpdateStatus,
+  payload: UpdateStatusPayload,
+): UpdateStatus {
+  switch (payload.status) {
+    case "checking":
+      return prev.kind === "checking" ? prev : { kind: "checking" };
+    case "noUpdate":
+      return prev.kind === "idle" ? prev : { kind: "idle" };
+    case "available":
+      return {
+        kind: "available",
+        version: payload.version,
+        notes: payload.notes,
+      };
+    case "error":
+      return { kind: "error", message: payload.message };
+  }
+}
 
-currentVersionAtom.onMount = (set: VersionSetter) => {
-  let cancelled = false;
+// Cache across mounts: the bundled version is immutable for the app's
+// lifetime, so each remount of UpdatesPanel shouldn't re-issue the IPC.
+let cachedVersion: string | null = null;
+
+currentVersionAtom.onMount = (set: (next: string | null) => void) => {
+  if (cachedVersion !== null) {
+    set(cachedVersion);
+    return;
+  }
+  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
   void (async () => {
     const v = await getVersion().catch(() => null);
-    if (!cancelled && v !== null) set(v);
+    if (lifecycle.cancelled || v === null) return;
+    cachedVersion = v;
+    set(v);
   })();
   return () => {
-    cancelled = true;
+    lifecycle.cancelled = true;
   };
 };
 
@@ -156,10 +164,31 @@ export const checkForUpdatesAtom = atom(null, async (_get, set) => {
  * Download + install the pending update. The plugin emits `Started`,
  * `Progress`, `Finished` events; we surface `Progress` as a running byte
  * count and `Finished` as `ready` (which unlocks the relaunch button).
+ *
+ * When the `available` status was published by the Rust startup check, the
+ * `Update` resource lives in the backend's plugin instance, not in the
+ * frontend's `pendingUpdateAtom`. Re-run `check()` to materialize it here
+ * before kicking off the download.
  */
 export const downloadAndInstallAtom = atom(null, async (get, set) => {
-  const update = get(pendingUpdateAtom);
-  if (update === null) return;
+  let update = get(pendingUpdateAtom);
+  if (update === null) {
+    const recheck = await check().catch(
+      (err: unknown): Failure =>
+        failure(describeError(MSG.downloadFailed, err)),
+    );
+    if (isFailure(recheck)) {
+      set(updateStatusAtom, { kind: "error", message: recheck.message });
+      return;
+    }
+    if (recheck === null) {
+      set(updateStatusAtom, { kind: "idle" });
+      return;
+    }
+    update = recheck;
+    set(pendingUpdateAtom, recheck);
+  }
+
   set(updateStatusAtom, { kind: "downloading", progress: 0 });
   let downloaded = 0;
   const result = await update

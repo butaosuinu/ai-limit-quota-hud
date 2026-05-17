@@ -48,8 +48,7 @@ async function mountUpdatesPanel(initialStatus: UpdateStatus) {
 
 afterEach(() => {
   resetInvoke();
-  vi.mocked(check).mockReset();
-  vi.mocked(check).mockResolvedValue(null);
+  vi.mocked(check).mockClear();
 });
 
 describe("UpdatesPanel — renders by status kind", () => {

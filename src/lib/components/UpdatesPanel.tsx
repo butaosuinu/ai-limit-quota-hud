@@ -9,6 +9,7 @@ import {
   updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
 import {
+  type UpdateStatus,
   checkForUpdatesAtom,
   currentVersionAtom,
   downloadAndInstallAtom,
@@ -20,7 +21,7 @@ import { ToggleSwitch } from "./ToggleSwitch";
 import { DownloadIcon, InfoIcon, ResetIcon } from "./icons";
 
 /**
- * Auto-updater section of the settings panel (Wave 2).
+ * Auto-updater section of the settings panel.
  *
  * Section layout / chip styling mirrors `WebviewProvidersPanel`. State is
  * driven entirely by `updateStatusAtom`: the action buttons collapse to no-ops
@@ -75,14 +76,12 @@ export function UpdatesPanel() {
           description={_(msg`最新リリースを GitHub から取得してチェックします`)}
           accessory={
             <>
-              {chip !== null && (
-                <span
-                  className={chip.className}
-                  data-testid="updates-status-chip"
-                >
-                  {chip.label}
-                </span>
-              )}
+              <span
+                className={chip.className}
+                data-testid="updates-status-chip"
+              >
+                {chip.label}
+              </span>
               <button
                 type="button"
                 className="btn btn--primary"
@@ -188,47 +187,21 @@ export function UpdatesPanel() {
   );
 }
 
-type Chip = { className: string; label: string };
+type Chip = { className: string; label: MessageDescriptor };
+
+const CHIP_BY_KIND: Record<UpdateStatus["kind"], Chip> = {
+  idle: { className: "chip chip--off", label: msg`待機中` },
+  checking: { className: "chip chip--off", label: msg`確認中…` },
+  available: { className: "chip chip--on", label: msg`利用可能` },
+  downloading: { className: "chip chip--off", label: msg`ダウンロード中` },
+  ready: { className: "chip chip--on", label: msg`再起動が必要` },
+  error: { className: "chip chip--off", label: msg`エラー` },
+};
 
 function renderChip(
-  status: { kind: string },
+  status: UpdateStatus,
   translate: (descriptor: MessageDescriptor) => string,
-): Chip | null {
-  if (status.kind === "idle") {
-    return {
-      className: "chip chip--off",
-      label: translate(msg`待機中`),
-    };
-  }
-  if (status.kind === "checking") {
-    return {
-      className: "chip chip--off",
-      label: translate(msg`確認中…`),
-    };
-  }
-  if (status.kind === "available") {
-    return {
-      className: "chip chip--on",
-      label: translate(msg`利用可能`),
-    };
-  }
-  if (status.kind === "downloading") {
-    return {
-      className: "chip chip--off",
-      label: translate(msg`ダウンロード中`),
-    };
-  }
-  if (status.kind === "ready") {
-    return {
-      className: "chip chip--on",
-      label: translate(msg`再起動が必要`),
-    };
-  }
-  if (status.kind === "error") {
-    return {
-      className: "chip chip--off",
-      label: translate(msg`エラー`),
-    };
-  }
-  return null;
+): { className: string; label: string } {
+  const chip = CHIP_BY_KIND[status.kind];
+  return { className: chip.className, label: translate(chip.label) };
 }
