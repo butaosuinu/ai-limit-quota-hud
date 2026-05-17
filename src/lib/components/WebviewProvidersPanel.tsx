@@ -1,3 +1,7 @@
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
+import { Trans } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { ReactNode } from "react";
 
@@ -29,8 +33,8 @@ import { ChatIcon, LoginIcon, SparkleIcon, TrashIcon } from "./icons";
 type ProviderEntry = {
   kind: ProviderKind;
   label: string;
-  description: string;
-  help: string;
+  description: MessageDescriptor;
+  help: MessageDescriptor;
   icon: ReactNode;
 };
 
@@ -38,22 +42,21 @@ const PROVIDER_ENTRIES: readonly ProviderEntry[] = [
   {
     kind: "webview-claude-ai",
     label: "Claude (web)",
-    description:
-      "claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。",
-    help: "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。",
+    description: msg`claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。`,
+    help: msg`QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。`,
     icon: <SparkleIcon />,
   },
   {
     kind: "webview-chatgpt-codex",
     label: "ChatGPT Codex (web)",
-    description:
-      "chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示。confidence は常に low。",
-    help: "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。",
+    description: msg`chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示。confidence は常に low。`,
+    help: msg`QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。`,
     icon: <ChatIcon />,
   },
 ];
 
 export function WebviewProvidersPanel() {
+  const { _ } = useLingui();
   const isEnabled = useAtomValue(isProviderEnabledAtom);
   const setEnabled = useSetAtom(setProviderEnabledAtom);
   const openLogin = useSetAtom(openProviderLoginAtom);
@@ -66,8 +69,12 @@ export function WebviewProvidersPanel() {
       data-testid="webview-providers-panel"
     >
       <div className="settings__section-head">
-        <span className="settings__section-label">WebView Providers</span>
-        <span className="settings__section-tag">Opt-in · Low confidence</span>
+        <span className="settings__section-label">
+          <Trans>WebView Providers</Trans>
+        </span>
+        <span className="settings__section-tag">
+          <Trans>Opt-in · Low confidence</Trans>
+        </span>
       </div>
 
       {error !== null && (
@@ -84,25 +91,27 @@ export function WebviewProvidersPanel() {
         {PROVIDER_ENTRIES.map((entry) => {
           const enabled = isEnabled(entry.kind);
           const chipClass = enabled ? "chip chip--on" : "chip chip--off";
+          const providerLabel = entry.label;
+          const toggleLabel = _(msg`${providerLabel} を有効化`);
           return (
             <SettingsRow
               key={entry.kind}
               testId={`webview-provider-${entry.kind}`}
               icon={entry.icon}
               title={entry.label}
-              description={entry.description}
-              help={entry.help}
+              description={_(entry.description)}
+              help={_(entry.help)}
               accessory={
                 <>
                   <span
                     className={chipClass}
                     data-testid={`webview-status-${entry.kind}`}
                   >
-                    {enabled ? "Enabled" : "Disabled"}
+                    {enabled ? <Trans>Enabled</Trans> : <Trans>Disabled</Trans>}
                   </span>
                   <ToggleSwitch
                     id={`enable-${entry.kind}`}
-                    label={`${entry.label} を有効化`}
+                    label={toggleLabel}
                     checked={enabled}
                     testId={`webview-toggle-${entry.kind}`}
                     onChange={(next) => {
@@ -123,7 +132,7 @@ export function WebviewProvidersPanel() {
                     }}
                   >
                     <LoginIcon />
-                    ログイン
+                    <Trans>ログイン</Trans>
                   </button>
                   <button
                     type="button"
@@ -134,7 +143,7 @@ export function WebviewProvidersPanel() {
                     }}
                   >
                     <TrashIcon />
-                    データを削除
+                    <Trans>データを削除</Trans>
                   </button>
                 </>
               }
@@ -144,9 +153,11 @@ export function WebviewProvidersPanel() {
       </ul>
 
       <p className="settings__note">
-        WebView providers は外部サイトの DOM
-        を読み取って残量を表示するため、データは常に
-        <code>confidence: low</code> としてマークされます。
+        <Trans>
+          WebView providers は外部サイトの DOM
+          を読み取って残量を表示するため、データは常に
+          <code>confidence: low</code> としてマークされます。
+        </Trans>
       </p>
     </section>
   );

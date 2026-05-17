@@ -153,3 +153,13 @@ export function ChatIcon(props: IconProps) {
     </Svg>
   );
 }
+
+export function GlobeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11" />
+      <path d="M8 2.5a8 6 0 0 1 0 11a8 6 0 0 1 0-11z" />
+    </Svg>
+  );
+}

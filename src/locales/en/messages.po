@@ -1,0 +1,172 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-05-17 16:37+0900\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:94
+msgid "{providerLabel} を有効化"
+msgstr "Enable {providerLabel}"
+
+#: src/lib/components/SettingsPanel.tsx:149
+msgid "Appearance"
+msgstr "Appearance"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:51
+msgid "chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示。confidence は常に low。"
+msgstr "Reads chatgpt.com Codex Cloud analytics in an embedded WebView to show Plus/Pro/Codex agent usage. Confidence is always low."
+
+#: src/lib/components/WebviewProvidersPanel.tsx:44
+msgid "claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。"
+msgstr "Reads claude.ai/settings/usage in an embedded WebView to show Pro/Max 5h and weekly headroom. Confidence is always low."
+
+#: src/lib/components/SettingsPanel.tsx:80
+#: src/lib/components/SettingsPanel.tsx:181
+msgid "Compact モード"
+msgstr "Compact mode"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:109
+msgid "Disabled"
+msgstr "Disabled"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:109
+msgid "Enabled"
+msgstr "Enabled"
+
+#: src/lib/components/SettingsPanel.tsx:123
+msgid "English と 日本語 を切り替えます。"
+msgstr "Switch between English and 日本語."
+
+#: src/lib/components/SettingsPanel.tsx:228
+msgid "off にすると overlay ウィンドウを隠す (設定は保持)"
+msgstr "Turn off to hide the overlay window (settings are preserved)."
+
+#: src/lib/components/WebviewProvidersPanel.tsx:75
+msgid "Opt-in · Low confidence"
+msgstr "Opt-in · Low confidence"
+
+#: src/lib/components/SettingsPanel.tsx:198
+msgid "overlay のドラッグを無効化して意図しない移動を防ぐ"
+msgstr "Disable overlay dragging to prevent accidental moves."
+
+#: src/lib/components/SettingsPanel.tsx:168
+msgid "overlay の不透明度"
+msgstr "Overlay opacity"
+
+#: src/lib/components/SettingsPanel.tsx:253
+msgid "overlay をドラッグするとここに座標が保存される"
+msgstr "Drag the overlay to save its coordinates here."
+
+#: src/lib/components/SettingsPanel.tsx:83
+#: src/lib/components/SettingsPanel.tsx:226
+msgid "Overlay を表示"
+msgstr "Show overlay"
+
+#: src/lib/components/SettingsPanel.tsx:156
+msgid "overlay 全体の透明度。15%〜100%"
+msgstr "Overall overlay transparency, 15% to 100%."
+
+#: src/lib/components/SettingsPanel.tsx:245
+msgid "Position"
+msgstr "Position"
+
+#: src/lib/components/SettingsPanel.tsx:94
+msgid "QuotaHUD Settings"
+msgstr "QuotaHUD Settings"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:52
+msgid "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
+msgstr "QuotaHUD shows chatgpt.com's own login page; it does not read your password or cookies. Clear stored data with 'Delete' at any time."
+
+#: src/lib/components/WebviewProvidersPanel.tsx:45
+msgid "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
+msgstr "QuotaHUD shows claude.ai's own login page; it does not read your password or cookies. Clear stored data with 'Delete' at any time."
+
+#: src/lib/components/SettingsPanel.tsx:290
+msgid "Reset to defaults"
+msgstr "Reset to defaults"
+
+#: src/lib/components/SettingsPanel.tsx:183
+msgid "title / footer / reset 表示を畳んで 1 行サイズに収める"
+msgstr "Collapse title / footer / reset into a single-line layout."
+
+#: src/lib/components/WebviewProvidersPanel.tsx:72
+msgid "WebView Providers"
+msgstr "WebView Providers"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:155
+msgid "WebView providers は外部サイトの DOM を読み取って残量を表示するため、データは常に<0>confidence: low</0> としてマークされます。"
+msgstr "WebView providers read DOM from third-party sites to display remaining quota, so the data is always marked <0>confidence: low</0>."
+
+#: src/lib/components/SettingsPanel.tsx:82
+#: src/lib/components/SettingsPanel.tsx:211
+msgid "クリックスルー"
+msgstr "Click-through"
+
+#: src/lib/components/SettingsPanel.tsx:278
+msgid "クリックスルーをトグル"
+msgstr "Toggle click-through"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:145
+msgid "データを削除"
+msgstr "Delete data"
+
+#: src/lib/atoms/providerSettingsAtom.ts:71
+msgid "プロバイダデータの削除に失敗"
+msgstr "Failed to delete provider data"
+
+#: src/lib/atoms/providerSettingsAtom.ts:69
+msgid "プロバイダの有効化に失敗"
+msgstr "Failed to update provider toggle"
+
+#: src/lib/atoms/providerSettingsAtom.ts:68
+msgid "プロバイダ設定の取得に失敗"
+msgstr "Failed to fetch provider settings"
+
+#: src/lib/components/SettingsPanel.tsx:213
+msgid "マウス操作を背面に透過。{modKey} + Shift + \\ で即時切替"
+msgstr "Pass mouse events through to the window below. {modKey} + Shift + \\ to toggle instantly."
+
+#: src/lib/components/WebviewProvidersPanel.tsx:134
+msgid "ログイン"
+msgstr "Log in"
+
+#: src/lib/atoms/providerSettingsAtom.ts:70
+msgid "ログインウィンドウを開けませんでした"
+msgstr "Could not open the login window"
+
+#: src/lib/components/SettingsPanel.tsx:155
+msgid "不透明度"
+msgstr "Opacity"
+
+#: src/lib/components/SettingsPanel.tsx:81
+#: src/lib/components/SettingsPanel.tsx:196
+msgid "位置をロック"
+msgstr "Lock position"
+
+#: src/lib/components/SettingsPanel.tsx:251
+msgid "保存された位置"
+msgstr "Saved position"
+
+#: src/lib/components/SettingsPanel.tsx:258
+msgid "未保存"
+msgstr "Not saved"
+
+#: src/lib/components/SettingsPanel.tsx:84
+msgid "表示言語"
+msgstr "Display language"
+
+#: src/lib/components/SettingsPanel.tsx:116
+msgid "言語"
+msgstr "Language"
+
+#: src/lib/components/SettingsPanel.tsx:105
+msgid "設定を検索 (検索機能は今後追加予定)"
+msgstr "Search settings (search feature coming soon)"
+
+#: src/lib/components/SettingsPanel.tsx:103
+msgid "設定を検索…"
+msgstr "Search settings…"

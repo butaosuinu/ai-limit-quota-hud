@@ -3,12 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { Provider } from "jotai";
 
 import { App } from "./App";
+import { withI18n } from "./test/i18nTestUtils";
 
 function renderApp(windowLabel: "overlay" | "settings") {
+  const tree = <App windowLabel={windowLabel} />;
   return render(
-    <Provider>
-      <App windowLabel={windowLabel} />
-    </Provider>,
+    <Provider>{windowLabel === "settings" ? withI18n(tree) : tree}</Provider>,
   );
 }
 

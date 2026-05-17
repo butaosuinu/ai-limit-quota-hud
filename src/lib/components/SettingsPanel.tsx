@@ -1,3 +1,6 @@
+import { msg } from "@lingui/core/macro";
+import { Trans } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { type CSSProperties, useEffect, useState } from "react";
 
@@ -7,6 +10,12 @@ import {
   overlaySettingsAtom,
   updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
+import {
+  type Locale,
+  SUPPORTED_LOCALES,
+  activateLocale,
+  persistLocale,
+} from "../i18n";
 import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
 import { Kbd } from "./Kbd";
 import { SettingsRow } from "./SettingsRow";
@@ -15,6 +24,7 @@ import { WebviewProvidersPanel } from "./WebviewProvidersPanel";
 import {
   CrosshairIcon,
   EyeIcon,
+  GlobeIcon,
   LayersIcon,
   LockIcon,
   OpacityIcon,
@@ -33,7 +43,13 @@ const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
 
 type SliderStyle = CSSProperties & Record<`--${string}`, string>;
 
+const LOCALE_LABELS: Readonly<Record<Locale, string>> = {
+  ja: "日本語",
+  en: "English",
+};
+
 export function SettingsPanel() {
+  const { i18n, _ } = useLingui();
   const settings = useAtomValue(overlaySettingsAtom);
   const updateSettings = useSetAtom(updateOverlaySettingsAtom);
 
@@ -61,6 +77,13 @@ export function SettingsPanel() {
     "--slider-fill": `${opacityFill.toString()}%`,
   };
 
+  const modKey = MOD_KEY;
+  const compactToggleLabel = _(msg`Compact モード`);
+  const lockedToggleLabel = _(msg`位置をロック`);
+  const clickThroughToggleLabel = _(msg`クリックスルー`);
+  const visibleToggleLabel = _(msg`Overlay を表示`);
+  const languageLabel = _(msg`表示言語`);
+
   return (
     <main className="settings" data-testid="settings-root">
       <header className="settings__header">
@@ -68,7 +91,9 @@ export function SettingsPanel() {
           <span className="settings__title-mark" aria-hidden="true">
             Q
           </span>
-          <span className="settings__title-text">QuotaHUD Settings</span>
+          <span className="settings__title-text">
+            <Trans>QuotaHUD Settings</Trans>
+          </span>
         </h1>
         <div className="settings__search">
           <span className="settings__search-icon">
@@ -76,9 +101,9 @@ export function SettingsPanel() {
           </span>
           <input
             className="settings__search-input"
-            placeholder="設定を検索…"
+            placeholder={_(msg`設定を検索…`)}
             disabled
-            aria-label="設定を検索 (検索機能は今後追加予定)"
+            aria-label={_(msg`設定を検索 (検索機能は今後追加予定)`)}
             type="search"
           />
           <Kbd keys={[MOD_KEY, "K"]} />
@@ -88,13 +113,48 @@ export function SettingsPanel() {
       <div className="settings__body">
         <section className="settings__section">
           <div className="settings__section-head">
-            <span className="settings__section-label">Appearance</span>
+            <span className="settings__section-label">
+              <Trans>言語</Trans>
+            </span>
+          </div>
+          <ul className="settings__card">
+            <SettingsRow
+              icon={<GlobeIcon />}
+              title={languageLabel}
+              description={_(msg`English と 日本語 を切り替えます。`)}
+              accessory={
+                <select
+                  className="select"
+                  value={i18n.locale}
+                  aria-label={languageLabel}
+                  onChange={(event) => {
+                    const next = event.currentTarget.value as Locale;
+                    persistLocale(next);
+                    void activateLocale(next);
+                  }}
+                >
+                  {SUPPORTED_LOCALES.map((locale) => (
+                    <option key={locale} value={locale}>
+                      {LOCALE_LABELS[locale]}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          </ul>
+        </section>
+
+        <section className="settings__section">
+          <div className="settings__section-head">
+            <span className="settings__section-label">
+              <Trans>Appearance</Trans>
+            </span>
           </div>
           <ul className="settings__card">
             <SettingsRow
               icon={<OpacityIcon />}
-              title="不透明度"
-              description="overlay 全体の透明度。15%〜100%"
+              title={_(msg`不透明度`)}
+              description={_(msg`overlay 全体の透明度。15%〜100%`)}
               accessory={
                 <span className="slider">
                   <span className="slider__value">{opacityPercent}%</span>
@@ -106,7 +166,7 @@ export function SettingsPanel() {
                     max={MAX_OPACITY}
                     step={OPACITY_STEP}
                     value={draftOpacity}
-                    aria-label="overlay の不透明度"
+                    aria-label={_(msg`overlay の不透明度`)}
                     style={sliderStyle}
                     onChange={(event) => {
                       setDraftOpacity(Number(event.currentTarget.value));
@@ -119,12 +179,14 @@ export function SettingsPanel() {
             />
             <SettingsRow
               icon={<LayersIcon />}
-              title="Compact モード"
-              description="title / footer / reset 表示を畳んで 1 行サイズに収める"
+              title={_(msg`Compact モード`)}
+              description={_(
+                msg`title / footer / reset 表示を畳んで 1 行サイズに収める`,
+              )}
               accessory={
                 <ToggleSwitch
                   id="compact"
-                  label="Compact モード"
+                  label={compactToggleLabel}
                   checked={settings.compact}
                   onChange={toggle("compact")}
                 />
@@ -132,12 +194,14 @@ export function SettingsPanel() {
             />
             <SettingsRow
               icon={<LockIcon />}
-              title="位置をロック"
-              description="overlay のドラッグを無効化して意図しない移動を防ぐ"
+              title={_(msg`位置をロック`)}
+              description={_(
+                msg`overlay のドラッグを無効化して意図しない移動を防ぐ`,
+              )}
               accessory={
                 <ToggleSwitch
                   id="locked"
-                  label="位置をロック"
+                  label={lockedToggleLabel}
                   checked={settings.locked}
                   onChange={toggle("locked")}
                 />
@@ -145,12 +209,14 @@ export function SettingsPanel() {
             />
             <SettingsRow
               icon={<PointerIcon />}
-              title="クリックスルー"
-              description={`マウス操作を背面に透過。${MOD_KEY} + Shift + \\ で即時切替`}
+              title={_(msg`クリックスルー`)}
+              description={_(
+                msg`マウス操作を背面に透過。${modKey} + Shift + \\ で即時切替`,
+              )}
               accessory={
                 <ToggleSwitch
                   id="click-through"
-                  label="クリックスルー"
+                  label={clickThroughToggleLabel}
                   checked={settings.clickThrough}
                   onChange={toggle("clickThrough")}
                 />
@@ -158,12 +224,14 @@ export function SettingsPanel() {
             />
             <SettingsRow
               icon={<EyeIcon />}
-              title="Overlay を表示"
-              description="off にすると overlay ウィンドウを隠す (設定は保持)"
+              title={_(msg`Overlay を表示`)}
+              description={_(
+                msg`off にすると overlay ウィンドウを隠す (設定は保持)`,
+              )}
               accessory={
                 <ToggleSwitch
                   id="visible"
-                  label="Overlay を表示"
+                  label={visibleToggleLabel}
                   checked={settings.visible}
                   onChange={toggle("visible")}
                 />
@@ -174,16 +242,22 @@ export function SettingsPanel() {
 
         <section className="settings__section">
           <div className="settings__section-head">
-            <span className="settings__section-label">Position</span>
+            <span className="settings__section-label">
+              <Trans>Position</Trans>
+            </span>
           </div>
           <ul className="settings__card">
             <SettingsRow
               icon={<CrosshairIcon />}
-              title="保存された位置"
-              description="overlay をドラッグするとここに座標が保存される"
+              title={_(msg`保存された位置`)}
+              description={_(
+                msg`overlay をドラッグするとここに座標が保存される`,
+              )}
               accessory={
                 settings.position === null ? (
-                  <span className="mono-value mono-value--empty">未保存</span>
+                  <span className="mono-value mono-value--empty">
+                    <Trans>未保存</Trans>
+                  </span>
                 ) : (
                   <span className="mono-value">
                     x: {settings.position.x.toString()} y:{" "}
@@ -201,7 +275,9 @@ export function SettingsPanel() {
       <footer className="settings__footer">
         <div className="settings__footer-hint">
           <Kbd keys={[MOD_KEY, "⇧", "\\"]} />
-          <span>クリックスルーをトグル</span>
+          <span>
+            <Trans>クリックスルーをトグル</Trans>
+          </span>
         </div>
         <div className="settings__footer-actions">
           <button
@@ -212,7 +288,7 @@ export function SettingsPanel() {
             }}
           >
             <ResetIcon />
-            Reset to defaults
+            <Trans>Reset to defaults</Trans>
           </button>
         </div>
       </footer>
