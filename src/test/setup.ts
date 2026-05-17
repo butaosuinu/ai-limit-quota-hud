@@ -1,4 +1,15 @@
 import { vi } from "vitest";
+import { i18n } from "@lingui/core";
+
+import { messages as jaMessages } from "../locales/ja/messages";
+
+// Activate the Japanese catalog up-front so components / atoms that call
+// Lingui's `_(MessageDescriptor)` at module load (or before any per-test
+// activation) don't throw "Attempted to call a translation function without
+// setting a locale". Tests that exercise locale switching can re-activate
+// inside their describe.
+i18n.load("ja", jaMessages);
+i18n.activate("ja");
 
 // Default Tauri API mocks. Individual tests can override these via vi.mocked()
 // or by re-mocking the module inside the test file.
