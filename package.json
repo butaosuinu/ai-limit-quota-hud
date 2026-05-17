@@ -14,6 +14,8 @@
     "typecheck": "pnpm i18n:compile && tsc --noEmit",
     "precheck": "pnpm typecheck && pnpm lint && pnpm format:check",
     "pretest": "pnpm i18n:compile",
+    "pretest:watch": "pnpm i18n:compile",
+    "pretest:coverage": "pnpm i18n:compile",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
