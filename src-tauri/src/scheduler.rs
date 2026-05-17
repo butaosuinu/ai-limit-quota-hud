@@ -26,6 +26,11 @@ use crate::state::USAGE_UPDATED_EVENT;
 const REFRESH_TIMEOUT_SECS: u64 = 30;
 const BACKOFF_CAP_SECS: u64 = 3600;
 const MAX_BACKOFF_SHIFT: u32 = 6;
+/// 連続失敗中でも last-good snapshot を表示し続ける猶予期間。
+/// この時間を超えても回復しなかった時点で、従来通り Error/NoData 行が UI
+/// に出る。Backoff (`BACKOFF_CAP_SECS`) より十分短く取ってあり、grace 内
+/// に複数回の再試行チャンスがある関係を維持する。
+const GRACE_PERIOD_SECS: u64 = 600;
 
 /// Handle held by the rest of the app — lets commands wake the scheduler
 /// immediately after a settings change or explicit refresh request.
@@ -113,6 +118,9 @@ async fn run_loop(
 struct SchedulerState {
     last_run: HashMap<&'static str, std::time::Instant>,
     failure_count: HashMap<&'static str, u32>,
+    /// その provider が連続失敗を始めた時刻。Grace period の起点として使う。
+    /// 成功で取れた瞬間に削除される。
+    failing_since: HashMap<&'static str, std::time::Instant>,
     /// Set by `trigger_now` so the next iteration ignores the per-provider
     /// throttle and refreshes immediately.
     force_next: bool,
@@ -133,6 +141,15 @@ async fn refresh_once(
     force: bool,
 ) {
     let now = std::time::Instant::now();
+    // Snapshot the previous `latest` once at the top of the tick — only this
+    // function writes to `latest`, so the value won't change underneath us.
+    // Reused for both the grace-period check (do we still have a good snapshot
+    // to fall back on?) and the merge below.
+    let prev_snapshots: Vec<UsageSnapshot> = {
+        let guard = latest.read().expect("latest snapshots lock poisoned");
+        guard.clone()
+    };
+    let grace = Duration::from_secs(GRACE_PERIOD_SECS);
     let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> = HashMap::new();
     for provider in providers {
         let id = provider.id();
@@ -157,49 +174,63 @@ async fn refresh_once(
         )
         .await;
         state.last_run.insert(id, std::time::Instant::now());
-        match outcome {
-            Ok(Ok(snapshots)) => {
-                state.failure_count.insert(id, 0);
-                per_provider.insert(id, snapshots);
-            }
+        // Normalize every failure shape into a `Vec<UsageSnapshot>` so the
+        // grace-period decision below can treat them uniformly. WebView
+        // providers already wrap their failures in `Ok(vec![error_snapshot])`
+        // — the explicit `Err` arms here cover the trait surface for any
+        // future provider that returns errors directly.
+        let now_ts = clock.now();
+        let mk_error = |msg: String| vec![error_snapshot(id, provider.kind(), &now_ts, msg)];
+        let snapshots = match outcome {
+            Ok(Ok(s)) => s,
             Ok(Err(err)) => {
-                let count = state.failure_count.entry(id).or_insert(0);
-                *count = count.saturating_add(1);
                 log::warn!("provider `{id}` refresh failed: {err}");
-                per_provider.insert(
-                    id,
-                    vec![error_snapshot(
-                        id,
-                        provider.kind(),
-                        &clock.now(),
-                        format!("provider unavailable: {err}"),
-                    )],
-                );
+                mk_error(format!("provider unavailable: {err}"))
             }
             Err(_) => {
-                let count = state.failure_count.entry(id).or_insert(0);
-                *count = count.saturating_add(1);
                 log::warn!("provider `{id}` refresh timed out");
-                per_provider.insert(
-                    id,
-                    vec![error_snapshot(
-                        id,
-                        provider.kind(),
-                        &clock.now(),
-                        "provider refresh timed out",
-                    )],
-                );
+                mk_error("provider refresh timed out".into())
             }
+        };
+        if should_apply_grace(&snapshots) {
+            let since = *state.failing_since.entry(id).or_insert(now);
+            let has_prev_good = provider_has_good_snapshot(&prev_snapshots, id);
+            let in_grace = within_grace_period(Some(since), now, grace);
+            // Explicit refresh (refresh_now / settings change) bypasses grace
+            // so the user sees the actual current state rather than stale data.
+            if !force && has_prev_good && in_grace {
+                let elapsed = now.duration_since(since).as_secs();
+                log::info!(
+                    "provider `{id}` within grace period ({elapsed}s / {GRACE_PERIOD_SECS}s), keeping last-good snapshot"
+                );
+                // Skip per_provider insert → merge_refreshed_snapshots carries
+                // forward the prev rows for this provider unchanged.
+                continue;
+            }
+            // Grace exhausted (or never qualified): increment failure count so
+            // exponential backoff kicks in for subsequent ticks, and surface
+            // the failure snapshot to the UI.
+            if !in_grace && has_prev_good {
+                log::warn!("provider `{id}` grace period exceeded, surfacing failure");
+            }
+            let count = state.failure_count.entry(id).or_insert(0);
+            *count = count.saturating_add(1);
+        } else {
+            state.failure_count.insert(id, 0);
+            state.failing_since.remove(id);
         }
+        per_provider.insert(id, snapshots);
     }
     if per_provider.is_empty() {
         return;
     }
     let (combined, changed) = {
         let mut guard = latest.write().expect("latest snapshots lock poisoned");
-        let prev = guard.clone();
-        let next = merge_refreshed_snapshots(&prev, providers, &mut per_provider);
-        let changed = !snapshots_equivalent(&prev, &next);
+        // `prev_snapshots` captured at the top of the tick is still authoritative
+        // here because this function is the sole writer of `latest` — reuse it
+        // instead of cloning the guard a second time.
+        let next = merge_refreshed_snapshots(&prev_snapshots, providers, &mut per_provider);
+        let changed = !snapshots_equivalent(&prev_snapshots, &next);
         *guard = next;
         (guard.clone(), changed)
     };
@@ -287,6 +318,34 @@ fn effective_interval(min: Duration, failures: u32) -> Duration {
     scaled.min(cap)
 }
 
+/// 結果 vec が「全て Error / NoData で構成されており、grace 判定の対象」か。
+/// 空 vec (provider 無効化時) は false を返す — 従来通り prev rows を削除
+/// したいので grace は適用しない。
+fn should_apply_grace(snapshots: &[UsageSnapshot]) -> bool {
+    !snapshots.is_empty() && snapshots.iter().all(|s| s.status.is_failure())
+}
+
+/// prev snapshots に、当該 provider の「good」(Ok / Warning / Critical) 行
+/// が 1 つでも残っているか。namespaced provider_id (`webview-claude-ai:default`
+/// など) は root 部分で照合する。
+fn provider_has_good_snapshot(prev: &[UsageSnapshot], provider_id: &str) -> bool {
+    prev.iter()
+        .any(|s| provider_root_id(&s.provider_id) == provider_id && s.status.is_good())
+}
+
+/// `failing_since` から `now` までの経過時間が `grace` 未満か。
+/// 境界は strict less-than: 経過時間がちょうど grace に到達した瞬間に false。
+fn within_grace_period(
+    failing_since: Option<std::time::Instant>,
+    now: std::time::Instant,
+    grace: Duration,
+) -> bool {
+    match failing_since {
+        Some(start) => now.duration_since(start) < grace,
+        None => false,
+    }
+}
+
 /// Send a one-shot wake-up to the scheduler. Returns immediately even if a
 /// trigger is already pending (capacity 1, `try_send` debounces).
 pub fn trigger(handle: &SchedulerHandle) {
@@ -323,6 +382,10 @@ mod tests {
     }
 
     fn snap(provider_id: &str) -> UsageSnapshot {
+        snap_with_status(provider_id, SnapshotStatus::Ok)
+    }
+
+    fn snap_with_status(provider_id: &str, status: SnapshotStatus) -> UsageSnapshot {
         UsageSnapshot {
             provider_id: provider_id.to_string(),
             provider_kind: ProviderKind::WebviewClaudeAi,
@@ -337,7 +400,7 @@ mod tests {
             observed_at: "2026-05-13T12:00:00Z".into(),
             source: UsageSource::WebviewScrape,
             confidence: Confidence::Low,
-            status: SnapshotStatus::Ok,
+            status,
             message: None,
         }
     }
@@ -449,5 +512,115 @@ mod tests {
         a.status = SnapshotStatus::Ok;
         b.status = SnapshotStatus::Critical;
         assert!(!snapshots_equivalent(&[a], &[b]));
+    }
+
+    // ---- grace period helpers ----
+
+    #[test]
+    fn should_apply_grace_true_when_all_error() {
+        let snapshots = vec![snap_with_status("a:1", SnapshotStatus::Error)];
+        assert!(should_apply_grace(&snapshots));
+    }
+
+    #[test]
+    fn should_apply_grace_true_when_all_no_data() {
+        let snapshots = vec![
+            snap_with_status("a:1", SnapshotStatus::NoData),
+            snap_with_status("a:2", SnapshotStatus::NoData),
+        ];
+        assert!(should_apply_grace(&snapshots));
+    }
+
+    #[test]
+    fn should_apply_grace_true_when_mixed_error_and_no_data() {
+        let snapshots = vec![
+            snap_with_status("a:1", SnapshotStatus::Error),
+            snap_with_status("a:2", SnapshotStatus::NoData),
+        ];
+        assert!(should_apply_grace(&snapshots));
+    }
+
+    #[test]
+    fn should_apply_grace_false_when_any_ok() {
+        // One Ok in the bunch means the provider has *some* data — don't carry
+        // forward stale rows, surface what we just got.
+        let snapshots = vec![
+            snap_with_status("a:1", SnapshotStatus::Ok),
+            snap_with_status("a:2", SnapshotStatus::Error),
+        ];
+        assert!(!should_apply_grace(&snapshots));
+    }
+
+    #[test]
+    fn should_apply_grace_false_when_empty() {
+        // Empty = provider disabled (or never produced anything). Preserve
+        // the existing "clear my rows" behavior — do not enter grace.
+        assert!(!should_apply_grace(&[]));
+    }
+
+    #[test]
+    fn provider_has_good_filters_by_root_id() {
+        let prev = vec![
+            snap_with_status("webview-claude-ai:default", SnapshotStatus::Ok),
+            snap_with_status("webview-chatgpt-codex:default", SnapshotStatus::Ok),
+        ];
+        assert!(provider_has_good_snapshot(&prev, "webview-claude-ai"));
+        assert!(provider_has_good_snapshot(&prev, "webview-chatgpt-codex"));
+        assert!(!provider_has_good_snapshot(&prev, "webview-unknown"));
+    }
+
+    #[test]
+    fn provider_has_good_ignores_error_and_no_data() {
+        let prev = vec![
+            snap_with_status("a:1", SnapshotStatus::Error),
+            snap_with_status("a:2", SnapshotStatus::NoData),
+        ];
+        assert!(!provider_has_good_snapshot(&prev, "a"));
+    }
+
+    #[test]
+    fn provider_has_good_true_for_ok_warning_critical() {
+        for status in [
+            SnapshotStatus::Ok,
+            SnapshotStatus::Warning,
+            SnapshotStatus::Critical,
+        ] {
+            let prev = vec![snap_with_status("a:1", status)];
+            assert!(
+                provider_has_good_snapshot(&prev, "a"),
+                "expected `a` to be good for status {status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn within_grace_false_when_failing_since_none() {
+        let now = std::time::Instant::now();
+        assert!(!within_grace_period(None, now, Duration::from_secs(600)));
+    }
+
+    #[test]
+    fn within_grace_true_just_before_expiry() {
+        let start = std::time::Instant::now();
+        let grace = Duration::from_secs(600);
+        let now = start + grace - Duration::from_millis(1);
+        assert!(within_grace_period(Some(start), now, grace));
+    }
+
+    #[test]
+    fn within_grace_false_at_exact_expiry() {
+        // strict `<` comparison: hitting the boundary is no longer "within".
+        let start = std::time::Instant::now();
+        let grace = Duration::from_secs(600);
+        let now = start + grace;
+        assert!(!within_grace_period(Some(start), now, grace));
+    }
+
+    #[test]
+    fn within_grace_false_after_expiry() {
+        let start = std::time::Instant::now();
+        let grace = Duration::from_secs(600);
+        let now = start + grace + Duration::from_secs(1);
+        assert!(!within_grace_period(Some(start), now, grace));
     }
 }
