@@ -158,6 +158,37 @@ pub enum ScraperError {
     BlockedNavigation(String),
 }
 
+/// Render an extractor payload as a privacy-safe one-liner — counts and
+/// kinds only, never the raw row text. Used for info-level logging so
+/// scraped page content (sidebar chat titles, error messages, etc.) only
+/// reaches the log stream when the operator opts in at `debug`.
+fn payload_summary(parsed: &Option<Result<ScraperPayload, String>>) -> String {
+    match parsed {
+        Some(Ok(ScraperPayload::Ok { rows })) => {
+            let n = rows.as_array().map(|a| a.len()).unwrap_or(0);
+            format!("ok rows={n}")
+        }
+        Some(Ok(ScraperPayload::Err { kind, .. })) => format!("err kind={kind:?}"),
+        Some(Err(_)) => "parse-error".into(),
+        None => "no-prefix".into(),
+    }
+}
+
+/// Decide whether a hostless top-level navigation (no `host_str`) should be
+/// allowed through the WebView. Only inert internal schemes (`about:`,
+/// `data:`, `blob:`) pass; `javascript:` / `file:` / unknown schemes are
+/// blocked and logged so they can't bypass the host allowlist via an
+/// empty-host shortcut.
+fn permit_hostless_scheme(scheme: &str, window_label: &str) -> bool {
+    if matches!(scheme, "about" | "data" | "blob") {
+        return true;
+    }
+    log::warn!(
+        "webview blocked hostless navigation window={window_label} scheme={scheme}"
+    );
+    false
+}
+
 /// Parse a `document.title` value emitted by an extractor JS. Returns `None`
 /// when the title does not carry the `QHJSON:` prefix (the page's own title,
 /// not our payload).
@@ -313,6 +344,11 @@ fn apply_hidden_window_flags<'a, R: tauri::Runtime, M: Manager<R>>(
         .resizable(false);
     #[cfg(not(target_os = "macos"))]
     let b = b.skip_taskbar(true);
+    // Enable devtools in debug builds so the WKWebView Develop menu can
+    // attach to the hidden refresh window and step through the extractor
+    // JS. Release builds do not expose devtools (PROJECT_SPEC §14).
+    #[cfg(debug_assertions)]
+    let b = b.devtools(true);
     b
 }
 
@@ -469,6 +505,11 @@ impl WebviewScraper {
                 .resizable(true)
                 .decorations(true)
                 .inner_size(960.0, 720.0);
+            // Enable devtools in debug builds so right-click → Inspect Element
+            // works in the visible login window. Release builds do not expose
+            // devtools (PROJECT_SPEC §14).
+            #[cfg(debug_assertions)]
+            let builder = builder.devtools(true);
             let builder = apply_session_storage(builder, &storage);
             // Enforce the §14 egress allowlist on the visible login window
             // too — Codex Review pointed out that without this guard the
@@ -482,11 +523,15 @@ impl WebviewScraper {
             // `app` by the time the callback fires.
             let app_for_callback = app.clone();
             let target_host_for_callback = target_host.clone();
+            let login_slug = label_clone.clone();
             let builder = builder.on_navigation({
                 let target_host = target_host.clone();
                 let tracker = Arc::clone(&tracker);
                 move |url| {
                     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+                    if host.is_empty() {
+                        return permit_hostless_scheme(url.scheme(), &login_slug);
+                    }
                     let mut guard = tracker
                         .lock()
                         .expect("login navigation tracker mutex poisoned");
@@ -494,17 +539,18 @@ impl WebviewScraper {
                     drop(guard);
                     match decision {
                         NavigationDecision::Allow => {
-                            // When the login flow lands back on the target
-                            // host (e.g. claude.ai/settings/usage after the
-                            // user completed authentication), nudge the
-                            // scheduler so the freshly authenticated
-                            // snapshot replaces the stale `logged-out`
-                            // row instead of waiting out the provider's
-                            // 600 s minimum refresh interval. The previous
-                            // open-time trigger captured the still-
-                            // logged-out state and was effectively
-                            // counter-productive — wiring the trigger to
-                            // the actual completion event fixes that.
+                            if log::log_enabled!(log::Level::Info) {
+                                log::info!(
+                                    "webview login nav allow window={login_slug} host={host} path={}",
+                                    url.path()
+                                );
+                            }
+                            // Nudge the scheduler when the user lands back on
+                            // the target origin; the open-time trigger fires
+                            // before the user has authenticated, which would
+                            // capture a still-logged-out snapshot and burn
+                            // the next 60 s of refresh interval on a stale
+                            // row.
                             if host == target_host_for_callback {
                                 if let Some(state) =
                                     app_for_callback.try_state::<crate::state::ProviderState>()
@@ -516,7 +562,8 @@ impl WebviewScraper {
                         }
                         NavigationDecision::Block => {
                             log::warn!(
-                                "login window blocked navigation to disallowed host: {host}"
+                                "webview login nav BLOCK window={login_slug} host={host} path={}",
+                                url.path()
                             );
                             false
                         }
@@ -707,47 +754,84 @@ impl WebviewScraper {
             let builder = builder.initialization_script(extractor_js);
             // Enforce the static / dynamic egress allowlist on every
             // top-level navigation. Returning false cancels the navigation.
+            let nav_label = label_clone.clone();
             let builder = builder.on_navigation({
                 let target_host = target_host.clone();
                 let tracker = Arc::clone(&tracker_nav);
                 move |url| {
                     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+                    if host.is_empty() {
+                        return permit_hostless_scheme(url.scheme(), &nav_label);
+                    }
                     let mut guard = tracker
                         .lock()
                         .expect("scraper login tracker mutex poisoned");
                     match guard.decide(&host, &target_host, allowlist) {
-                        NavigationDecision::Allow => true,
+                        NavigationDecision::Allow => {
+                            if log::log_enabled!(log::Level::Info) {
+                                log::info!(
+                                    "webview hidden nav allow window={nav_label} host={host} path={}",
+                                    url.path()
+                                );
+                            }
+                            true
+                        }
                         NavigationDecision::Block => {
                             log::warn!(
-                                "webview scraper blocked navigation to disallowed host: {host}"
+                                "webview hidden nav BLOCK window={nav_label} host={host} path={}",
+                                url.path()
                             );
                             false
                         }
                     }
                 }
             });
-            // Title-change callback is our result channel. The extractor JS
-            // writes `QHJSON:{...}` whenever it finishes a pass; we take the
-            // first such title and signal the oneshot — except for the
-            // `no-rows` transient kind below, which the extractor publishes
-            // during SPA hydration and retries on its own. Resolving on
-            // that first emit would race the retry and false-error the
-            // snapshot, so we drop it and keep waiting for the next title
-            // change (success / cloudflare / logged-out / layout-changed
-            // are all final). The outer `tokio::time::timeout` still
-            // bounds the wait.
+            // The extractor JS writes `QHJSON:{...}` to the document title
+            // whenever it finishes a pass. We take the first such title and
+            // signal the oneshot, *except* the transient `no-rows` kind that
+            // the extractor emits and retries during SPA hydration —
+            // resolving on that would race the retry and false-error the
+            // snapshot. The outer `tokio::time::timeout` bounds the wait.
+            //
+            // Logging is split by level to keep scraped page content out of
+            // default `info` logs: info-level only emits a privacy-safe
+            // summary (`ok rows=N` / `err kind=…`), while the full payload
+            // — which embeds `raw` / `head` / `ctx0` page snippets — is
+            // gated on `debug`.
+            let title_label = label_clone.clone();
             let builder = builder.on_document_title_changed({
                 let tx_slot = Arc::clone(&tx_slot_clone);
                 move |_window, title| {
                     if !title.starts_with(TITLE_PREFIX) {
                         return;
                     }
-                    if let Some(Ok(ScraperPayload::Err {
-                        kind: ScraperErrorKind::NoRows,
-                        ..
-                    })) = parse_title_payload(&title)
-                    {
+                    let parsed = parse_title_payload(&title);
+                    let is_transient_no_rows = matches!(
+                        parsed,
+                        Some(Ok(ScraperPayload::Err {
+                            kind: ScraperErrorKind::NoRows,
+                            ..
+                        }))
+                    );
+                    if log::log_enabled!(log::Level::Debug) {
+                        let label = if is_transient_no_rows {
+                            "extractor title (transient no-rows)"
+                        } else {
+                            "extractor title"
+                        };
+                        log::debug!(
+                            "{label} window={title_label} payload={}",
+                            title.chars().take(500).collect::<String>()
+                        );
+                    }
+                    if is_transient_no_rows {
                         return;
+                    }
+                    if log::log_enabled!(log::Level::Info) {
+                        log::info!(
+                            "extractor result window={title_label} {}",
+                            payload_summary(&parsed)
+                        );
                     }
                     let mut slot = tx_slot
                         .lock()
@@ -1034,5 +1118,54 @@ mod tests {
     fn data_directory_for_data_store_identifier_returns_none() {
         let storage = SessionStorage::DataStoreIdentifier(uuid::Uuid::from_bytes([0u8; 16]));
         assert_eq!(data_directory_for(&storage), None);
+    }
+
+    #[test]
+    fn permit_hostless_scheme_admits_inert_internal_schemes() {
+        assert!(permit_hostless_scheme("about", "test"));
+        assert!(permit_hostless_scheme("data", "test"));
+        assert!(permit_hostless_scheme("blob", "test"));
+    }
+
+    #[test]
+    fn payload_summary_redacts_row_text() {
+        // The summary must never echo the raw row contents (chat-sidebar
+        // text on Claude, model-breakdown labels on Codex). Only counts /
+        // kinds may surface in info-level logs.
+        let parsed = parse_title_payload(&format!(
+            "{TITLE_PREFIX}{{\"ok\":true,\"rows\":[{{\"raw\":\"100%キーボード\"}},{{\"raw\":\"another secret\"}}]}}"
+        ));
+        let summary = payload_summary(&parsed);
+        assert_eq!(summary, "ok rows=2");
+        assert!(!summary.contains("キーボード"));
+        assert!(!summary.contains("secret"));
+    }
+
+    #[test]
+    fn payload_summary_surfaces_error_kind_without_message() {
+        let parsed = parse_title_payload(&format!(
+            "{TITLE_PREFIX}{{\"ok\":false,\"kind\":\"logged-out\",\"message\":\"some private path\"}}"
+        ));
+        let summary = payload_summary(&parsed);
+        assert!(summary.starts_with("err kind="));
+        assert!(!summary.contains("private path"));
+    }
+
+    #[test]
+    fn payload_summary_handles_unparseable_input() {
+        assert_eq!(payload_summary(&Some(Err("bad json".into()))), "parse-error");
+        assert_eq!(payload_summary(&None), "no-prefix");
+    }
+
+    #[test]
+    fn permit_hostless_scheme_blocks_unsafe_schemes() {
+        // `javascript:` could execute attacker-controlled code in the
+        // scraper context, `file:` could exfiltrate local content — both
+        // appear as hostless top-level navigations and must not bypass
+        // the host allowlist via the empty-host shortcut.
+        assert!(!permit_hostless_scheme("javascript", "test"));
+        assert!(!permit_hostless_scheme("file", "test"));
+        assert!(!permit_hostless_scheme("ftp", "test"));
+        assert!(!permit_hostless_scheme("", "test"));
     }
 }

@@ -46,10 +46,8 @@ pub const CODEX_TARGET_URL: &str = "https://chatgpt.com/codex/cloud/settings/ana
 pub const CODEX_LOGIN_URL: &str = "https://chatgpt.com/auth/login";
 pub const CODEX_ACCOUNT_LABEL: &str = "Codex";
 
-/// 600 seconds default, with the 300 s floor enforced at the settings
-/// boundary (PROJECT_SPEC §8.7). The scheduler also tracks failures and will
-/// back this off exponentially on repeated extractor errors.
-pub const MIN_REFRESH_INTERVAL_SECS: u64 = 600;
+/// AGENTS.md floor (≥60 s). See `claude_web::MIN_REFRESH_INTERVAL_SECS`.
+pub const MIN_REFRESH_INTERVAL_SECS: u64 = 60;
 
 /// Static allowlist for chatgpt.com's Codex Cloud analytics page (§14). The
 /// page renders behind Cloudflare; first-party XHR and static-asset hosts

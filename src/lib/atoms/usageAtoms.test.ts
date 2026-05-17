@@ -90,6 +90,8 @@ describe("statusCountsAtom", () => {
 
 describe("formatResetCountdown", () => {
   const now = Date.UTC(2026, 4, 13, 12, 0, 0);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const localHm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
   it("returns --:-- when resetAt is null", () => {
     expect(formatResetCountdown(null, now)).toBe("--:--");
@@ -99,15 +101,27 @@ describe("formatResetCountdown", () => {
     expect(formatResetCountdown("not a date", now)).toBe("--:--");
   });
 
-  it("renders mm:ss when resetAt is in the future", () => {
-    expect(
-      formatResetCountdown(new Date(now + 125_000).toISOString(), now),
-    ).toBe("2:05");
+  it("renders HH:MM in local time when reset is later today", () => {
+    // +2 hours from `now`; in any TZ within ±10h of UTC this stays on the
+    // same calendar day, which is the regime we care about. Compute the
+    // expected label from the same Date the function will see so the test
+    // is timezone-independent.
+    const reset = new Date(now + 2 * 60 * 60 * 1000);
+    expect(formatResetCountdown(reset.toISOString(), now)).toBe(localHm(reset));
   });
 
-  it("returns 0:00 when the reset time has passed", () => {
-    expect(
-      formatResetCountdown(new Date(now - 10_000).toISOString(), now),
-    ).toBe("0:00");
+  it("prefixes M/D when reset falls on a later day", () => {
+    // +3 days lands on a different calendar day in every realistic TZ.
+    const reset = new Date(now + 3 * 24 * 60 * 60 * 1000);
+    const expected = `${(reset.getMonth() + 1).toString()}/${reset.getDate().toString()} ${localHm(reset)}`;
+    expect(formatResetCountdown(reset.toISOString(), now)).toBe(expected);
+  });
+
+  it("still shows the absolute time when the reset is in the past", () => {
+    // Past resets keep displaying the scheduled time (HH:MM today) rather
+    // than collapsing to a placeholder — the underlying snapshot may be
+    // stale and the next refresh will replace the timestamp.
+    const reset = new Date(now - 10 * 60 * 1000);
+    expect(formatResetCountdown(reset.toISOString(), now)).toBe(localHm(reset));
   });
 });

@@ -115,26 +115,31 @@ nowAtom.onMount = (set) => {
   };
 };
 
-const SECONDS_PER_MINUTE = 60;
-const PADDED_SECOND_WIDTH = 2;
 const NO_RESET_LABEL = "--:--";
 
 /**
- * Render a `resetAt` ISO-8601 string as `m:ss` relative to `now` ms. Inlined
- * into `UsageRow` instead of an `atomFamily` so per-row atoms don't outlive
- * the snapshots they describe.
+ * Render `resetAt` as absolute local time: `HH:MM` on the same calendar
+ * day as `now`, otherwise `M/D HH:MM`. Past timestamps render the same way
+ * — the underlying snapshot may be stale and the next refresh will
+ * replace it.
  */
 export function formatResetCountdown(
   resetAt: string | null,
   now: number,
 ): string {
   if (resetAt === null) return NO_RESET_LABEL;
-  const resetTime = new Date(resetAt).getTime();
-  if (Number.isNaN(resetTime)) return NO_RESET_LABEL;
-  const remainingMs = resetTime - now;
-  if (remainingMs <= 0) return "0:00";
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / SECONDS_PER_MINUTE);
-  const seconds = totalSeconds % SECONDS_PER_MINUTE;
-  return `${minutes.toString()}:${seconds.toString().padStart(PADDED_SECOND_WIDTH, "0")}`;
+  const resetMs = new Date(resetAt).getTime();
+  if (Number.isNaN(resetMs)) return NO_RESET_LABEL;
+  const resetDate = new Date(resetMs);
+  const nowDate = new Date(now);
+  const hh = resetDate.getHours().toString().padStart(2, "0");
+  const mm = resetDate.getMinutes().toString().padStart(2, "0");
+  const sameDay =
+    resetDate.getFullYear() === nowDate.getFullYear() &&
+    resetDate.getMonth() === nowDate.getMonth() &&
+    resetDate.getDate() === nowDate.getDate();
+  if (sameDay) return `${hh}:${mm}`;
+  const mo = (resetDate.getMonth() + 1).toString();
+  const da = resetDate.getDate().toString();
+  return `${mo}/${da} ${hh}:${mm}`;
 }
