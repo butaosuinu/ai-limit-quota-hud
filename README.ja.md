@@ -38,6 +38,27 @@ overlay 上のすべての行に `low` / `webview` バッジを描画するこ�
 
 ソースからビルドする場合は下記 [開発](#開発) を参照。
 
+## アップデート
+
+QuotaHUD は Tauri updater プラグインによる自動アップデートを内蔵しています。アプリ起動時に GitHub Releases を確認し、新しいバージョンがあればダウンロードして再起動を提案します。
+
+- デフォルト ON: 起動のたびに自動チェックが走ります。
+- オプトアウト: Settings → Updates → 「起動時に確認」トグルを OFF にしてください。
+
+### updater 導入前ビルドからの移行
+
+このリリース (`v0.0.0` 以前) より前のビルドをインストールしているユーザは、最初の updater 内蔵リリースだけは手動でダウンロードしてください — 旧バイナリには updater プラグインが組み込まれていません。
+
+### リリースエンジニアリング (メンテナ向け)
+
+1. minisign 鍵ペアを一度だけ生成: `pnpm tauri signer generate -- -w ~/.tauri/quotahud-updater.key`
+2. **公開鍵**を `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` にコミット (`TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE` プレースホルダを置き換える)。
+3. **秘密鍵**とそのパスフレーズを GitHub リポジトリの secret に登録:
+   - `TAURI_SIGNING_PRIVATE_KEY` — 秘密鍵ファイルの中身
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — 鍵生成時に設定したパスフレーズ
+4. 秘密鍵は 1Password などにバックアップしてください。**紛失すると既存ユーザの自動アップデートが恒久的に壊れます。**
+5. `v*` タグを push すると、release ワークフローがプラットフォームごとのインストーラと一緒に `latest.json` + `.sig` をアップロードします。
+
 ## 必要要件
 
 - **Rust** stable (1.93+ で動作確認)
@@ -148,7 +169,6 @@ QuotaHUD は実行時、`pnpm tauri dev` / `pnpm tauri build` の最中、テス
 
 - **macOS Developer ID 署名 + notarization** で直配布の `.dmg` / `.app.tar.gz` を署名 (現状は未署名)。
 - **Windows コード署名** で `.msi` / `.exe` の SmartScreen 摩擦を解消。
-- **Tauri updater** によるアプリ内アップデート — 上記署名鍵とリリースホスティングの決定に依存。
 - WebView プロバイダ統合 (`webview-claude-ai`、`webview-chatgpt-codex`) — `docs/PROJECT_SPEC.md` §13 Phase 2 を参照。
 
 ## 抽出器の不具合報告

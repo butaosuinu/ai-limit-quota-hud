@@ -689,7 +689,29 @@ Signing/notarization can be added after MVP:
 
 - macOS Developer ID signing + notarization for direct distribution.
 - Windows code signing to reduce SmartScreen friction.
-- Tauri updater signing keys only if auto-update is enabled.
+
+Auto-update is **shipped in v1** via `tauri-plugin-updater`:
+
+- The updater endpoint points at
+  `https://github.com/butaosuinu/ai-limit-quota-hud/releases/latest/download/latest.json`
+  (GitHub Releases' `latest` view excludes draft and prerelease entries, so
+  pre-release tags do not roll out to existing users).
+- `bundle.createUpdaterArtifacts: true` is enabled in `tauri.conf.json`, so
+  every release run produces `latest.json` + per-artifact `.sig` files
+  alongside the platform installers.
+- minisign signing keys live in CI as the
+  `TAURI_SIGNING_PRIVATE_KEY` /
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets. This signing chain is
+  independent of OS code signing — the updater verifies its own minisign
+  signature on the downloaded bundle regardless of whether the bundle itself
+  carries a valid Developer ID or Authenticode signature.
+- The default-on startup updater check is an **explicit, documented
+  exception** to the AGENTS.md "no network call on startup" policy. Users
+  can opt out from **Settings → Updates → Check on startup** without
+  disabling the updater entirely (manual "Check now" still works).
+- OS-level code signing (Developer ID / `codesign` notarization, Windows
+  Authenticode) remains tracked as future work in its own issue and is
+  orthogonal to the updater signing keys above.
 
 ## 13. MVP implementation phases
 

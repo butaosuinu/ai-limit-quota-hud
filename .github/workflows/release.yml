@@ -105,6 +105,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: "QuotaHUD ${{ steps.tag.outputs.name }}"
@@ -117,5 +119,5 @@ jobs:
             - Windows: the installer is not code-signed. SmartScreen will warn — choose "More info" → "Run anyway" if you trust the build.
             - Linux: the `.AppImage` may need `chmod +x` before launching. `.deb` is provided as well.
 
-            Signing, notarization, and the Tauri updater are tracked as future work — see the README "Roadmap / Future work" section.
+            Signing and notarization are tracked as future work — see the README "Roadmap / Future work" section. Auto-updates via Tauri updater are enabled in this build; see the README "Updates" section for details.
           args: ${{ matrix.args }}

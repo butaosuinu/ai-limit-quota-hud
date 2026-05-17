@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "core:event:default",
-    "global-shortcut:default"
+    "global-shortcut:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

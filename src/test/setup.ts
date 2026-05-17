@@ -26,3 +26,22 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/webviewWindow", () => ({
   getCurrentWebviewWindow: vi.fn(() => ({ label: "overlay" })),
 }));
+
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(async () => "0.0.0-test"),
+}));
+
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn(async () => null),
+  // Real plugin exports `Update` as a class extending `Resource`; tests don't
+  // instantiate it, so a sentinel constructor function keeps the eslint
+  // `functional/no-classes` rule happy without importing the real plugin.
+  Update: function MockUpdate() {
+    return {};
+  },
+}));
+
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn(async () => {}),
+  exit: vi.fn(async () => {}),
+}));

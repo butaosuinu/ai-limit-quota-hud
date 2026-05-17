@@ -196,3 +196,91 @@ msgstr "設定を検索 (検索機能は今後追加予定)"
 #: src/lib/components/SettingsPanel.tsx:115
 msgid "設定を検索…"
 msgstr "設定を検索…"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アップデート"
+msgstr "アップデート"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "現在のバージョン"
+msgstr "現在のバージョン"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "インストールされている QuotaHUD のバージョン番号"
+msgstr "インストールされている QuotaHUD のバージョン番号"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アップデートを確認"
+msgstr "アップデートを確認"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "最新リリースを GitHub から取得してチェックします"
+msgstr "最新リリースを GitHub から取得してチェックします"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "今すぐ確認"
+msgstr "今すぐ確認"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "起動時にアップデートを確認"
+msgstr "起動時にアップデートを確認"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アプリ起動時に自動でアップデートをチェックします"
+msgstr "アプリ起動時に自動でアップデートをチェックします"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "新しいバージョンが利用可能"
+msgstr "新しいバージョンが利用可能"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "ダウンロード"
+msgstr "ダウンロード"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "ダウンロード中..."
+msgstr "ダウンロード中..."
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アップデートの準備完了"
+msgstr "アップデートの準備完了"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "再起動してアップデートを適用します"
+msgstr "再起動してアップデートを適用します"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "再起動して適用"
+msgstr "再起動して適用"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "待機中"
+msgstr "待機中"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "確認中…"
+msgstr "確認中…"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "利用可能"
+msgstr "利用可能"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "ダウンロード中"
+msgstr "ダウンロード中"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "再起動が必要"
+msgstr "再起動が必要"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "エラー"
+msgstr "エラー"
+
+#: src/lib/atoms/updateAtoms.ts
+msgid "アップデート確認に失敗"
+msgstr "アップデート確認に失敗"
+
+#: src/lib/atoms/updateAtoms.ts
+msgid "アップデートのダウンロードに失敗"
+msgstr "アップデートのダウンロードに失敗"

@@ -8,12 +8,13 @@ mod providers;
 mod scheduler;
 mod settings;
 mod state;
+mod updater;
 
 use std::sync::Mutex;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::overlay::{
@@ -303,6 +304,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
             update_overlay_settings,
@@ -341,6 +344,10 @@ pub fn run() {
             // missing-managed-state error.
             if let Err(err) = init_provider_runtime(&handle) {
                 log::error!("provider runtime init failed; provider features disabled: {err}");
+            }
+
+            if initial.check_updates_on_startup {
+                spawn_startup_update_check(handle.clone());
             }
 
             Ok(())
@@ -414,4 +421,32 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     handle.manage(provider_settings_store);
 
     Ok(())
+}
+
+fn spawn_startup_update_check(handle: AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+    use updater::{UPDATER_STATUS_EVENT, UpdateStatusPayload};
+
+    tauri::async_runtime::spawn(async move {
+        let payload = match handle.updater() {
+            Ok(updater) => match updater.check().await {
+                Ok(Some(update)) => UpdateStatusPayload::Available {
+                    version: update.version.clone(),
+                    notes: update.body.clone().unwrap_or_default(),
+                },
+                Ok(None) => UpdateStatusPayload::NoUpdate,
+                Err(err) => {
+                    log::warn!("updater check failed: {err}");
+                    UpdateStatusPayload::Error { message: err.to_string() }
+                }
+            },
+            Err(err) => {
+                log::warn!("updater plugin unavailable: {err}");
+                UpdateStatusPayload::Error { message: err.to_string() }
+            }
+        };
+        if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
+            log::warn!("failed to emit updater status: {err}");
+        }
+    });
 }

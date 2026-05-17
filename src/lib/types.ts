@@ -35,6 +35,7 @@ export type OverlaySettings = {
   marginY: number;
   position: Position | null;
   menuBarSummary: MenuBarSummaryMode;
+  checkUpdatesOnStartup: boolean;
 };
 
 export type SnapshotStatus =
@@ -119,4 +120,5 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   marginY: 24,
   position: null,
   menuBarSummary: "off",
+  checkUpdatesOnStartup: true,
 };

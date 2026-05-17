@@ -9,7 +9,9 @@ export default defineConfig({
       include: [
         "src/lib/components/SettingsPanel.tsx",
         "src/lib/components/WebviewProvidersPanel.tsx",
+        "src/lib/components/UpdatesPanel.tsx",
         "src/lib/atoms/providerSettingsAtom.ts",
+        "src/lib/atoms/updateAtoms.ts",
         "src/lib/i18n.ts",
       ],
     },

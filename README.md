@@ -38,6 +38,27 @@ The overlay itself does not paint a `low` / `webview` pill on every row; the dis
 
 If you would rather build from source, follow [Development](#development) below.
 
+## Updates
+
+QuotaHUD has built-in auto-updates via the Tauri updater plugin. Once the app is launched, it checks GitHub Releases for a newer version and offers to download and restart.
+
+- Default-on: a startup check runs every launch.
+- Opt out: Settings → Updates → toggle off "Check on startup".
+
+### Migration from pre-updater builds
+
+Users who installed any build before this release (`v0.0.0` and earlier) must download the first updater-enabled release manually — the older binaries do not have the updater plugin embedded.
+
+### Release engineering (maintainers)
+
+1. Generate a minisign keypair once: `pnpm tauri signer generate -- -w ~/.tauri/quotahud-updater.key`
+2. Commit the **public key** to `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` (replacing the `TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE` placeholder).
+3. Register the **private key** and its passphrase as GitHub repo secrets:
+   - `TAURI_SIGNING_PRIVATE_KEY` — the private key file contents
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the passphrase set at generation time
+4. Back up the private key (1Password etc.). **Losing it permanently breaks auto-updates for existing users.**
+5. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig` alongside the platform installers.
+
 ## Requirements
 
 - **Rust** stable (tested with 1.93+)
@@ -148,7 +169,6 @@ Tracked but **not** in this release:
 
 - **macOS Developer ID signing + notarization** for direct distribution (`.dmg` / `.app.tar.gz` are currently unsigned).
 - **Windows code signing** to remove SmartScreen friction on `.msi` / `.exe` artifacts.
-- **Tauri updater** for in-app updates — gated on the signing keys above and on a decision about release hosting.
 - WebView provider integrations (`webview-claude-ai`, `webview-chatgpt-codex`) — see `docs/PROJECT_SPEC.md` §13 Phase 2.
 
 ## Reporting an extractor issue
