@@ -15,8 +15,8 @@
       {
         "label": "overlay",
         "title": "QuotaHUD",
-        "width": 340,
-        "height": 180,
+        "width": 380,
+        "height": 240,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
@@ -30,8 +30,8 @@
       {
         "label": "settings",
         "title": "QuotaHUD Settings",
-        "width": 480,
-        "height": 420,
+        "width": 720,
+        "height": 840,
         "decorations": true,
         "transparent": false,
         "resizable": true,
