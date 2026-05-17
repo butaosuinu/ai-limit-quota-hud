@@ -2,7 +2,17 @@
 
 A small cross-platform desktop overlay that surfaces remaining AI subscription-usage headroom for **Claude (Pro/Max)** on `claude.ai` and **ChatGPT (Plus/Pro/Codex agent)** on `chatgpt.com`. Built with **Tauri 2 + Rust** and **React + TypeScript + Vite**.
 
-> Status: **Phase 1 (overlay UX) + Phase 3 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up against an empty provider list. WebView providers (Phase 2) are being built next; see `docs/PROJECT_SPEC.md` §8 / §13.
+🇯🇵 日本語版: [README.ja.md](./README.ja.md)
+
+## Product showcase
+
+| Overlay HUD | Settings |
+| --- | --- |
+| ![Transparent overlay HUD showing remaining Claude and Codex usage as horizontal gauges](docs/images/overlay.png) | ![Settings window with Raycast-style list rows for overlay options and WebView providers](docs/images/settings.png) |
+
+QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Each opted-in provider becomes a single row with a horizontal remaining-usage gauge and a `reset at …` timestamp, so you can glance at it during a long coding session without context-switching to the vendor's web UI. The Settings window — a regular focusable window — hosts overlay tuning (opacity, click-through, lock, position) and the WebView provider login flow.
+
+> Status: **Phase 1 (overlay UX) + Phase 3 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up. WebView providers (Phase 2) are being built next; see `docs/PROJECT_SPEC.md` §8 / §13.
 
 ## Data source caveat
 
