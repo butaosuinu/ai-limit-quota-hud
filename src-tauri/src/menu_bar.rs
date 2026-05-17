@@ -13,6 +13,13 @@ use crate::settings::{MenuBarSummaryMode, OverlaySettings};
 const JOIN_SEP: &str = " · ";
 const MISSING: &str = "--";
 
+/// Providers surfaced in the menu bar, in display order. Adding ChatGPT
+/// (non-Codex) or another provider later means appending here.
+const MENU_BAR_PROVIDERS: &[(ProviderKind, &str)] = &[
+    (ProviderKind::WebviewClaudeAi, "Claude"),
+    (ProviderKind::WebviewChatgptCodex, "Codex"),
+];
+
 /// Refresh the menu bar (NSStatusItem) title for the current overlay
 /// settings and the given snapshot list. Caller passes the snapshots so
 /// the scheduler can reuse the list it already cloned; we only re-read
@@ -43,28 +50,38 @@ pub fn compute_menu_bar_title(
         return None;
     }
 
-    let mut parts: Vec<(u8, String)> = snapshots
+    let parts: Vec<String> = MENU_BAR_PROVIDERS
         .iter()
-        .filter(|s| s.window == UsageWindow::FiveHours)
-        .filter_map(|s| {
-            let label = provider_label(s.provider_kind)?;
-            let order = provider_order(s.provider_kind);
-            Some((order, format!("{label} {}", format_percent(s))))
+        .filter_map(|(kind, label)| {
+            pick_snapshot(snapshots, *kind)
+                .map(|snap| format!("{label} {}", format_percent(snap)))
         })
         .collect();
 
     if parts.is_empty() {
-        return None;
+        None
+    } else {
+        Some(parts.join(JOIN_SEP))
     }
+}
 
-    parts.sort_by_key(|(order, _)| *order);
-    Some(
-        parts
-            .into_iter()
-            .map(|(_, text)| text)
-            .collect::<Vec<_>>()
-            .join(JOIN_SEP),
-    )
+/// Prefer the 5h limit row for the requested provider, then fall back to a
+/// provider-level failure row (Error / NoData with window=Unknown) so login
+/// timeouts, Cloudflare challenges, and extractor crashes still surface as
+/// `--` instead of vanishing from the title. The fallback is intentionally
+/// scoped to `Unknown` windows so a weekly NoData row doesn't bubble up.
+fn pick_snapshot(snapshots: &[UsageSnapshot], kind: ProviderKind) -> Option<&UsageSnapshot> {
+    let owned_by = |s: &&UsageSnapshot| s.provider_kind == kind;
+    snapshots
+        .iter()
+        .find(|s| owned_by(s) && s.window == UsageWindow::FiveHours)
+        .or_else(|| {
+            snapshots.iter().find(|s| {
+                owned_by(s)
+                    && s.window == UsageWindow::Unknown
+                    && matches!(s.status, SnapshotStatus::Error | SnapshotStatus::NoData)
+            })
+        })
 }
 
 fn mode_active(settings: &OverlaySettings) -> bool {
@@ -72,22 +89,6 @@ fn mode_active(settings: &OverlaySettings) -> bool {
         MenuBarSummaryMode::Off => false,
         MenuBarSummaryMode::Always => true,
         MenuBarSummaryMode::WhenHidden => !settings.visible,
-    }
-}
-
-fn provider_label(kind: ProviderKind) -> Option<&'static str> {
-    match kind {
-        ProviderKind::WebviewClaudeAi => Some("Claude"),
-        ProviderKind::WebviewChatgptCodex => Some("Codex"),
-    }
-}
-
-/// Stable ordering so the title text doesn't flip-flop when snapshots
-/// arrive in different orders across refreshes.
-fn provider_order(kind: ProviderKind) -> u8 {
-    match kind {
-        ProviderKind::WebviewClaudeAi => 0,
-        ProviderKind::WebviewChatgptCodex => 1,
     }
 }
 
@@ -306,6 +307,107 @@ mod tests {
             compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
                 .as_deref(),
             Some("Claude --")
+        );
+    }
+
+    #[test]
+    fn provider_level_error_unknown_window_renders_as_missing_marker() {
+        // scheduler / claude_web emit a single error_snapshot with
+        // window=Unknown when the provider as a whole fails (login expired,
+        // Cloudflare, timeout). The fallback must catch this so the title
+        // shows `Claude --` instead of disappearing entirely.
+        let snaps = vec![snap(
+            ProviderKind::WebviewClaudeAi,
+            UsageWindow::Unknown,
+            None,
+            SnapshotStatus::Error,
+        )];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                .as_deref(),
+            Some("Claude --")
+        );
+    }
+
+    #[test]
+    fn provider_level_no_data_unknown_window_renders_as_missing_marker() {
+        // `LoggedOut` paths emit no_data_snapshot with window=Unknown.
+        let snaps = vec![snap(
+            ProviderKind::WebviewChatgptCodex,
+            UsageWindow::Unknown,
+            None,
+            SnapshotStatus::NoData,
+        )];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                .as_deref(),
+            Some("Codex --")
+        );
+    }
+
+    #[test]
+    fn five_hours_takes_precedence_over_unknown_failure_for_same_provider() {
+        // Defensive: in case both shapes ever appear in the same list,
+        // the real 5h reading wins over a stale provider-level failure.
+        let snaps = vec![
+            snap(
+                ProviderKind::WebviewClaudeAi,
+                UsageWindow::Unknown,
+                None,
+                SnapshotStatus::Error,
+            ),
+            snap(
+                ProviderKind::WebviewClaudeAi,
+                UsageWindow::FiveHours,
+                Some(42.0),
+                SnapshotStatus::Ok,
+            ),
+        ];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                .as_deref(),
+            Some("Claude 42%")
+        );
+    }
+
+    #[test]
+    fn provider_failure_mixed_with_other_provider_success() {
+        // Most common real-world failure mode: one provider is logged in
+        // and reporting normally while the other was just kicked out.
+        let snaps = vec![
+            snap(
+                ProviderKind::WebviewClaudeAi,
+                UsageWindow::Unknown,
+                None,
+                SnapshotStatus::NoData,
+            ),
+            snap(
+                ProviderKind::WebviewChatgptCodex,
+                UsageWindow::FiveHours,
+                Some(87.0),
+                SnapshotStatus::Ok,
+            ),
+        ];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                .as_deref(),
+            Some("Claude -- · Codex 87%")
+        );
+    }
+
+    #[test]
+    fn weekly_no_data_does_not_trigger_fallback() {
+        // A NoData row on the weekly window is not a provider-level
+        // failure — overlay surfaces it; the menu bar should ignore it.
+        let snaps = vec![snap(
+            ProviderKind::WebviewClaudeAi,
+            UsageWindow::Weekly,
+            None,
+            SnapshotStatus::NoData,
+        )];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true)),
+            None
         );
     }
 
