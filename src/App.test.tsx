@@ -21,7 +21,10 @@ describe("App", () => {
 
   it("renders the settings panel for the settings window", async () => {
     renderApp("settings");
-    expect(await screen.findByTestId("settings-root")).toBeTruthy();
+    // Lazy + dual dynamic import can exceed the 1s default on cold CI runners.
+    expect(
+      await screen.findByTestId("settings-root", undefined, { timeout: 5000 }),
+    ).toBeTruthy();
     expect(screen.getByText(/QuotaHUD Settings/u)).toBeTruthy();
   });
 });

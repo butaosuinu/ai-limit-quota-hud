@@ -1,11 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Provider } from "jotai";
-import { I18nProvider } from "@lingui/react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import { App } from "./App";
-import { activateLocale, detectLocale, i18n } from "./lib/i18n";
 import "./app.css";
 
 const rootElement = document.getElementById("root");
@@ -25,22 +23,29 @@ function resolveWindowLabel(): string {
 
 const windowLabel = resolveWindowLabel();
 
-// Only the settings window is localized; the overlay stays English-only per
-// project requirements and skips the Lingui runtime entirely.
+// Lingui runtime (`@lingui/*`, `./lib/i18n`) is dynamic-imported only for the
+// settings window so the overlay startup path keeps zero i18n overhead.
 async function bootstrap(): Promise<void> {
-  if (windowLabel === "settings") {
-    await activateLocale(detectLocale());
+  if (windowLabel !== "settings") {
+    root.render(
+      <React.StrictMode>
+        <Provider>
+          <App windowLabel={windowLabel} />
+        </Provider>
+      </React.StrictMode>,
+    );
+    return;
   }
+
+  const [{ I18nProvider }, { activateLocale, detectLocale, i18n }] =
+    await Promise.all([import("@lingui/react"), import("./lib/i18n")]);
+  await activateLocale(detectLocale());
   root.render(
     <React.StrictMode>
       <Provider>
-        {windowLabel === "settings" ? (
-          <I18nProvider i18n={i18n}>
-            <App windowLabel={windowLabel} />
-          </I18nProvider>
-        ) : (
+        <I18nProvider i18n={i18n}>
           <App windowLabel={windowLabel} />
-        )}
+        </I18nProvider>
       </Provider>
     </React.StrictMode>,
   );
