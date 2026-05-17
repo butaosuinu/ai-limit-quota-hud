@@ -22,10 +22,18 @@ export function persistLocale(locale: Locale): void {
   window.localStorage.setItem(STORAGE_KEY, locale);
 }
 
+// Monotonic counter so rapid locale toggles (ja → en → ja) only commit the
+// most recent request. Without this guard a late-resolving import could
+// overwrite a fresher activation and desync `i18n.locale` from localStorage.
+let activationToken = 0;
+
 export async function activateLocale(locale: Locale): Promise<void> {
+  activationToken += 1;
+  const token = activationToken;
   const mod = (await import(`../locales/${locale}/messages.ts`)) as {
     messages: Record<string, string>;
   };
+  if (token !== activationToken) return;
   i18n.load(locale, mod.messages);
   i18n.activate(locale);
 }

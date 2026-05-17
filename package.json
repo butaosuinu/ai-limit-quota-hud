@@ -8,7 +8,7 @@
     "dev": "pnpm i18n:compile && vite",
     "build": "pnpm i18n:compile && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "oxlint src/ && eslint . --ignore-pattern \"src-tauri/**\" --ignore-pattern \".dmux/**\"",
+    "lint": "pnpm i18n:compile && oxlint src/ && eslint . --ignore-pattern \"src-tauri/**\" --ignore-pattern \".dmux/**\"",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "pnpm i18n:compile && tsc --noEmit",

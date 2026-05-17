@@ -222,6 +222,8 @@ export default tseslint.config(
       "functional/no-expression-statements": "off",
       "functional/no-return-void": "off",
       "functional/no-conditional-statements": "off",
+      "functional/no-let": "off",
+      "functional/immutable-data": "off",
       "@typescript-eslint/no-unsafe-type-assertion": "off",
     },
   },

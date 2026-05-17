@@ -19,9 +19,9 @@ describe("App", () => {
     expect(screen.getByTestId("overlay-empty")).toBeTruthy();
   });
 
-  it("renders the settings panel for the settings window", () => {
+  it("renders the settings panel for the settings window", async () => {
     renderApp("settings");
-    expect(screen.getByTestId("settings-root")).toBeTruthy();
+    expect(await screen.findByTestId("settings-root")).toBeTruthy();
     expect(screen.getByText(/QuotaHUD Settings/u)).toBeTruthy();
   });
 });
