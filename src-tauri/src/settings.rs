@@ -26,6 +26,17 @@ impl Default for OverlayCorner {
     }
 }
 
+/// macOS only — controls whether the menu bar (NSStatusItem) renders a
+/// short summary string next to the tray icon. Other OSes ignore this.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MenuBarSummaryMode {
+    #[default]
+    Off,
+    Always,
+    WhenHidden,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OverlaySettings {
@@ -39,6 +50,7 @@ pub struct OverlaySettings {
     pub margin_x: i32,
     pub margin_y: i32,
     pub position: Option<Position>,
+    pub menu_bar_summary: MenuBarSummaryMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -60,6 +72,7 @@ impl Default for OverlaySettings {
             margin_x: DEFAULT_MARGIN,
             margin_y: DEFAULT_MARGIN,
             position: None,
+            menu_bar_summary: MenuBarSummaryMode::default(),
         }
     }
 }
@@ -212,5 +225,56 @@ mod tests {
         save_to_path(&path, &settings).unwrap();
         let loaded = load_from_path(&path);
         assert_eq!(loaded.position, Some(Position { x: 120, y: 80 }));
+    }
+
+    #[test]
+    fn menu_bar_summary_defaults_to_off() {
+        assert_eq!(
+            OverlaySettings::default().menu_bar_summary,
+            MenuBarSummaryMode::Off
+        );
+    }
+
+    #[test]
+    fn menu_bar_summary_serde_kebab_case() {
+        assert_eq!(
+            serde_json::to_string(&MenuBarSummaryMode::WhenHidden).unwrap(),
+            "\"when-hidden\""
+        );
+        assert_eq!(
+            serde_json::from_str::<MenuBarSummaryMode>("\"always\"").unwrap(),
+            MenuBarSummaryMode::Always
+        );
+        assert_eq!(
+            serde_json::from_str::<MenuBarSummaryMode>("\"off\"").unwrap(),
+            MenuBarSummaryMode::Off
+        );
+    }
+
+    #[test]
+    fn legacy_settings_without_menu_bar_summary_load_off() {
+        // Older settings.json files predate the menu_bar_summary field; they
+        // must keep loading and the new field must default to Off so the
+        // user never sees an unexpected menu bar entry after upgrading.
+        let dir = TempDir::new().unwrap();
+        let path = temp_settings_path(&dir);
+        fs::write(
+            &path,
+            r#"{"opacity":0.5,"compact":false,"clickThrough":false,"locked":true,"visible":true,"alwaysOnTop":true,"corner":"top-right","marginX":24,"marginY":24,"position":null}"#,
+        )
+        .unwrap();
+        let loaded = load_from_path(&path);
+        assert_eq!(loaded.menu_bar_summary, MenuBarSummaryMode::Off);
+    }
+
+    #[test]
+    fn menu_bar_summary_round_trips() {
+        let dir = TempDir::new().unwrap();
+        let path = temp_settings_path(&dir);
+        let mut settings = OverlaySettings::default();
+        settings.menu_bar_summary = MenuBarSummaryMode::WhenHidden;
+        save_to_path(&path, &settings).unwrap();
+        let loaded = load_from_path(&path);
+        assert_eq!(loaded.menu_bar_summary, MenuBarSummaryMode::WhenHidden);
     }
 }

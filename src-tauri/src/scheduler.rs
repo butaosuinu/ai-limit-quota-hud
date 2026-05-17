@@ -212,6 +212,7 @@ async fn refresh_once(
     if let Err(err) = app.emit(USAGE_UPDATED_EVENT, &combined) {
         log::warn!("emit `{USAGE_UPDATED_EVENT}` failed: {err}");
     }
+    crate::menu_bar::refresh_tray_title(app, &combined);
 }
 
 /// Rebuild the snapshot list in provider declaration order, preferring the

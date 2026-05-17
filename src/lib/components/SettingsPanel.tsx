@@ -7,7 +7,12 @@ import {
   overlaySettingsAtom,
   updateOverlaySettingsAtom,
 } from "../atoms/overlayAtoms";
-import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
+import {
+  DEFAULT_OVERLAY_SETTINGS,
+  MENU_BAR_SUMMARY_MODES,
+  type MenuBarSummaryMode,
+  type OverlaySettings,
+} from "../types";
 import { Kbd } from "./Kbd";
 import { SettingsRow } from "./SettingsRow";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -17,6 +22,7 @@ import {
   EyeIcon,
   LayersIcon,
   LockIcon,
+  MenuBarIcon,
   OpacityIcon,
   PointerIcon,
   ResetIcon,
@@ -32,6 +38,10 @@ const IS_MAC =
 const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
 
 type SliderStyle = CSSProperties & Record<`--${string}`, string>;
+
+function isMenuBarSummaryMode(value: string): value is MenuBarSummaryMode {
+  return (MENU_BAR_SUMMARY_MODES as readonly string[]).includes(value);
+}
 
 export function SettingsPanel() {
   const settings = useAtomValue(overlaySettingsAtom);
@@ -167,6 +177,34 @@ export function SettingsPanel() {
                   checked={settings.visible}
                   onChange={toggle("visible")}
                 />
+              }
+            />
+            <SettingsRow
+              icon={<MenuBarIcon />}
+              title="メニューバー簡易表示"
+              description={
+                IS_MAC
+                  ? "macOS のメニューバーに Claude / Codex の 5h リミット残量を表示"
+                  : "macOS のみ対応"
+              }
+              accessory={
+                <select
+                  id="menu-bar-summary"
+                  className="select"
+                  aria-label="メニューバー簡易表示"
+                  disabled={!IS_MAC}
+                  value={settings.menuBarSummary}
+                  onChange={(event) => {
+                    const next = event.currentTarget.value;
+                    if (isMenuBarSummaryMode(next)) {
+                      void updateSettings({ menuBarSummary: next });
+                    }
+                  }}
+                >
+                  <option value="off">OFF</option>
+                  <option value="always">常に表示</option>
+                  <option value="when-hidden">HUD 非表示時のみ</option>
+                </select>
               }
             />
           </ul>
