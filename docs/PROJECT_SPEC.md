@@ -198,10 +198,15 @@ Every row should show uncertainty honestly:
 - `no data`: provider configured but no reliable snapshot yet (e.g.
   re-login required, page not yet loaded).
 
-The `webview-scrape` source must always render as `confidence: low` in the
-UI and surface the data source explicitly (for example via a tooltip
-indicating that the value is read from a provider's web UI and may break if
-the DOM layout changes).
+The `webview-scrape` source must always be persisted on every snapshot as
+`confidence: low`. The overlay itself stays visually quiet — it does not
+render dedicated `low` / `webview` pills on every row. The data-source
+caveat is disclosed centrally instead: this `README.md` documents it, and
+the Settings window's WebView providers panel surfaces it next to the
+opt-in toggle. Snapshot status (`warning` / `critical` / `no-data` /
+`error`) and any associated `message` field still surface on the row,
+because those represent acute conditions the user needs to act on rather
+than the steady-state "this is a webview estimate" disclosure.
 
 ## 7. Core data model
 
