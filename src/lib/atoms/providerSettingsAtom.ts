@@ -97,6 +97,8 @@ async function bootstrap(
     setState((prev) => ({ ...prev, error: result.message }));
     return;
   }
+  // A stubbed IPC can resolve undefined; never overwrite defaults with it.
+  if (result == null) return;
   setState((prev) => {
     // A user mutation happened during the fetch. Keep the fresher state and
     // discard the stale bootstrap payload.

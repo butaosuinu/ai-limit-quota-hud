@@ -61,7 +61,9 @@ async function bootstrapOverlaySync(
     },
   );
   if (lifecycle.cancelled) return;
-  if (initial !== null && !receivedFreshEvent) set(initial);
+  // Loose comparison: a stubbed/empty IPC response can yield `undefined`,
+  // and committing it would crash any consumer that reads `settings.*`.
+  if (initial != null && !receivedFreshEvent) set(initial);
 }
 
 /**
