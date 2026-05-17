@@ -163,3 +163,13 @@ export function GlobeIcon(props: IconProps) {
     </Svg>
   );
 }
+
+export function MenuBarIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="1.5" y="2.5" width="13" height="3" rx="1" />
+      <path d="M10 4h2.5" />
+      <rect x="3.5" y="9" width="9" height="4.5" rx="1" opacity="0.45" />
+    </Svg>
+  );
+}

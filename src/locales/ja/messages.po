@@ -6,111 +6,129 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
 "Language: ja\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:94
+#: src/lib/components/WebviewProvidersPanel.tsx:95
 msgid "{providerLabel} を有効化"
 msgstr "{providerLabel} を有効化"
 
-#: src/lib/components/SettingsPanel.tsx:149
+#: src/lib/components/SettingsPanel.tsx:161
 msgid "Appearance"
 msgstr "Appearance"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:51
+#: src/lib/components/WebviewProvidersPanel.tsx:52
 msgid "chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示。confidence は常に low。"
 msgstr "chatgpt.com の Codex Cloud analytics を埋め込み WebView で読み取り、Plus/Pro/Codex agent の usage を表示。confidence は常に low。"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:44
+#: src/lib/components/WebviewProvidersPanel.tsx:45
 msgid "claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。"
 msgstr "claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。"
 
-#: src/lib/components/SettingsPanel.tsx:80
-#: src/lib/components/SettingsPanel.tsx:181
+#: src/lib/components/SettingsPanel.tsx:91
+#: src/lib/components/SettingsPanel.tsx:193
 msgid "Compact モード"
 msgstr "Compact モード"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:109
+#: src/lib/components/WebviewProvidersPanel.tsx:110
 msgid "Disabled"
 msgstr "Disabled"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:109
+#: src/lib/components/WebviewProvidersPanel.tsx:110
 msgid "Enabled"
 msgstr "Enabled"
 
-#: src/lib/components/SettingsPanel.tsx:123
+#: src/lib/components/SettingsPanel.tsx:135
 msgid "English と 日本語 を切り替えます。"
 msgstr "English と 日本語 を切り替えます。"
 
-#: src/lib/components/SettingsPanel.tsx:228
+#: src/lib/components/SettingsPanel.tsx:278
+msgid "HUD 非表示時のみ"
+msgstr "HUD 非表示時のみ"
+
+#: src/lib/components/SettingsPanel.tsx:259
+msgid "macOS のみ対応"
+msgstr "macOS のみ対応"
+
+#: src/lib/components/SettingsPanel.tsx:257
+msgid "macOS のメニューバーに Claude / Codex の 5h リミット残量を表示"
+msgstr "macOS のメニューバーに Claude / Codex の 5h リミット残量を表示"
+
+#: src/lib/components/SettingsPanel.tsx:240
 msgid "off にすると overlay ウィンドウを隠す (設定は保持)"
 msgstr "off にすると overlay ウィンドウを隠す (設定は保持)"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:75
+#: src/lib/components/WebviewProvidersPanel.tsx:76
 msgid "Opt-in · Low confidence"
 msgstr "Opt-in · Low confidence"
 
-#: src/lib/components/SettingsPanel.tsx:198
+#: src/lib/components/SettingsPanel.tsx:210
 msgid "overlay のドラッグを無効化して意図しない移動を防ぐ"
 msgstr "overlay のドラッグを無効化して意図しない移動を防ぐ"
 
-#: src/lib/components/SettingsPanel.tsx:168
+#: src/lib/components/SettingsPanel.tsx:180
 msgid "overlay の不透明度"
 msgstr "overlay の不透明度"
 
-#: src/lib/components/SettingsPanel.tsx:253
+#: src/lib/components/SettingsPanel.tsx:297
 msgid "overlay をドラッグするとここに座標が保存される"
 msgstr "overlay をドラッグするとここに座標が保存される"
 
-#: src/lib/components/SettingsPanel.tsx:83
-#: src/lib/components/SettingsPanel.tsx:226
+#: src/lib/components/SettingsPanel.tsx:94
+#: src/lib/components/SettingsPanel.tsx:238
 msgid "Overlay を表示"
 msgstr "Overlay を表示"
 
-#: src/lib/components/SettingsPanel.tsx:156
+#: src/lib/components/SettingsPanel.tsx:168
 msgid "overlay 全体の透明度。15%〜100%"
 msgstr "overlay 全体の透明度。15%〜100%"
 
-#: src/lib/components/SettingsPanel.tsx:245
+#: src/lib/components/SettingsPanel.tsx:289
 msgid "Position"
 msgstr "Position"
 
-#: src/lib/components/SettingsPanel.tsx:94
+#: src/lib/components/SettingsPanel.tsx:106
 msgid "QuotaHUD Settings"
 msgstr "QuotaHUD Settings"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:52
+#: src/lib/components/WebviewProvidersPanel.tsx:53
 msgid "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
 msgstr "QuotaHUD は chatgpt.com 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:45
+#: src/lib/components/WebviewProvidersPanel.tsx:46
 msgid "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
 msgstr "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
 
-#: src/lib/components/SettingsPanel.tsx:290
+#: src/lib/components/SettingsPanel.tsx:334
 msgid "Reset to defaults"
 msgstr "Reset to defaults"
 
-#: src/lib/components/SettingsPanel.tsx:183
+#: src/lib/components/SettingsPanel.tsx:195
 msgid "title / footer / reset 表示を畳んで 1 行サイズに収める"
 msgstr "title / footer / reset 表示を畳んで 1 行サイズに収める"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:72
+#: src/lib/components/WebviewProvidersPanel.tsx:73
 msgid "WebView Providers"
 msgstr "WebView Providers"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:155
+#: src/lib/components/WebviewProvidersPanel.tsx:156
 msgid "WebView providers は外部サイトの DOM を読み取って残量を表示するため、データは常に<0>confidence: low</0> としてマークされます。"
 msgstr "WebView providers は外部サイトの DOM を読み取って残量を表示するため、データは常に<0>confidence: low</0> としてマークされます。"
 
-#: src/lib/components/SettingsPanel.tsx:82
-#: src/lib/components/SettingsPanel.tsx:211
+#: src/lib/components/SettingsPanel.tsx:93
+#: src/lib/components/SettingsPanel.tsx:223
 msgid "クリックスルー"
 msgstr "クリックスルー"
 
-#: src/lib/components/SettingsPanel.tsx:278
+#: src/lib/components/SettingsPanel.tsx:322
 msgid "クリックスルーをトグル"
 msgstr "クリックスルーをトグル"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:145
+#: src/lib/components/WebviewProvidersPanel.tsx:146
 msgid "データを削除"
 msgstr "データを削除"
 
@@ -126,11 +144,15 @@ msgstr "プロバイダの有効化に失敗"
 msgid "プロバイダ設定の取得に失敗"
 msgstr "プロバイダ設定の取得に失敗"
 
-#: src/lib/components/SettingsPanel.tsx:213
+#: src/lib/components/SettingsPanel.tsx:225
 msgid "マウス操作を背面に透過。{modKey} + Shift + \\ で即時切替"
 msgstr "マウス操作を背面に透過。{modKey} + Shift + \\ で即時切替"
 
-#: src/lib/components/WebviewProvidersPanel.tsx:134
+#: src/lib/components/SettingsPanel.tsx:96
+msgid "メニューバー簡易表示"
+msgstr "メニューバー簡易表示"
+
+#: src/lib/components/WebviewProvidersPanel.tsx:135
 msgid "ログイン"
 msgstr "ログイン"
 
@@ -138,35 +160,39 @@ msgstr "ログイン"
 msgid "ログインウィンドウを開けませんでした"
 msgstr "ログインウィンドウを開けませんでした"
 
-#: src/lib/components/SettingsPanel.tsx:155
+#: src/lib/components/SettingsPanel.tsx:167
 msgid "不透明度"
 msgstr "不透明度"
 
-#: src/lib/components/SettingsPanel.tsx:81
-#: src/lib/components/SettingsPanel.tsx:196
+#: src/lib/components/SettingsPanel.tsx:92
+#: src/lib/components/SettingsPanel.tsx:208
 msgid "位置をロック"
 msgstr "位置をロック"
 
-#: src/lib/components/SettingsPanel.tsx:251
+#: src/lib/components/SettingsPanel.tsx:295
 msgid "保存された位置"
 msgstr "保存された位置"
 
-#: src/lib/components/SettingsPanel.tsx:258
+#: src/lib/components/SettingsPanel.tsx:276
+msgid "常に表示"
+msgstr "常に表示"
+
+#: src/lib/components/SettingsPanel.tsx:302
 msgid "未保存"
 msgstr "未保存"
 
-#: src/lib/components/SettingsPanel.tsx:84
+#: src/lib/components/SettingsPanel.tsx:95
 msgid "表示言語"
 msgstr "表示言語"
 
-#: src/lib/components/SettingsPanel.tsx:116
+#: src/lib/components/SettingsPanel.tsx:128
 msgid "言語"
 msgstr "言語"
 
-#: src/lib/components/SettingsPanel.tsx:105
+#: src/lib/components/SettingsPanel.tsx:117
 msgid "設定を検索 (検索機能は今後追加予定)"
 msgstr "設定を検索 (検索機能は今後追加予定)"
 
-#: src/lib/components/SettingsPanel.tsx:103
+#: src/lib/components/SettingsPanel.tsx:115
 msgid "設定を検索…"
 msgstr "設定を検索…"

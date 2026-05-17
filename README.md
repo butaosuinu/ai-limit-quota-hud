@@ -2,18 +2,28 @@
 
 A small cross-platform desktop overlay that surfaces remaining AI subscription-usage headroom for **Claude (Pro/Max)** on `claude.ai` and **ChatGPT (Plus/Pro/Codex agent)** on `chatgpt.com`. Built with **Tauri 2 + Rust** and **React + TypeScript + Vite**.
 
-> Status: **Phase 1 (overlay UX) + Phase 3 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up against an empty provider list. WebView providers (Phase 2) are being built next; see `docs/PROJECT_SPEC.md` §8 / §13.
+🇯🇵 日本語版: [README.ja.md](./README.ja.md)
+
+## Product showcase
+
+| Overlay HUD | Settings |
+| --- | --- |
+| ![Transparent overlay HUD showing remaining Claude and Codex usage as horizontal gauges](docs/images/overlay.png) | ![Settings window with Raycast-style list rows for overlay options and WebView providers](docs/images/settings.png) |
+
+QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Each opted-in provider becomes a single row with a horizontal remaining-usage gauge and a `reset at …` timestamp, so you can glance at it during a long coding session without context-switching to the vendor's web UI. The Settings window — a regular focusable window — hosts overlay tuning (opacity, click-through, lock, position) and the WebView provider login flow.
+
+> Status: **Phase 1 (overlay UX) + Phase 3 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up. WebView providers (Phase 2) are being built next; see `docs/PROJECT_SPEC.md` §8 / §13.
 
 ## Data source caveat
 
-QuotaHUD labels every snapshot with a `source` and a `confidence` value so estimates are never confused with measurements.
+QuotaHUD labels every snapshot internally with a `source` and a `confidence` value so estimates are never confused with measurements. **All shipped providers scrape the vendor web UI**, so every value below is an estimate that may break when the vendor changes their layout.
 
 | `source`         | `confidence` | What it is                                                                       | Treat as     |
 | ---------------- | ------------ | -------------------------------------------------------------------------------- | ------------ |
 | `webview-scrape` | `low`        | DOM extracted from the vendor's own usage page inside an opt-in WebView          | **Estimate** |
 | `unavailable`    | —            | Provider configured but no reliable data yet (`NoData` / `Error`)                | No claim     |
 
-All shipped providers scrape the vendor web UI — the DOM is not a stable contract, so every value is an estimate that may break when the vendor changes their layout. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
+The overlay itself does not paint a `low` / `webview` pill on every row; the disclosure lives in this table and is repeated next to each opt-in toggle in the Settings window. Snapshot status (`warning` / `critical` / `no-data` / `error`) and the associated `message` are still surfaced on the row so the user can react to acute conditions. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
 
 ## Installation
 

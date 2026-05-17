@@ -148,12 +148,13 @@ describe("UsageRow", () => {
     expect(screen.getByText(new RegExp(`reset ${hh}:${mm}`, "u"))).toBeTruthy();
   });
 
-  it("shows confidence and source badges for webview rows", () => {
-    renderWithSnapshot(baseSnapshot());
-    expect(screen.getByTestId("error-badge-confidence-low")).toBeTruthy();
+  it("does not render confidence or source pills on ok rows", () => {
+    const { container } = renderWithSnapshot(baseSnapshot());
+    expect(screen.queryByTestId("error-badge-confidence-low")).toBeNull();
     expect(
-      screen.getByTestId("error-badge-source-webview-scrape"),
-    ).toBeTruthy();
+      screen.queryByTestId("error-badge-source-webview-scrape"),
+    ).toBeNull();
+    expect(container.querySelector(".error-badge-group")).toBeNull();
   });
 
   it("propagates the error message into the badge group tooltip", () => {

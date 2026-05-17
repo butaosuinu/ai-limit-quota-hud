@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { ErrorBadge } from "./ErrorBadge";
 
 describe("ErrorBadge", () => {
-  it("renders nothing when status is ok and no confidence/source is shown", () => {
+  it("renders nothing when status is ok", () => {
     const { container } = render(<ErrorBadge status="ok" />);
     expect(container.firstChild).toBeNull();
   });
@@ -25,15 +25,11 @@ describe("ErrorBadge", () => {
     ).toBe("no data yet");
   });
 
-  it("renders the low-confidence pill", () => {
-    render(<ErrorBadge status="ok" confidence="low" />);
-    expect(screen.getByTestId("error-badge-confidence-low")).toBeTruthy();
-  });
-
-  it("renders the webview source pill", () => {
-    render(<ErrorBadge status="ok" source="webview-scrape" />);
+  it("does not render confidence or source pills", () => {
+    render(<ErrorBadge status="ok" />);
+    expect(screen.queryByTestId("error-badge-confidence-low")).toBeNull();
     expect(
-      screen.getByTestId("error-badge-source-webview-scrape"),
-    ).toBeTruthy();
+      screen.queryByTestId("error-badge-source-webview-scrape"),
+    ).toBeNull();
   });
 });

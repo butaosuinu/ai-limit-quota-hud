@@ -16,7 +16,12 @@ import {
   activateLocale,
   persistLocale,
 } from "../i18n";
-import { DEFAULT_OVERLAY_SETTINGS, type OverlaySettings } from "../types";
+import {
+  DEFAULT_OVERLAY_SETTINGS,
+  MENU_BAR_SUMMARY_MODES,
+  type MenuBarSummaryMode,
+  type OverlaySettings,
+} from "../types";
 import { Kbd } from "./Kbd";
 import { SettingsRow } from "./SettingsRow";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -27,6 +32,7 @@ import {
   GlobeIcon,
   LayersIcon,
   LockIcon,
+  MenuBarIcon,
   OpacityIcon,
   PointerIcon,
   ResetIcon,
@@ -47,6 +53,10 @@ const LOCALE_LABELS: Readonly<Record<Locale, string>> = {
   ja: "日本語",
   en: "English",
 };
+
+function isMenuBarSummaryMode(value: string): value is MenuBarSummaryMode {
+  return (MENU_BAR_SUMMARY_MODES as readonly string[]).includes(value);
+}
 
 export function SettingsPanel() {
   const { i18n, _ } = useLingui();
@@ -83,6 +93,7 @@ export function SettingsPanel() {
   const clickThroughToggleLabel = _(msg`クリックスルー`);
   const visibleToggleLabel = _(msg`Overlay を表示`);
   const languageLabel = _(msg`表示言語`);
+  const menuBarLabel = _(msg`メニューバー簡易表示`);
 
   return (
     <main className="settings" data-testid="settings-root">
@@ -235,6 +246,38 @@ export function SettingsPanel() {
                   checked={settings.visible}
                   onChange={toggle("visible")}
                 />
+              }
+            />
+            <SettingsRow
+              icon={<MenuBarIcon />}
+              title={menuBarLabel}
+              description={
+                IS_MAC
+                  ? _(
+                      msg`macOS のメニューバーに Claude / Codex の 5h リミット残量を表示`,
+                    )
+                  : _(msg`macOS のみ対応`)
+              }
+              accessory={
+                <select
+                  id="menu-bar-summary"
+                  className="select"
+                  aria-label={menuBarLabel}
+                  disabled={!IS_MAC}
+                  value={settings.menuBarSummary}
+                  onChange={(event) => {
+                    const next = event.currentTarget.value;
+                    if (isMenuBarSummaryMode(next)) {
+                      void updateSettings({ menuBarSummary: next });
+                    }
+                  }}
+                >
+                  <option value="off">OFF</option>
+                  <option value="always">{_(msg`常に表示`)}</option>
+                  <option value="when-hidden">
+                    {_(msg`HUD 非表示時のみ`)}
+                  </option>
+                </select>
               }
             />
           </ul>

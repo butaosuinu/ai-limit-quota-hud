@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { listSnapshots } from "../api";
 import {
   USAGE_UPDATED_EVENT,
+  type ProviderKind,
   type SnapshotStatus,
   type UsageSnapshot,
 } from "../types";
@@ -69,6 +70,42 @@ export const sortedSnapshotsAtom = atom((get) => {
     return a.accountLabel.localeCompare(b.accountLabel);
   });
   return snapshots;
+});
+
+export type SnapshotGroupLabel = "Claude" | "Codex";
+
+export type SnapshotGroup = {
+  kind: ProviderKind;
+  label: SnapshotGroupLabel;
+  snapshots: readonly UsageSnapshot[];
+};
+
+const PROVIDER_GROUPS: ReadonlyArray<{
+  kind: ProviderKind;
+  label: SnapshotGroupLabel;
+}> = [
+  { kind: "webview-claude-ai", label: "Claude" },
+  { kind: "webview-chatgpt-codex", label: "Codex" },
+];
+
+export const groupedSnapshotsAtom = atom((get): readonly SnapshotGroup[] => {
+  const sorted = get(sortedSnapshotsAtom);
+  const byKind = sorted.reduce<Map<ProviderKind, UsageSnapshot[]>>(
+    (acc, snapshot) => {
+      const bucket = acc.get(snapshot.providerKind);
+      if (bucket === undefined) {
+        acc.set(snapshot.providerKind, [snapshot]);
+      } else {
+        bucket.push(snapshot);
+      }
+      return acc;
+    },
+    new Map(),
+  );
+  return PROVIDER_GROUPS.flatMap(({ kind, label }) => {
+    const snapshots = byKind.get(kind);
+    return snapshots === undefined ? [] : [{ kind, label, snapshots }];
+  });
 });
 
 export type StatusCounts = {

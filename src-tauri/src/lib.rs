@@ -1,4 +1,5 @@
 mod commands;
+mod menu_bar;
 mod model;
 mod overlay;
 mod platform;
@@ -20,6 +21,8 @@ use crate::overlay::{
 };
 use crate::settings::{OverlaySettings, Position};
 
+pub(crate) const TRAY_ICON_ID: &str = "quotahud-tray";
+
 const MENU_ID_SHOW_HIDE: &str = "show_hide";
 const MENU_ID_CLICK_THROUGH: &str = "click_through";
 const MENU_ID_LOCK: &str = "lock_position";
@@ -28,7 +31,7 @@ const MENU_ID_QUIT: &str = "quit";
 
 const CLICK_THROUGH_SHORTCUT: &str = "CommandOrControl+Shift+Backslash";
 
-struct AppState {
+pub(crate) struct AppState {
     settings: Mutex<OverlaySettings>,
     // The position `apply_to_window` just sent to the OS, if any. The Moved
     // event listener consumes this on the next event so a programmatic move
@@ -45,7 +48,7 @@ impl AppState {
         }
     }
 
-    fn snapshot(&self) -> OverlaySettings {
+    pub(crate) fn snapshot(&self) -> OverlaySettings {
         self.settings
             .lock()
             .expect("overlay settings mutex poisoned")
@@ -117,6 +120,11 @@ fn persist_and_apply(app: &AppHandle, settings: &OverlaySettings) {
     }
     emit_settings_changed(app, settings);
     refresh_tray_menu(app, settings);
+    let snapshots = app
+        .try_state::<state::ProviderState>()
+        .and_then(|state| state.latest.read().ok().map(|guard| guard.clone()))
+        .unwrap_or_default();
+    menu_bar::refresh_tray_title(app, &snapshots);
 }
 
 fn open_settings_window(app: &AppHandle) {
@@ -197,7 +205,7 @@ fn build_tray(app: &AppHandle, initial: &OverlaySettings) -> tauri::Result<()> {
         show_hide,
     });
 
-    let mut builder = TrayIconBuilder::with_id("quotahud-tray")
+    let mut builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .icon_as_template(true)
