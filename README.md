@@ -6,14 +6,14 @@ A small cross-platform desktop overlay that surfaces remaining AI subscription-u
 
 ## Data source caveat
 
-QuotaHUD labels every snapshot with a `source` and a `confidence` value so estimates are never confused with measurements.
+QuotaHUD labels every snapshot internally with a `source` and a `confidence` value so estimates are never confused with measurements. **All shipped providers scrape the vendor web UI**, so every value below is an estimate that may break when the vendor changes their layout.
 
 | `source`         | `confidence` | What it is                                                                       | Treat as     |
 | ---------------- | ------------ | -------------------------------------------------------------------------------- | ------------ |
 | `webview-scrape` | `low`        | DOM extracted from the vendor's own usage page inside an opt-in WebView          | **Estimate** |
 | `unavailable`    | —            | Provider configured but no reliable data yet (`NoData` / `Error`)                | No claim     |
 
-All shipped providers scrape the vendor web UI — the DOM is not a stable contract, so every value is an estimate that may break when the vendor changes their layout. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
+The overlay itself does not paint a `low` / `webview` pill on every row; the disclosure lives in this table and is repeated next to each opt-in toggle in the Settings window. Snapshot status (`warning` / `critical` / `no-data` / `error`) and the associated `message` are still surfaced on the row so the user can react to acute conditions. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
 
 ## Installation
 

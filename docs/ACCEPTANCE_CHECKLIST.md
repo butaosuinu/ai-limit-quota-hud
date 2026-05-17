@@ -94,9 +94,12 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       re-enables the "Login" action.
 - [x] An extractor returning `null` due to a DOM layout change surfaces as
       `SnapshotStatus::Error` and feeds the scheduler's exponential backoff.
-- [x] Every WebView-derived `UsageSnapshot` row has
-      `source=webview-scrape` and `confidence=low`, and the UI exposes this in
-      a tooltip so the user understands the data source.
+- [x] Every WebView-derived `UsageSnapshot` row carries
+      `source=webview-scrape` and `confidence=low` in its serialized form.
+      The disclosure that values are webview-scrape estimates lives in
+      `README.md` (data-source caveat table) and the Settings window's
+      WebView providers panel rather than on every overlay row, so the
+      overlay stays glanceable. Per-row badges are intentionally omitted.
 - [x] The configured `min_refresh_interval` is **at least 300 seconds** for
       WebView providers (default 600 seconds).
 - [x] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
