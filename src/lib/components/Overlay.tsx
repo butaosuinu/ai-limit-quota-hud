@@ -18,9 +18,14 @@ export function Overlay() {
   const handleRefresh = (): void => {
     if (busy) return;
     setBusy(true);
-    void refreshNow().finally(() => {
-      setBusy(false);
-    });
+    refreshNow()
+      .catch((err: unknown) => {
+        // eslint-disable-next-line no-console -- best-effort observability when the manual refresh invoke fails (e.g. running in plain `pnpm dev` without a Tauri runtime).
+        console.warn("refresh_now failed", err);
+      })
+      .finally(() => {
+        setBusy(false);
+      });
   };
 
   return (
