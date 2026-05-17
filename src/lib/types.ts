@@ -15,6 +15,14 @@ export type Position = {
   y: number;
 };
 
+/**
+ * macOS only — controls whether the menu bar (NSStatusItem) renders a
+ * short summary string next to the tray icon. Other OSes ignore this.
+ */
+export const MENU_BAR_SUMMARY_MODES = ["off", "always", "when-hidden"] as const;
+
+export type MenuBarSummaryMode = (typeof MENU_BAR_SUMMARY_MODES)[number];
+
 export type OverlaySettings = {
   opacity: number;
   compact: boolean;
@@ -26,6 +34,7 @@ export type OverlaySettings = {
   marginX: number;
   marginY: number;
   position: Position | null;
+  menuBarSummary: MenuBarSummaryMode;
 };
 
 export type SnapshotStatus =
@@ -109,4 +118,5 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   marginX: 24,
   marginY: 24,
   position: null,
+  menuBarSummary: "off",
 };

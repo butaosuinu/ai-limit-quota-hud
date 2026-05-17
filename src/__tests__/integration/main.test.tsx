@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setupInvoke } from "../helpers/invokeMock";
 import { setupListen } from "../helpers/eventBus";
+import { flush } from "../helpers/flush";
 
 type CapturedNode = { windowLabel: string };
 type ReactElementLike = { props: Record<string, unknown> };
@@ -45,6 +46,13 @@ beforeEach(() => {
   setupInvoke();
   setupListen();
   vi.resetModules();
+  // Re-establish the webviewWindow mock after resetModules — `vi.mock` from
+  // setup.ts is hoisted but its factory does not survive a module reset, so
+  // the next `import("../../main")` would otherwise pull in the real
+  // `@tauri-apps/api/webviewWindow` and crash on missing runtime globals.
+  vi.doMock("@tauri-apps/api/webviewWindow", () => ({
+    getCurrentWebviewWindow: () => ({ label: "overlay" }),
+  }));
 });
 
 afterEach(() => {
@@ -57,15 +65,26 @@ describe("main.tsx bootstrap", () => {
   it("mountsWithOverlayLabelWhenTauriInternalsMissing", async () => {
     // jsdom default: window exists, __TAURI_INTERNALS__ does not → overlay.
     await import("../../main");
+    await flush();
     expect(captured?.windowLabel).toBe("overlay");
   });
 
   it("mountsWithLabelFromTauriWebviewWindowWhenRuntimeAvailable", async () => {
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    // Override beforeEach's overlay default for just this test.
     vi.doMock("@tauri-apps/api/webviewWindow", () => ({
       getCurrentWebviewWindow: () => ({ label: "settings" }),
     }));
+    // The settings path lazy-loads @lingui/react + ./lib/i18n via dynamic
+    // imports before calling root.render. Give the bootstrap promise time to
+    // settle so `captured` reflects the rendered tree.
     await import("../../main");
+    // Dynamic imports + activateLocale need real time before render fires.
+    // 50 × ~2 ms easily covers the lazy chunk + i18n catalog import.
+    for (let i = 0; i < 50; i += 1) {
+      if (captured !== null) break;
+      await flush(2);
+    }
     expect(captured?.windowLabel).toBe("settings");
   });
 

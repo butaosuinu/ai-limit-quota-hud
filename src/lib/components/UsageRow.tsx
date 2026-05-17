@@ -97,12 +97,7 @@ export function UsageRow({ snapshot, compact }: Props) {
       <span className="overlay__row-label">{snapshot.accountLabel}</span>
       <span className="overlay__row-detail">{detail}</span>
       {!compact && <span className="overlay__row-reset">reset {reset}</span>}
-      <ErrorBadge
-        status={snapshot.status}
-        confidence={snapshot.confidence}
-        source={snapshot.source}
-        message={snapshot.message}
-      />
+      <ErrorBadge status={snapshot.status} message={snapshot.message} />
       <UsageBar percent={percent} />
     </li>
   );

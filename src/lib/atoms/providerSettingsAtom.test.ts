@@ -70,8 +70,9 @@ describe("providerSettingsAtom — bootstrap", () => {
     const store = createStore();
     const unsub = store.sub(providerSettingsErrorAtom, () => {});
     await waitForState();
+    // Unknown error shape: fallback is just the localized label, no suffix.
     expect(store.get(providerSettingsErrorAtom)).toBe(
-      "プロバイダ設定の取得に失敗 failed",
+      "プロバイダ設定の取得に失敗",
     );
     unsub();
   });

@@ -7,6 +7,7 @@ import { setupListen } from "../helpers/eventBus";
 import { flush } from "../helpers/flush";
 import { overlaySettingsAtom } from "../../lib/atoms/overlayAtoms";
 import { SettingsPanel } from "../../lib/components/SettingsPanel";
+import { withI18n } from "../../test/i18nTestUtils";
 import {
   DEFAULT_OVERLAY_SETTINGS,
   OVERLAY_SETTINGS_CHANGED_EVENT,
@@ -22,9 +23,11 @@ async function mountSettings(
   const store = createStore();
   store.set(overlaySettingsAtom, merged);
   const rendered = render(
-    <Provider store={store}>
-      <SettingsPanel />
-    </Provider>,
+    withI18n(
+      <Provider store={store}>
+        <SettingsPanel />
+      </Provider>,
+    ),
   );
   // Let bootstrap (get_overlay_settings + get_provider_settings) settle before
   // any user interaction so we don't race a deferred setState onto a clicked

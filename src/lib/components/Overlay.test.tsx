@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 
 import { overlaySettingsAtom } from "../atoms/overlayAtoms";
 import { snapshotsAtom } from "../atoms/usageAtoms";
 import { DEFAULT_OVERLAY_SETTINGS, type UsageSnapshot } from "../types";
 import { Overlay } from "./Overlay";
+
+const refreshNowMock = vi.fn<() => Promise<unknown>>();
+
+vi.mock("../api", () => ({
+  refreshNow: () => refreshNowMock(),
+  listSnapshots: vi.fn().mockResolvedValue([]),
+}));
 
 const baseSnapshot = (
   overrides: Partial<UsageSnapshot> = {},
@@ -46,6 +53,11 @@ function renderOverlay({ snapshots, settings = {} }: SnapshotsOverride = {}) {
   );
 }
 
+beforeEach(() => {
+  refreshNowMock.mockReset();
+  refreshNowMock.mockResolvedValue(undefined);
+});
+
 describe("Overlay", () => {
   it("shows the empty placeholder when no snapshots are present", () => {
     renderOverlay({ snapshots: [] });
@@ -53,25 +65,65 @@ describe("Overlay", () => {
     expect(screen.getByText("no providers configured")).toBeTruthy();
   });
 
-  it("renders one UsageRow per snapshot, sorted by severity", () => {
+  it("groups Claude and Codex snapshots under their section headers", () => {
     renderOverlay({
       snapshots: [
         baseSnapshot({
           providerId: "webview-claude-ai:a",
+          providerKind: "webview-claude-ai",
+          accountLabel: "alice",
+        }),
+        baseSnapshot({
+          providerId: "webview-chatgpt-codex:b",
+          providerKind: "webview-chatgpt-codex",
+          accountLabel: "bob",
+        }),
+      ],
+    });
+    expect(screen.getByTestId("overlay-group-webview-claude-ai")).toBeTruthy();
+    expect(
+      screen.getByTestId("overlay-group-webview-chatgpt-codex"),
+    ).toBeTruthy();
+    expect(screen.getByText("Claude")).toBeTruthy();
+    expect(screen.getByText("Codex")).toBeTruthy();
+  });
+
+  it("hides the Codex section when only Claude snapshots are present", () => {
+    renderOverlay({
+      snapshots: [
+        baseSnapshot({
+          providerId: "webview-claude-ai:a",
+          providerKind: "webview-claude-ai",
+          accountLabel: "alice",
+        }),
+      ],
+    });
+    expect(screen.getByTestId("overlay-group-webview-claude-ai")).toBeTruthy();
+    expect(
+      screen.queryByTestId("overlay-group-webview-chatgpt-codex"),
+    ).toBeNull();
+  });
+
+  it("sorts rows within a group by severity (critical first)", () => {
+    renderOverlay({
+      snapshots: [
+        baseSnapshot({
+          providerId: "webview-claude-ai:a",
+          providerKind: "webview-claude-ai",
           accountLabel: "alice",
           status: "ok",
         }),
         baseSnapshot({
-          providerId: "webview-chatgpt-codex:b",
-          accountLabel: "bob",
+          providerId: "webview-claude-ai:c",
+          providerKind: "webview-claude-ai",
+          accountLabel: "carol",
           status: "critical",
           remainingPercent: 5,
         }),
       ],
     });
-    const rows = screen.getAllByText(/^(?:alice|bob)$/u);
-    // bob has critical status — should appear before alice in the DOM.
-    expect(rows[0]?.textContent).toBe("bob");
+    const rows = screen.getAllByText(/^(?:alice|carol)$/u);
+    expect(rows[0]?.textContent).toBe("carol");
     expect(rows[1]?.textContent).toBe("alice");
   });
 
@@ -106,6 +158,7 @@ describe("Overlay", () => {
       snapshots: [
         baseSnapshot({
           providerId: "webview-claude-ai:nd",
+          providerKind: "webview-claude-ai",
           status: "no-data",
           remainingPercent: null,
           remaining: null,
@@ -115,5 +168,71 @@ describe("Overlay", () => {
       ],
     });
     expect(screen.getByTestId("error-badge-no-data")).toBeTruthy();
+  });
+
+  it("invokes refreshNow when the refresh button is clicked", () => {
+    renderOverlay({ snapshots: [baseSnapshot()] });
+    const button = screen.getByTestId("overlay-refresh");
+    fireEvent.click(button);
+    expect(refreshNowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the refresh button while the request is in flight", () => {
+    refreshNowMock.mockImplementationOnce(
+      () => new Promise<unknown>(() => undefined),
+    );
+    renderOverlay({ snapshots: [baseSnapshot()] });
+    const button = screen.getByTestId("overlay-refresh");
+    fireEvent.click(button);
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("opts the refresh button out of the drag region", () => {
+    renderOverlay({ settings: { locked: false } });
+    const button = screen.getByTestId("overlay-refresh");
+    expect(button.getAttribute("data-tauri-drag-region")).toBe("false");
+  });
+
+  it("reports the row count in the footer, not the section count", () => {
+    renderOverlay({
+      snapshots: [
+        baseSnapshot({
+          providerId: "webview-claude-ai:a",
+          providerKind: "webview-claude-ai",
+          accountLabel: "alice",
+        }),
+        baseSnapshot({
+          providerId: "webview-claude-ai:b",
+          providerKind: "webview-claude-ai",
+          accountLabel: "bob",
+        }),
+        baseSnapshot({
+          providerId: "webview-chatgpt-codex:c",
+          providerKind: "webview-chatgpt-codex",
+          accountLabel: "carol",
+        }),
+      ],
+    });
+    expect(screen.getByText(/3 provider rows/u)).toBeTruthy();
+  });
+
+  it("uses the singular form when only one row is shown", () => {
+    renderOverlay({ snapshots: [baseSnapshot()] });
+    expect(screen.getByText(/1 provider row /u)).toBeTruthy();
+  });
+
+  it("shows zero rows in the footer when no providers are configured", () => {
+    renderOverlay({ snapshots: [] });
+    expect(screen.getByText(/0 provider rows/u)).toBeTruthy();
+  });
+
+  it("hides the title row (and refresh button) in compact mode", () => {
+    renderOverlay({ settings: { compact: true } });
+    // The button still exists in the DOM but its container is display:none.
+    // We assert the title-row wrapper isn't rendered as visible content by
+    // checking the rendered className.
+    const root = screen.getByTestId("overlay-root");
+    expect(root.className.includes("overlay--compact")).toBe(true);
   });
 });

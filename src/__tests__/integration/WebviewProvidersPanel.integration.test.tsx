@@ -6,13 +6,16 @@ import { resetInvoke, setupInvoke } from "../helpers/invokeMock";
 import { setupListen } from "../helpers/eventBus";
 import { flush } from "../helpers/flush";
 import { WebviewProvidersPanel } from "../../lib/components/WebviewProvidersPanel";
+import { withI18n } from "../../test/i18nTestUtils";
 
 async function mountPanel() {
   const store = createStore();
   const rendered = render(
-    <Provider store={store}>
-      <WebviewProvidersPanel />
-    </Provider>,
+    withI18n(
+      <Provider store={store}>
+        <WebviewProvidersPanel />
+      </Provider>,
+    ),
   );
   await act(async () => {
     await flush();
@@ -71,7 +74,10 @@ describe("WebviewProvidersPanel — bootstrap", () => {
       },
     });
     await mountPanel();
-    expect(screen.getByRole("alert").textContent).toContain("failed");
+    // Unknown error shape: alert shows the localized label without suffix.
+    expect(screen.getByRole("alert").textContent).toContain(
+      "プロバイダ設定の取得に失敗",
+    );
   });
 
   it("rendersBothProviderEntries", async () => {
