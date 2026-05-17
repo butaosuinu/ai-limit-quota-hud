@@ -14,10 +14,13 @@ export default tseslint.config(
       "eslint.config.js",
       "vite.config.ts",
       "vitest.config.ts",
+      "lingui.config.ts",
       "src-tauri/target/",
       "src-tauri/gen/",
       "src-tauri/src/providers/webview/extractors/",
       "src/types/**/*.d.ts",
+      "src/locales/**/messages.ts",
+      "src/locales/**/messages.d.ts",
       ".claude/",
       ".mcp.json",
       "vite.config.ts.timestamp-*.mjs",
@@ -208,6 +211,20 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-call": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-return": "off",
+    },
+  },
+  {
+    // i18n bootstrap: side-effectful runtime initialization (i18n.load /
+    // i18n.activate, localStorage). Relax functional/* rules here so the
+    // Lingui setup can be expressed straightforwardly.
+    files: ["src/lib/i18n.ts"],
+    rules: {
+      "functional/no-expression-statements": "off",
+      "functional/no-return-void": "off",
+      "functional/no-conditional-statements": "off",
+      "functional/no-let": "off",
+      "functional/immutable-data": "off",
+      "@typescript-eslint/no-unsafe-type-assertion": "off",
     },
   },
   {

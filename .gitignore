@@ -19,6 +19,10 @@ yarn-error.log*
 !.vscode/extensions.json
 .dmux/
 
+# Lingui コンパイル成果物 (po は git 管理、ts は自動生成のため除外)
+src/locales/**/messages.ts
+src/locales/**/messages.d.ts
+
 # Claude Code: ローカル上書き設定のみ ignore。settings.json と hooks/ は共有する。
 .claude/settings.local.json
 

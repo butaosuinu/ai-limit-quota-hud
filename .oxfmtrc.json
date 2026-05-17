@@ -12,6 +12,8 @@
     "pnpm-lock.yaml",
     "src-tauri/target/",
     "src-tauri/gen/",
+    "src/locales/**/messages.ts",
+    "src/locales/**/messages.d.ts",
     ".claude/",
     ".mcp.json"
   ]

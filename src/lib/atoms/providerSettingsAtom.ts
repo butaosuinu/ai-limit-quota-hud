@@ -1,3 +1,5 @@
+import { msg } from "@lingui/core/macro";
+import type { MessageDescriptor } from "@lingui/core";
 import { atom } from "jotai";
 
 import {
@@ -6,6 +8,7 @@ import {
   openProviderLoginWindow,
   setProviderEnabled,
 } from "../api";
+import { i18n } from "../i18n";
 import {
   DEFAULT_PROVIDER_SETTINGS,
   type ProviderKind,
@@ -61,10 +64,21 @@ const failure = (message: string): Failure => ({
 const isFailure = (value: unknown): value is Failure =>
   typeof value === "object" && value !== null && FAILURE_MARKER in value;
 
-function describeError(action: string, err: unknown): string {
-  if (typeof err === "string") return `${action}: ${err}`;
-  if (err instanceof Error) return `${action}: ${err.message}`;
-  return `${action} failed`;
+const MSG = {
+  fetchFailed: msg`プロバイダ設定の取得に失敗`,
+  toggleFailed: msg`プロバイダの有効化に失敗`,
+  loginFailed: msg`ログインウィンドウを開けませんでした`,
+  deleteFailed: msg`プロバイダデータの削除に失敗`,
+};
+
+// Localized at call time via the live i18n singleton. Locale changes after the
+// error has been written into atom state will not retranslate the stored
+// string — acceptable trade-off since errors are transient.
+function describeError(action: MessageDescriptor, err: unknown): string {
+  const label = i18n._(action);
+  if (typeof err === "string") return `${label}: ${err}`;
+  if (err instanceof Error) return `${label}: ${err.message}`;
+  return label;
 }
 
 async function bootstrap(
@@ -76,14 +90,15 @@ async function bootstrap(
   lifecycle: Lifecycle,
 ): Promise<void> {
   const result = await getProviderSettings().catch(
-    (err: unknown): Failure =>
-      failure(describeError("プロバイダ設定の取得に失敗", err)),
+    (err: unknown): Failure => failure(describeError(MSG.fetchFailed, err)),
   );
   if (lifecycle.cancelled) return;
   if (isFailure(result)) {
     setState((prev) => ({ ...prev, error: result.message }));
     return;
   }
+  // A stubbed IPC can resolve undefined; never overwrite defaults with it.
+  if (result == null) return;
   setState((prev) => {
     // A user mutation happened during the fetch. Keep the fresher state and
     // discard the stale bootstrap payload.
@@ -123,8 +138,7 @@ export const setProviderEnabledAtom = atom(
       payload.kind,
       payload.enabled,
     ).catch(
-      (err: unknown): Failure =>
-        failure(describeError("プロバイダの有効化に失敗", err)),
+      (err: unknown): Failure => failure(describeError(MSG.toggleFailed, err)),
     );
     if (isFailure(result)) {
       set(stateAtom, (prev) => ({ ...prev, error: result.message }));
@@ -152,8 +166,7 @@ export const openProviderLoginAtom = atom(
   null,
   async (_get, set, kind: ProviderKind): Promise<void> => {
     const result = await openProviderLoginWindow(kind).catch(
-      (err: unknown): Failure =>
-        failure(describeError("ログインウィンドウを開けませんでした", err)),
+      (err: unknown): Failure => failure(describeError(MSG.loginFailed, err)),
     );
     if (isFailure(result)) {
       set(stateAtom, (prev) => ({ ...prev, error: result.message }));
@@ -173,8 +186,7 @@ export const deleteProviderDataAtom = atom(
   null,
   async (_get, set, kind: ProviderKind): Promise<void> => {
     const result = await deleteProviderData(kind).catch(
-      (err: unknown): Failure =>
-        failure(describeError("プロバイダデータの削除に失敗", err)),
+      (err: unknown): Failure => failure(describeError(MSG.deleteFailed, err)),
     );
     if (isFailure(result)) {
       set(stateAtom, (prev) => ({ ...prev, error: result.message }));
