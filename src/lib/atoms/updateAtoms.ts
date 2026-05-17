@@ -72,8 +72,6 @@ function nextStatusFromBackend(
   payload: UpdateStatusPayload,
 ): UpdateStatus {
   switch (payload.status) {
-    case "checking":
-      return prev.kind === "checking" ? prev : { kind: "checking" };
     case "noUpdate":
       return prev.kind === "idle" ? prev : { kind: "idle" };
     case "available":

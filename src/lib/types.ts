@@ -110,9 +110,12 @@ export type SettingsChangedPayload = {
   settings: OverlaySettings;
 };
 
-/** Mirrors `UpdateStatusPayload` on the Rust side (camelCase + status tag). */
+/**
+ * Mirrors `UpdateStatusPayload` on the Rust side (camelCase + status tag).
+ * The `checking` transition is owned by the frontend write atom and never
+ * arrives via this event, so it is not part of this payload.
+ */
 export type UpdateStatusPayload =
-  | { status: "checking" }
   | { status: "noUpdate" }
   | { status: "available"; version: string; notes: string }
   | { status: "error"; message: string };
