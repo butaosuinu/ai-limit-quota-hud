@@ -194,6 +194,39 @@ describe("Overlay", () => {
     expect(button.getAttribute("data-tauri-drag-region")).toBe("false");
   });
 
+  it("reports the row count in the footer, not the section count", () => {
+    renderOverlay({
+      snapshots: [
+        baseSnapshot({
+          providerId: "webview-claude-ai:a",
+          providerKind: "webview-claude-ai",
+          accountLabel: "alice",
+        }),
+        baseSnapshot({
+          providerId: "webview-claude-ai:b",
+          providerKind: "webview-claude-ai",
+          accountLabel: "bob",
+        }),
+        baseSnapshot({
+          providerId: "webview-chatgpt-codex:c",
+          providerKind: "webview-chatgpt-codex",
+          accountLabel: "carol",
+        }),
+      ],
+    });
+    expect(screen.getByText(/3 provider rows/u)).toBeTruthy();
+  });
+
+  it("uses the singular form when only one row is shown", () => {
+    renderOverlay({ snapshots: [baseSnapshot()] });
+    expect(screen.getByText(/1 provider row /u)).toBeTruthy();
+  });
+
+  it("shows zero rows in the footer when no providers are configured", () => {
+    renderOverlay({ snapshots: [] });
+    expect(screen.getByText(/0 provider rows/u)).toBeTruthy();
+  });
+
   it("hides the title row (and refresh button) in compact mode", () => {
     renderOverlay({ settings: { compact: true } });
     // The button still exists in the DOM but its container is display:none.

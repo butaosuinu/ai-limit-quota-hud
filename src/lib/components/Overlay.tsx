@@ -3,13 +3,14 @@ import { useAtomValue } from "jotai";
 
 import { refreshNow } from "../api";
 import { overlaySettingsAtom } from "../atoms/overlayAtoms";
-import { groupedSnapshotsAtom } from "../atoms/usageAtoms";
+import { groupedSnapshotsAtom, snapshotsAtom } from "../atoms/usageAtoms";
 import { ResetIcon } from "./icons";
 import { UsageRow } from "./UsageRow";
 
 export function Overlay() {
   const settings = useAtomValue(overlaySettingsAtom);
   const groups = useAtomValue(groupedSnapshotsAtom);
+  const rowCount = useAtomValue(snapshotsAtom).length;
   const [busy, setBusy] = useState(false);
   const dragProps = settings.locked ? {} : { "data-tauri-drag-region": true };
   const className = `overlay${settings.compact ? " overlay--compact" : ""}`;
@@ -75,7 +76,7 @@ export function Overlay() {
         ))
       )}
       <footer className="overlay__footer">
-        {groups.length} provider{groups.length === 1 ? "" : "s"} ·{" "}
+        {rowCount} provider row{rowCount === 1 ? "" : "s"} ·{" "}
         {settings.clickThrough ? "click-through on" : "click-through off"}
         {settings.locked ? " · locked" : " · drag to move"}
       </footer>
