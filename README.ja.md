@@ -1,5 +1,7 @@
 # QuotaHUD
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 `claude.ai` 上の **Claude (Pro/Max)** と `chatgpt.com` 上の **ChatGPT (Plus/Pro/Codex agent)** の残量を、デスクトップ上に常時表示する小さなクロスプラットフォーム overlay。**Tauri 2 + Rust** と **React + TypeScript + Vite** で構築されています。
 
 🇺🇸 English: [README.md](./README.md)
@@ -43,7 +45,6 @@ overlay 上のすべての行に `low` / `webview` バッジを描画するこ�
 - **Rust** stable (1.93+ で動作確認)
 - **Node.js** 20+ と **pnpm** 10+
 - macOS / Windows / Linux。Phase 1 は macOS でのみ動作検証済み。
-- **Python はどの工程でも不要です** — 実行時、ビルド、テスト、CI すべて。詳細は [Python 不要保証](#python-不要保証)。
 
 ## 開発
 
@@ -131,10 +132,6 @@ v1 から QuotaHUD は **opt-in** の WebView ベースプロバイダをサポ�
 - **Windows**: Tauri の `skipTaskbar` + `alwaysOnTop` は尊重されますが、Win32 レベルの磨き上げ (`WS_EX_TOOLWINDOW`、仮想デスクトップフォールバック、`WS_EX_NOACTIVATE`) は Phase 2 以降に持ち越し。**Windows のすべての仮想デスクトップでの永続表示は保証されません** — OS ビルドによっては overlay が最後に表示されたデスクトップに留まることがあります。tray アイコンから再表示するのが回避策です。この制限は隠さず明記します。
 - **Linux**: X11 が主ターゲット。EWMH 準拠のウィンドウマネージャは Tauri の `alwaysOnTop` を尊重します。**Wayland はベストエフォート** — ほとんどのコンポジタが `alwaysOnTop` / sticky ヒントを拒否し、overlay があらゆる surface の上に浮かないことがあります。ヒントが拒否されてもアプリはクラッシュせず、機能を縮退させるだけです。起動時に検出した `XDG_SESSION_TYPE` をログに出すので、bug report で縮退動作を識別できます。
 
-## Python 不要保証
-
-QuotaHUD は実行時、`pnpm tauri dev` / `pnpm tauri build` の最中、テスト、CI ワークフロー、リリースパッケージング — どの工程でも Python を必要としません。`package.json`、`Cargo.toml`、`.github/workflows/` 配下の GitHub Actions ワークフローに Python ステップや sidecar は含まれていません。
-
 ## プライバシーとセキュリティ
 
 - テレメトリなし。利用データの自動アップロードもなし。
@@ -157,4 +154,4 @@ QuotaHUD は実行時、`pnpm tauri dev` / `pnpm tauri build` の最中、テス
 
 ## ライセンス
 
-TBD (公開リリース前に追記予定)。
+[MIT License](./LICENSE) © 2026 ぶた桔梗

@@ -1,5 +1,7 @@
 # QuotaHUD
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A small cross-platform desktop overlay that surfaces remaining AI subscription-usage headroom for **Claude (Pro/Max)** on `claude.ai` and **ChatGPT (Plus/Pro/Codex agent)** on `chatgpt.com`. Built with **Tauri 2 + Rust** and **React + TypeScript + Vite**.
 
 🇯🇵 日本語版: [README.ja.md](./README.ja.md)
@@ -43,7 +45,6 @@ If you would rather build from source, follow [Development](#development) below.
 - **Rust** stable (tested with 1.93+)
 - **Node.js** 20+ and **pnpm** 10+
 - macOS, Windows, or Linux. Phase 1 has only been exercised on macOS.
-- **No Python is required at any point** — runtime, build, tests, or CI. See [No-Python guarantee](#no-python-guarantee).
 
 ## Development
 
@@ -131,10 +132,6 @@ All WebView snapshots are labeled `source = webview-scrape`, `confidence = low`.
 - **Windows**: Tauri's `skipTaskbar` + `alwaysOnTop` are honored, but the Win32-level polish (`WS_EX_TOOLWINDOW`, virtual-desktop fallback, `WS_EX_NOACTIVATE`) is deferred to Phase 2. **Persistent visibility across every Windows virtual desktop is not guaranteed** — depending on the OS build, the overlay may stay on the desktop it was last shown on. Re-show via the tray icon as a workaround. The limitation is documented rather than hidden.
 - **Linux**: X11 is the primary target; EWMH-compliant window managers honor Tauri's `alwaysOnTop`. **Wayland is best-effort only** — most compositors refuse `alwaysOnTop` / sticky hints, and the overlay may not float above every surface. The app does not crash when hints are denied; it just degrades. The detected `XDG_SESSION_TYPE` is logged at startup so degraded behavior is identifiable in bug reports.
 
-## No-Python guarantee
-
-QuotaHUD does not require Python at any point — not at runtime, not during `pnpm tauri dev` / `pnpm tauri build`, not in tests, not in CI workflows, and not in release packaging. `package.json`, `Cargo.toml`, and the GitHub Actions workflows under `.github/workflows/` contain no Python steps or sidecars.
-
 ## Privacy and security
 
 - No telemetry. No automatic upload of usage data.
@@ -157,4 +154,4 @@ Open an issue with **sanitized** DOM excerpts (strip identifiers, conversation c
 
 ## License
 
-TBD (will be added before any public release).
+[MIT License](./LICENSE) © 2026 ぶた桔梗
