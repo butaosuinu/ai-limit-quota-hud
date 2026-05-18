@@ -221,6 +221,7 @@ describe("Overlay", () => {
       expect(webviewWindowMock.outerPosition).toHaveBeenCalledTimes(1);
     });
     fireEvent.mouseMove(root, {
+      buttons: 1,
       screenX: 65,
       screenY: 80,
     });
@@ -228,6 +229,35 @@ describe("Overlay", () => {
     expect(webviewWindowMock.setPosition).toHaveBeenCalledWith(
       expect.objectContaining({ x: 130, y: 240 }),
     );
+  });
+
+  it("cancels async drag setup when the pointer leaves before setup finishes", async () => {
+    let resolvePosition: (position: { x: number; y: number }) => void =
+      () => undefined;
+    const positionPromise = new Promise<{ x: number; y: number }>((resolve) => {
+      resolvePosition = resolve;
+    });
+    webviewWindowMock.outerPosition.mockReturnValueOnce(positionPromise);
+    renderOverlay({ settings: { locked: false } });
+    const root = screen.getByTestId("overlay-root");
+    fireEvent.mouseDown(root, {
+      button: 0,
+      screenX: 50,
+      screenY: 60,
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.outerPosition).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.mouseLeave(root);
+    resolvePosition({ x: 100, y: 200 });
+    await positionPromise;
+    await Promise.resolve();
+    fireEvent.mouseMove(root, {
+      buttons: 1,
+      screenX: 65,
+      screenY: 80,
+    });
+    expect(webviewWindowMock.setPosition).not.toHaveBeenCalled();
   });
 
   it("does not start manual window drag when locked", () => {

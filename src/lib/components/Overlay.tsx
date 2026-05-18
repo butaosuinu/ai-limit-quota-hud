@@ -51,6 +51,7 @@ export function Overlay() {
   const rowCount = useAtomValue(snapshotsAtom).length;
   const [busy, setBusy] = useState(false);
   const dragState = useRef<DragState | null>(null);
+  const activeDragId = useRef(0);
   const dragProps = settings.locked ? {} : { "data-tauri-drag-region": "deep" };
   const className = `overlay${settings.compact ? " overlay--compact" : ""}`;
 
@@ -68,6 +69,7 @@ export function Overlay() {
   };
 
   const startManualDrag = async (
+    dragId: number,
     startMouseX: number,
     startMouseY: number,
   ): Promise<void> => {
@@ -80,7 +82,7 @@ export function Overlay() {
       console.warn("overlay drag setup failed", err);
       return null;
     });
-    if (result === null) return;
+    if (result === null || activeDragId.current !== dragId) return;
     const [position, scaleFactor] = result;
     dragState.current = {
       scaleFactor,
@@ -102,10 +104,22 @@ export function Overlay() {
     }
 
     event.preventDefault();
-    void startManualDrag(event.screenX, event.screenY);
+    const dragId = activeDragId.current + 1;
+    activeDragId.current = dragId;
+    void startManualDrag(dragId, event.screenX, event.screenY);
+  };
+
+  const endManualDrag = (): void => {
+    activeDragId.current += 1;
+    dragState.current = null;
   };
 
   const handleDragMouseMove = (event: ReactMouseEvent<HTMLElement>): void => {
+    if (event.buttons === 0) {
+      endManualDrag();
+      return;
+    }
+
     const state = dragState.current;
     if (state === null) return;
     const dx = Math.round(
@@ -122,10 +136,6 @@ export function Overlay() {
         // eslint-disable-next-line no-console -- best-effort observability when manual window drag update fails.
         console.warn("overlay drag update failed", err);
       });
-  };
-
-  const endManualDrag = (): void => {
-    dragState.current = null;
   };
 
   return (
