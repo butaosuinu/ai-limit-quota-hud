@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 
 import { overlaySettingsAtom } from "../atoms/overlayAtoms";
@@ -8,10 +8,19 @@ import { DEFAULT_OVERLAY_SETTINGS, type UsageSnapshot } from "../types";
 import { Overlay } from "./Overlay";
 
 const refreshNowMock = vi.fn<() => Promise<unknown>>();
+const webviewWindowMock = vi.hoisted(() => ({
+  outerPosition: vi.fn(() => Promise.resolve({ x: 0, y: 0 })),
+  scaleFactor: vi.fn(() => Promise.resolve(1)),
+  setPosition: vi.fn(() => Promise.resolve(undefined)),
+}));
 
 vi.mock("../api", () => ({
   refreshNow: () => refreshNowMock(),
   listSnapshots: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("@tauri-apps/api/webviewWindow", () => ({
+  getCurrentWebviewWindow: vi.fn(() => webviewWindowMock),
 }));
 
 const baseSnapshot = (
@@ -56,6 +65,12 @@ function renderOverlay({ snapshots, settings = {} }: SnapshotsOverride = {}) {
 beforeEach(() => {
   refreshNowMock.mockReset();
   refreshNowMock.mockResolvedValue(undefined);
+  webviewWindowMock.outerPosition.mockReset();
+  webviewWindowMock.outerPosition.mockResolvedValue({ x: 100, y: 200 });
+  webviewWindowMock.scaleFactor.mockReset();
+  webviewWindowMock.scaleFactor.mockResolvedValue(2);
+  webviewWindowMock.setPosition.mockReset();
+  webviewWindowMock.setPosition.mockResolvedValue(undefined);
 });
 
 describe("Overlay", () => {
@@ -136,7 +151,7 @@ describe("Overlay", () => {
   it("adds the drag-region attribute when unlocked", () => {
     renderOverlay({ settings: { locked: false } });
     const root = screen.getByTestId("overlay-root");
-    expect(root.getAttribute("data-tauri-drag-region")).toBe("true");
+    expect(root.getAttribute("data-tauri-drag-region")).toBe("deep");
   });
 
   it("omits the drag-region attribute when locked", () => {
@@ -192,6 +207,49 @@ describe("Overlay", () => {
     renderOverlay({ settings: { locked: false } });
     const button = screen.getByTestId("overlay-refresh");
     expect(button.getAttribute("data-tauri-drag-region")).toBe("false");
+  });
+
+  it("moves the window during mouse drag when unlocked", async () => {
+    renderOverlay({ settings: { locked: false } });
+    const root = screen.getByTestId("overlay-root");
+    fireEvent.mouseDown(root, {
+      button: 0,
+      screenX: 50,
+      screenY: 60,
+    });
+    await waitFor(() => {
+      expect(webviewWindowMock.outerPosition).toHaveBeenCalledTimes(1);
+    });
+    fireEvent.mouseMove(root, {
+      screenX: 65,
+      screenY: 80,
+    });
+    expect(webviewWindowMock.setPosition).toHaveBeenCalledTimes(1);
+    expect(webviewWindowMock.setPosition).toHaveBeenCalledWith(
+      expect.objectContaining({ x: 130, y: 240 }),
+    );
+  });
+
+  it("does not start manual window drag when locked", () => {
+    renderOverlay({ settings: { locked: true } });
+    const root = screen.getByTestId("overlay-root");
+    fireEvent.mouseDown(root, {
+      button: 0,
+      screenX: 50,
+      screenY: 60,
+    });
+    expect(webviewWindowMock.outerPosition).not.toHaveBeenCalled();
+  });
+
+  it("does not start manual window drag from interactive controls", () => {
+    renderOverlay({ settings: { locked: false } });
+    const button = screen.getByTestId("overlay-refresh");
+    fireEvent.mouseDown(button, {
+      button: 0,
+      screenX: 50,
+      screenY: 60,
+    });
+    expect(webviewWindowMock.outerPosition).not.toHaveBeenCalled();
   });
 
   it("reports the row count in the footer, not the section count", () => {
