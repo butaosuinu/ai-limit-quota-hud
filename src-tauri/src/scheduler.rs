@@ -173,7 +173,14 @@ async fn refresh_once(
             refresh_future,
         )
         .await;
-        state.last_run.insert(id, std::time::Instant::now());
+        // Re-sample `Instant::now()` after the await so the grace-period
+        // bookkeeping reflects when *this* provider's failure was observed —
+        // not when the surrounding `refresh_once` tick started. Sequential
+        // provider refreshes can each block up to `REFRESH_TIMEOUT_SECS`, so
+        // a single tick-start instant would shrink the grace window for any
+        // provider that runs after a slow / timed-out earlier provider.
+        let observed = std::time::Instant::now();
+        state.last_run.insert(id, observed);
         // Normalize every failure shape into a `Vec<UsageSnapshot>` so the
         // grace-period decision below can treat them uniformly. WebView
         // providers already wrap their failures in `Ok(vec![error_snapshot])`
@@ -193,13 +200,13 @@ async fn refresh_once(
             }
         };
         if should_apply_grace(&snapshots) {
-            let since = *state.failing_since.entry(id).or_insert(now);
+            let since = *state.failing_since.entry(id).or_insert(observed);
             let has_prev_good = provider_has_good_snapshot(&prev_snapshots, id);
-            let in_grace = within_grace_period(Some(since), now, grace);
+            let in_grace = within_grace_period(Some(since), observed, grace);
             // Explicit refresh (refresh_now / settings change) bypasses grace
             // so the user sees the actual current state rather than stale data.
             if !force && has_prev_good && in_grace {
-                let elapsed = now.duration_since(since).as_secs();
+                let elapsed = observed.duration_since(since).as_secs();
                 log::info!(
                     "provider `{id}` within grace period ({elapsed}s / {GRACE_PERIOD_SECS}s), keeping last-good snapshot"
                 );
