@@ -1,4 +1,9 @@
-import { useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useAtomValue } from "jotai";
 import { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -15,6 +20,11 @@ type DragState = {
   startMouseY: number;
   startWindowX: number;
   startWindowY: number;
+};
+
+type DocumentDragListeners = {
+  mouseMove: (event: MouseEvent) => void;
+  mouseUp: () => void;
 };
 
 const INTERACTIVE_DRAG_BLOCKER_SELECTOR = [
@@ -52,8 +62,20 @@ export function Overlay() {
   const [busy, setBusy] = useState(false);
   const dragState = useRef<DragState | null>(null);
   const activeDragId = useRef(0);
+  const documentDragListeners = useRef<DocumentDragListeners | null>(null);
   const dragProps = settings.locked ? {} : { "data-tauri-drag-region": "deep" };
   const className = `overlay${settings.compact ? " overlay--compact" : ""}`;
+
+  useEffect(
+    () => () => {
+      const listeners = documentDragListeners.current;
+      if (listeners === null) return;
+      window.removeEventListener("mousemove", listeners.mouseMove);
+      window.removeEventListener("mouseup", listeners.mouseUp);
+      documentDragListeners.current = null;
+    },
+    [],
+  );
 
   const handleRefresh = (): void => {
     if (busy) return;
@@ -93,6 +115,52 @@ export function Overlay() {
     };
   };
 
+  const moveManualDrag = (screenX: number, screenY: number): void => {
+    const state = dragState.current;
+    if (state === null) return;
+    const dx = Math.round((screenX - state.startMouseX) * state.scaleFactor);
+    const dy = Math.round((screenY - state.startMouseY) * state.scaleFactor);
+    getCurrentWebviewWindow()
+      .setPosition(
+        new PhysicalPosition(state.startWindowX + dx, state.startWindowY + dy),
+      )
+      .catch((err: unknown) => {
+        // eslint-disable-next-line no-console -- best-effort observability when manual window drag update fails.
+        console.warn("overlay drag update failed", err);
+      });
+  };
+
+  const detachDocumentDragListeners = (): void => {
+    const listeners = documentDragListeners.current;
+    if (listeners === null) return;
+    window.removeEventListener("mousemove", listeners.mouseMove);
+    window.removeEventListener("mouseup", listeners.mouseUp);
+    documentDragListeners.current = null;
+  };
+
+  const endManualDrag = (): void => {
+    activeDragId.current += 1;
+    dragState.current = null;
+    detachDocumentDragListeners();
+  };
+
+  const attachDocumentDragListeners = (): void => {
+    detachDocumentDragListeners();
+    const mouseMove = (event: MouseEvent): void => {
+      if (event.buttons === 0) {
+        endManualDrag();
+        return;
+      }
+      moveManualDrag(event.screenX, event.screenY);
+    };
+    const mouseUp = (): void => {
+      endManualDrag();
+    };
+    window.addEventListener("mousemove", mouseMove);
+    window.addEventListener("mouseup", mouseUp);
+    documentDragListeners.current = { mouseMove, mouseUp };
+  };
+
   const handleDragMouseDown = (event: ReactMouseEvent<HTMLElement>): void => {
     if (
       settings.locked ||
@@ -106,36 +174,8 @@ export function Overlay() {
     event.preventDefault();
     const dragId = activeDragId.current + 1;
     activeDragId.current = dragId;
+    attachDocumentDragListeners();
     void startManualDrag(dragId, event.screenX, event.screenY);
-  };
-
-  const endManualDrag = (): void => {
-    activeDragId.current += 1;
-    dragState.current = null;
-  };
-
-  const handleDragMouseMove = (event: ReactMouseEvent<HTMLElement>): void => {
-    if (event.buttons === 0) {
-      endManualDrag();
-      return;
-    }
-
-    const state = dragState.current;
-    if (state === null) return;
-    const dx = Math.round(
-      (event.screenX - state.startMouseX) * state.scaleFactor,
-    );
-    const dy = Math.round(
-      (event.screenY - state.startMouseY) * state.scaleFactor,
-    );
-    getCurrentWebviewWindow()
-      .setPosition(
-        new PhysicalPosition(state.startWindowX + dx, state.startWindowY + dy),
-      )
-      .catch((err: unknown) => {
-        // eslint-disable-next-line no-console -- best-effort observability when manual window drag update fails.
-        console.warn("overlay drag update failed", err);
-      });
   };
 
   return (
@@ -144,9 +184,6 @@ export function Overlay() {
       className={className}
       data-testid="overlay-root"
       onMouseDown={handleDragMouseDown}
-      onMouseMove={handleDragMouseMove}
-      onMouseUp={endManualDrag}
-      onMouseLeave={endManualDrag}
       style={{ opacity: settings.opacity }}
     >
       <header className="overlay__title-row">
