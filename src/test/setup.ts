@@ -24,5 +24,10 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("@tauri-apps/api/webviewWindow", () => ({
-  getCurrentWebviewWindow: vi.fn(() => ({ label: "overlay" })),
+  getCurrentWebviewWindow: vi.fn(() => ({
+    label: "overlay",
+    outerPosition: vi.fn(() => Promise.resolve({ x: 0, y: 0 })),
+    scaleFactor: vi.fn(() => Promise.resolve(1)),
+    setPosition: vi.fn(() => Promise.resolve(undefined)),
+  })),
 }));

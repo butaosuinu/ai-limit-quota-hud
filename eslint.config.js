@@ -21,6 +21,7 @@ export default tseslint.config(
       "src/types/**/*.d.ts",
       "src/locales/**/messages.ts",
       "src/locales/**/messages.d.ts",
+      ".codex/",
       ".claude/",
       ".mcp.json",
       "vite.config.ts.timestamp-*.mjs",
