@@ -7,7 +7,7 @@
 
 use tauri::{AppHandle, Manager};
 
-use crate::model::{ProviderKind, SnapshotStatus, UsageSnapshot, UsageWindow};
+use crate::model::{ProviderKind, UsageSnapshot, UsageWindow};
 use crate::settings::{MenuBarSummaryMode, OverlaySettings};
 
 const JOIN_SEP: &str = " · ";
@@ -76,11 +76,9 @@ fn pick_snapshot(snapshots: &[UsageSnapshot], kind: ProviderKind) -> Option<&Usa
         .iter()
         .find(|s| owned_by(s) && s.window == UsageWindow::FiveHours)
         .or_else(|| {
-            snapshots.iter().find(|s| {
-                owned_by(s)
-                    && s.window == UsageWindow::Unknown
-                    && matches!(s.status, SnapshotStatus::Error | SnapshotStatus::NoData)
-            })
+            snapshots
+                .iter()
+                .find(|s| owned_by(s) && s.window == UsageWindow::Unknown && s.status.is_failure())
         })
 }
 
@@ -93,10 +91,7 @@ fn mode_active(settings: &OverlaySettings) -> bool {
 }
 
 fn format_percent(snapshot: &UsageSnapshot) -> String {
-    if matches!(
-        snapshot.status,
-        SnapshotStatus::Error | SnapshotStatus::NoData
-    ) {
+    if snapshot.status.is_failure() {
         return MISSING.to_string();
     }
     match snapshot.remaining_percent {
@@ -108,7 +103,7 @@ fn format_percent(snapshot: &UsageSnapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Confidence, UsageMetric, UsageSource};
+    use crate::model::{Confidence, SnapshotStatus, UsageMetric, UsageSource};
 
     fn snap(
         kind: ProviderKind,

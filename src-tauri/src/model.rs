@@ -67,6 +67,19 @@ pub enum SnapshotStatus {
     Error,
 }
 
+impl SnapshotStatus {
+    /// `Error` または `NoData` — UI 上は「データ無し」として扱われる状態。
+    pub fn is_failure(self) -> bool {
+        matches!(self, SnapshotStatus::Error | SnapshotStatus::NoData)
+    }
+
+    /// `Ok` / `Warning` / `Critical` — 数値データを保持している状態。
+    /// `!is_failure()` と等価だが、呼び出し側の意図を明確にするため別 method として公開。
+    pub fn is_good(self) -> bool {
+        !self.is_failure()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UsageWindow {
@@ -319,6 +332,22 @@ mod tests {
             serde_json::from_str::<SnapshotStatus>("\"critical\"").unwrap(),
             SnapshotStatus::Critical
         );
+    }
+
+    #[test]
+    fn snapshot_status_is_failure_and_is_good_partition_variants() {
+        for status in [SnapshotStatus::Error, SnapshotStatus::NoData] {
+            assert!(status.is_failure(), "{status:?} should be failure");
+            assert!(!status.is_good(), "{status:?} should not be good");
+        }
+        for status in [
+            SnapshotStatus::Ok,
+            SnapshotStatus::Warning,
+            SnapshotStatus::Critical,
+        ] {
+            assert!(!status.is_failure(), "{status:?} should not be failure");
+            assert!(status.is_good(), "{status:?} should be good");
+        }
     }
 
     #[test]
