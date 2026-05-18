@@ -7,7 +7,7 @@
 
 use tauri::{AppHandle, Manager};
 
-use crate::model::{ProviderKind, SnapshotStatus, UsageSnapshot, UsageWindow};
+use crate::model::{ProviderKind, UsageSnapshot, UsageWindow};
 use crate::settings::{MenuBarSummaryMode, OverlaySettings};
 
 const JOIN_SEP: &str = " · ";
@@ -103,7 +103,7 @@ fn format_percent(snapshot: &UsageSnapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Confidence, UsageMetric, UsageSource};
+    use crate::model::{Confidence, SnapshotStatus, UsageMetric, UsageSource};
 
     fn snap(
         kind: ProviderKind,
