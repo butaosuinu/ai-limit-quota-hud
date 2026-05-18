@@ -282,6 +282,18 @@ describe("Overlay", () => {
     expect(webviewWindowMock.outerPosition).not.toHaveBeenCalled();
   });
 
+  it("does not start manual window drag from SVG children in interactive controls", () => {
+    renderOverlay({ settings: { locked: false } });
+    const iconPath = screen.getByTestId("overlay-refresh").querySelector("path");
+    expect(iconPath).not.toBeNull();
+    fireEvent.mouseDown(iconPath!, {
+      button: 0,
+      screenX: 50,
+      screenY: 60,
+    });
+    expect(webviewWindowMock.outerPosition).not.toHaveBeenCalled();
+  });
+
   it("reports the row count in the footer, not the section count", () => {
     renderOverlay({
       snapshots: [

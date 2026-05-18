@@ -40,7 +40,7 @@ const INTERACTIVE_DRAG_BLOCKER_SELECTOR = [
 
 function isInteractiveDragBlocker(target: EventTarget | null): boolean {
   return (
-    target instanceof HTMLElement &&
+    target instanceof Element &&
     target.closest(INTERACTIVE_DRAG_BLOCKER_SELECTOR) !== null
   );
 }
