@@ -1,6 +1,7 @@
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { atom } from "jotai";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -65,6 +66,15 @@ async function subscribeToBackendStatus(
     return;
   }
   lifecycle.unlisten = unlisten;
+
+  // The startup updater check may have emitted before we registered the
+  // listener above (it runs from `setup()` in lib.rs, before the settings
+  // webview mounts). Pull the persisted result so the UI doesn't miss it.
+  const last = await invoke<UpdateStatusPayload | null>(
+    "get_last_update_status",
+  ).catch(() => null);
+  if (lifecycle.cancelled || last == null) return;
+  set((prev) => nextStatusFromBackend(prev, last));
 }
 
 function nextStatusFromBackend(

@@ -87,6 +87,13 @@ fn get_overlay_settings(state: tauri::State<'_, AppState>) -> OverlaySettings {
 }
 
 #[tauri::command]
+fn get_last_update_status(
+    state: tauri::State<'_, updater::LastStartupStatus>,
+) -> Option<updater::UpdateStatusPayload> {
+    state.snapshot()
+}
+
+#[tauri::command]
 fn update_overlay_settings(
     app: AppHandle,
     settings: OverlaySettings,
@@ -308,6 +315,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
+            get_last_update_status,
             update_overlay_settings,
             commands::list_snapshots,
             commands::refresh_now,
@@ -322,6 +330,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let initial = settings::load(&handle);
             handle.manage(AppState::new(initial.clone()));
+            handle.manage(updater::LastStartupStatus::default());
 
             if let Some(window) = handle.get_webview_window(OVERLAY_WINDOW_LABEL) {
                 platform::apply_overlay_traits(&window);
@@ -425,7 +434,7 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
 
 fn spawn_startup_update_check(handle: AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
-    use updater::{UPDATER_STATUS_EVENT, UpdateStatusPayload};
+    use updater::{LastStartupStatus, UPDATER_STATUS_EVENT, UpdateStatusPayload};
 
     tauri::async_runtime::spawn(async move {
         let payload = match handle.updater() {
@@ -445,6 +454,11 @@ fn spawn_startup_update_check(handle: AppHandle) {
                 UpdateStatusPayload::Error { message: err.to_string() }
             }
         };
+        // Persist before emitting so a webview that mounts after the emit
+        // can still recover the result via `get_last_update_status`.
+        handle
+            .state::<LastStartupStatus>()
+            .store(payload.clone());
         if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
             log::warn!("failed to emit updater status: {err}");
         }

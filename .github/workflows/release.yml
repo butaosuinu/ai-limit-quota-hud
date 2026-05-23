@@ -110,8 +110,12 @@ jobs:
         with:
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: "QuotaHUD ${{ steps.tag.outputs.name }}"
+          # The maintainer-publish gate stays; once a maintainer publishes the
+          # draft, GitHub's `releases/latest` endpoint surfaces it to the Tauri
+          # updater. Drafts AND prereleases are filtered from `latest`, so
+          # `prerelease: false` is required for auto-updates to roll out.
           releaseDraft: true
-          prerelease: true
+          prerelease: false
           releaseBody: |
             Unsigned alpha build of QuotaHUD.
 
