@@ -93,6 +93,15 @@ fn get_last_update_status(
     state.snapshot()
 }
 
+/// Reports whether this build has the Tauri updater plugin compiled in
+/// (i.e. `TAURI_UPDATER_PUBKEY` was provided at compile time). Frontend
+/// uses this to disable the Updates UI in builds without auto-update
+/// support so the action buttons can't surface plugin-missing errors.
+#[tauri::command]
+fn updater_is_available() -> bool {
+    !updater_pubkey_is_unconfigured()
+}
+
 #[tauri::command]
 fn update_overlay_settings(
     app: AppHandle,
@@ -329,6 +338,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
             get_last_update_status,
+            updater_is_available,
             update_overlay_settings,
             commands::list_snapshots,
             commands::refresh_now,
