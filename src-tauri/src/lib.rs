@@ -309,10 +309,23 @@ pub fn run() {
     .format_timestamp_millis()
     .try_init();
 
-    tauri::Builder::default()
+    // `TAURI_UPDATER_PUBKEY` is injected at build time from the
+    // matching GitHub Actions secret (see `.github/workflows/release.yml`).
+    // Builds without it ship without the updater plugin: the Settings UI
+    // surfaces a "not configured" state rather than a runtime signature
+    // failure, and `spawn_startup_update_check` short-circuits.
+    let updater_pubkey: Option<&'static str> =
+        option_env!("TAURI_UPDATER_PUBKEY").filter(|s| !s.is_empty());
+
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+    if let Some(pubkey) = updater_pubkey {
+        builder = builder.plugin(
+            tauri_plugin_updater::Builder::new().pubkey(pubkey).build(),
+        );
+    }
+    builder
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
             get_last_update_status,
@@ -432,31 +445,22 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Matches the literal placeholder we ship in `tauri.conf.json` until a
-/// release maintainer drops in a real minisign public key.
-const PLACEHOLDER_UPDATER_PUBKEY: &str =
-    "TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE";
-
-fn updater_pubkey_is_unconfigured(handle: &AppHandle) -> bool {
-    handle
-        .config()
-        .plugins
-        .0
-        .get("updater")
-        .and_then(|p| p.get("pubkey"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.is_empty() || s == PLACEHOLDER_UPDATER_PUBKEY)
-        .unwrap_or(true)
+/// `true` when the build did not bake in a `TAURI_UPDATER_PUBKEY`. Returning
+/// `true` makes `spawn_startup_update_check` no-op so dev / open-source
+/// builds without the secret never surface a signature-verification error.
+fn updater_pubkey_is_unconfigured() -> bool {
+    option_env!("TAURI_UPDATER_PUBKEY")
+        .filter(|s| !s.is_empty())
+        .is_none()
 }
 
 fn spawn_startup_update_check(handle: AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
     use updater::{LastStartupStatus, UPDATER_STATUS_EVENT, UpdateStatusPayload};
 
-    if updater_pubkey_is_unconfigured(&handle) {
+    if updater_pubkey_is_unconfigured() {
         log::warn!(
-            "updater pubkey is the build-time placeholder; skipping startup check until a real \
-             minisign key is dropped into tauri.conf.json"
+            "TAURI_UPDATER_PUBKEY was not provided at build time; skipping startup check"
         );
         return;
     }

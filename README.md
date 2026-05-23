@@ -54,12 +54,14 @@ Users who installed any build before this release (`v0.0.0` and earlier) must do
 ### Release engineering (maintainers)
 
 1. Generate a minisign keypair once: `pnpm tauri signer generate -- -w ~/.tauri/quotahud-updater.key`
-2. Commit the **public key** to `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` (replacing the `TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE` placeholder).
-3. Register the **private key** and its passphrase as GitHub repo secrets:
+2. Register the **private key**, its passphrase, and the **public key** as GitHub repo secrets:
    - `TAURI_SIGNING_PRIVATE_KEY` — the private key file contents
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the passphrase set at generation time
-4. Back up the private key (1Password etc.). **Losing it permanently breaks auto-updates for existing users.**
-5. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig` alongside the platform installers.
+   - `TAURI_UPDATER_PUBKEY` — the matching minisign public key (baked into the binary at build time via `option_env!`)
+3. Back up the private key (1Password etc.). **Losing it permanently breaks auto-updates for existing users.**
+4. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig` alongside the platform installers.
+
+The committed source no longer contains the pubkey — debug / contributor builds without the secret automatically skip registering the updater plugin (Settings shows the feature as unavailable instead of failing signature verification at runtime).
 
 ## Requirements
 

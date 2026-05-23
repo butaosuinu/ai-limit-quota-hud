@@ -107,6 +107,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Baked into the binary via `option_env!` in `src-tauri/src/lib.rs`.
+          # Without it, the Rust side skips registering the updater plugin so
+          # the build is shippable but auto-update is disabled.
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: "QuotaHUD ${{ steps.tag.outputs.name }}"

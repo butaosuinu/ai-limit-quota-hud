@@ -48,7 +48,7 @@
       "endpoints": [
         "https://github.com/butaosuinu/ai-limit-quota-hud/releases/latest/download/latest.json"
       ],
-      "pubkey": "TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE",
+      "pubkey": "",
       "windows": {
         "installMode": "passive"
       }

@@ -54,12 +54,14 @@ QuotaHUD は Tauri updater プラグインによる自動アップデートを�
 ### リリースエンジニアリング (メンテナ向け)
 
 1. minisign 鍵ペアを一度だけ生成: `pnpm tauri signer generate -- -w ~/.tauri/quotahud-updater.key`
-2. **公開鍵**を `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` にコミット (`TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE` プレースホルダを置き換える)。
-3. **秘密鍵**とそのパスフレーズを GitHub リポジトリの secret に登録:
+2. **秘密鍵 / そのパスフレーズ / 公開鍵**を GitHub リポジトリの secret に登録:
    - `TAURI_SIGNING_PRIVATE_KEY` — 秘密鍵ファイルの中身
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — 鍵生成時に設定したパスフレーズ
-4. 秘密鍵は 1Password などにバックアップしてください。**紛失すると既存ユーザの自動アップデートが恒久的に壊れます。**
-5. `v*` タグを push すると、release ワークフローがプラットフォームごとのインストーラと一緒に `latest.json` + `.sig` をアップロードします。
+   - `TAURI_UPDATER_PUBKEY` — 対応する minisign 公開鍵 (ビルド時に `option_env!` 経由でバイナリへ埋め込まれます)
+3. 秘密鍵は 1Password などにバックアップしてください。**紛失すると既存ユーザの自動アップデートが恒久的に壊れます。**
+4. `v*` タグを push すると、release ワークフローがプラットフォームごとのインストーラと一緒に `latest.json` + `.sig` をアップロードします。
+
+公開鍵はコミットされたソースから取り除いてあります。secret 未設定の開発 / コントリビュータビルドは updater プラグインの登録自体を skip し、Settings 上では機能が利用不可として表示されます (実行時に署名検証エラーが出ることはありません)。
 
 ## 必要要件
 
