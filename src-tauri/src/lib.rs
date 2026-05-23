@@ -93,15 +93,6 @@ fn get_last_update_status(
     state.snapshot()
 }
 
-/// Reports whether this build has the Tauri updater plugin compiled in
-/// (i.e. `TAURI_UPDATER_PUBKEY` was provided at compile time). Frontend
-/// uses this to disable the Updates UI in builds without auto-update
-/// support so the action buttons can't surface plugin-missing errors.
-#[tauri::command]
-fn updater_is_available() -> bool {
-    !updater_pubkey_is_unconfigured()
-}
-
 #[tauri::command]
 fn update_overlay_settings(
     app: AppHandle,
@@ -318,27 +309,13 @@ pub fn run() {
     .format_timestamp_millis()
     .try_init();
 
-    // `TAURI_UPDATER_PUBKEY` is injected at build time from the
-    // matching GitHub Actions secret (see `.github/workflows/release.yml`).
-    // Builds without it ship without the updater plugin: the Settings UI
-    // surfaces a "not configured" state rather than a runtime signature
-    // failure, and `spawn_startup_update_check` short-circuits.
-    let updater_pubkey: Option<&'static str> =
-        option_env!("TAURI_UPDATER_PUBKEY").filter(|s| !s.is_empty());
-
-    let mut builder = tauri::Builder::default()
+    tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
-    if let Some(pubkey) = updater_pubkey {
-        builder = builder.plugin(
-            tauri_plugin_updater::Builder::new().pubkey(pubkey).build(),
-        );
-    }
-    builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
             get_last_update_status,
-            updater_is_available,
             update_overlay_settings,
             commands::list_snapshots,
             commands::refresh_now,
@@ -455,25 +432,9 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// `true` when the build did not bake in a `TAURI_UPDATER_PUBKEY`. Returning
-/// `true` makes `spawn_startup_update_check` no-op so dev / open-source
-/// builds without the secret never surface a signature-verification error.
-fn updater_pubkey_is_unconfigured() -> bool {
-    option_env!("TAURI_UPDATER_PUBKEY")
-        .filter(|s| !s.is_empty())
-        .is_none()
-}
-
 fn spawn_startup_update_check(handle: AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
     use updater::{LastStartupStatus, UPDATER_STATUS_EVENT, UpdateStatusPayload};
-
-    if updater_pubkey_is_unconfigured() {
-        log::warn!(
-            "TAURI_UPDATER_PUBKEY was not provided at build time; skipping startup check"
-        );
-        return;
-    }
 
     tauri::async_runtime::spawn(async move {
         let payload = match handle.updater() {

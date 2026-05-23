@@ -53,15 +53,19 @@ Users who installed any build before this release (`v0.0.0` and earlier) must do
 
 ### Release engineering (maintainers)
 
-1. Generate a minisign keypair once: `pnpm tauri signer generate -- -w ~/.tauri/quotahud-updater.key`
-2. Register the **private key**, its passphrase, and the **public key** as GitHub repo secrets:
+The minisign **public key** lives in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) — that key is safe to commit because it can only verify signatures, not produce them. Only the matching **private key** must be kept secret.
+
+1. Generate a minisign keypair once: `pnpm tauri signer generate -w ~/.tauri/quotahud-updater.key`
+2. Commit the **public key** (the base64 string printed to stdout, also stored next to the private key as `*.pub`) to `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`.
+3. Register the **private key** and its passphrase as GitHub repo secrets:
    - `TAURI_SIGNING_PRIVATE_KEY` — the private key file contents
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the passphrase set at generation time
-   - `TAURI_UPDATER_PUBKEY` — the matching minisign public key (baked into the binary at build time via `option_env!`)
-3. Back up the private key (1Password etc.). **Losing it permanently breaks auto-updates for existing users.**
-4. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig` alongside the platform installers.
+4. Back up the private key (1Password etc.). **Losing it permanently breaks auto-updates for existing users** because every shipped binary was compiled with the matching public key and will reject signatures from a fresh key.
+5. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig` alongside the platform installers.
 
-The committed source no longer contains the pubkey — debug / contributor builds without the secret automatically skip registering the updater plugin (Settings shows the feature as unavailable instead of failing signature verification at runtime).
+#### Key rotation
+
+If the private key is compromised, ship a final update signed with the old key that bumps the committed `pubkey` to a new one, then start signing with the new private key. Users still on builds older than that rotation update must reinstall manually.
 
 ## Requirements
 

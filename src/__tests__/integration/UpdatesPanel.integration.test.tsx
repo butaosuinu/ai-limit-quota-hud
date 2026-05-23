@@ -26,11 +26,9 @@ import {
 async function mountSettingsPanel({
   initial = {},
   lastUpdateStatus = null,
-  updaterAvailable = true,
 }: {
   initial?: Partial<OverlaySettings>;
   lastUpdateStatus?: UpdateStatusPayload | null;
-  updaterAvailable?: boolean;
 } = {}) {
   const merged: OverlaySettings = { ...DEFAULT_OVERLAY_SETTINGS, ...initial };
   setupInvoke({
@@ -39,7 +37,6 @@ async function mountSettingsPanel({
       args.settings,
     get_provider_settings: { enabled: {} },
     get_last_update_status: lastUpdateStatus,
-    updater_is_available: updaterAvailable,
   });
   const store = createStore();
   store.set(overlaySettingsAtom, merged);
@@ -194,16 +191,6 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
       await flush();
     });
     expect(store.get(updateStatusAtom).kind).toBe("idle");
-  });
-
-  it("ビルドが updater plugin を含まないとき UI に unavailable 通知が出てアクションは disabled になる", async () => {
-    setupListen();
-    await mountSettingsPanel({ updaterAvailable: false });
-    expect(screen.getByTestId("updates-unavailable-notice")).toBeTruthy();
-    const checkBtn = screen.getByTestId(
-      "updates-check-button",
-    ) as HTMLButtonElement;
-    expect(checkBtn.disabled).toBe(true);
   });
 
   it("manual check の失敗時、既存 pending Update は close されて消える", async () => {

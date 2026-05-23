@@ -33,27 +33,6 @@ export type UpdateStatus =
 export const updateStatusAtom = atom<UpdateStatus>({ kind: "idle" });
 export const currentVersionAtom = atom<string | null>(null);
 
-/**
- * `true` when the running binary has the Tauri updater plugin compiled in
- * (CI builds with `TAURI_UPDATER_PUBKEY` configured). Builds without it
- * disable the Updates action buttons so a click can't surface a
- * "plugin not registered" runtime error.
- */
-export const updaterAvailableAtom = atom<boolean>(false);
-
-updaterAvailableAtom.onMount = (set) => {
-  let cancelled = false;
-  void (async () => {
-    const available = await invoke<boolean>("updater_is_available").catch(
-      () => false,
-    );
-    if (!cancelled) set(available);
-  })();
-  return () => {
-    cancelled = true;
-  };
-};
-
 type Lifecycle = {
   cancelled: boolean;
   unlisten: (() => void) | null;

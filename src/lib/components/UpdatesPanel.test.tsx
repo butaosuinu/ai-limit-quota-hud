@@ -28,7 +28,6 @@ async function mountUpdatesPanel(initialStatus: UpdateStatus) {
     get_overlay_settings: { ...DEFAULT_OVERLAY_SETTINGS },
     update_overlay_settings: undefined,
     get_last_update_status: null,
-    updater_is_available: true,
   });
   const store = createStore();
   store.set(overlaySettingsAtom, { ...DEFAULT_OVERLAY_SETTINGS });

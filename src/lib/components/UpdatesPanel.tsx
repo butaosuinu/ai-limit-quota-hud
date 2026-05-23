@@ -15,7 +15,6 @@ import {
   downloadAndInstallAtom,
   relaunchAfterUpdateAtom,
   updateStatusAtom,
-  updaterAvailableAtom,
 } from "../atoms/updateAtoms";
 import { SettingsRow } from "./SettingsRow";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -35,7 +34,6 @@ export function UpdatesPanel() {
   const updateSettings = useSetAtom(updateOverlaySettingsAtom);
   const status = useAtomValue(updateStatusAtom);
   const currentVersion = useAtomValue(currentVersionAtom);
-  const updaterAvailable = useAtomValue(updaterAvailableAtom);
   const checkForUpdates = useSetAtom(checkForUpdatesAtom);
   const downloadAndInstall = useSetAtom(downloadAndInstallAtom);
   const relaunchApp = useSetAtom(relaunchAfterUpdateAtom);
@@ -49,10 +47,7 @@ export function UpdatesPanel() {
   // pending. Running another `check()` here would replace `ready` and
   // hide the relaunch button, so the user could forget to restart.
   const isReady = status.kind === "ready";
-  // Builds without `TAURI_UPDATER_PUBKEY` ship without the plugin; surface
-  // that here as "unavailable" rather than failing at click time.
-  const checkDisabled =
-    !updaterAvailable || isChecking || isDownloading || isReady;
+  const checkDisabled = isChecking || isDownloading || isReady;
 
   return (
     <section className="settings__section" data-testid="updates-panel">
@@ -61,18 +56,6 @@ export function UpdatesPanel() {
           <Trans>アップデート</Trans>
         </span>
       </div>
-
-      {!updaterAvailable && (
-        <p
-          className="settings__note"
-          data-testid="updates-unavailable-notice"
-          role="note"
-        >
-          <Trans>
-            このビルドには自動アップデート機能が含まれていません。リリースバイナリを再取得してください。
-          </Trans>
-        </p>
-      )}
 
       {status.kind === "error" && (
         <p className="provider-error" data-testid="updates-error" role="alert">
@@ -138,7 +121,6 @@ export function UpdatesPanel() {
 
         <StatusRow
           status={status}
-          updaterAvailable={updaterAvailable}
           translate={_}
           onDownload={() => {
             void downloadAndInstall();
@@ -154,13 +136,11 @@ export function UpdatesPanel() {
 
 function StatusRow({
   status,
-  updaterAvailable,
   translate,
   onDownload,
   onRelaunch,
 }: {
   status: UpdateStatus;
-  updaterAvailable: boolean;
   translate: (m: MessageDescriptor) => string;
   onDownload: () => void;
   onRelaunch: () => void;
@@ -186,7 +166,6 @@ function StatusRow({
               type="button"
               className="btn btn--primary"
               data-testid="updates-download-button"
-              disabled={!updaterAvailable}
               onClick={onDownload}
             >
               <DownloadIcon />
