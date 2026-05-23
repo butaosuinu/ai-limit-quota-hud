@@ -51,21 +51,7 @@ QuotaHUD は Tauri updater プラグインによる自動アップデートを�
 
 このリリース (`v0.0.0` 以前) より前のビルドをインストールしているユーザは、最初の updater 内蔵リリースだけは手動でダウンロードしてください — 旧バイナリには updater プラグインが組み込まれていません。
 
-### リリースエンジニアリング (メンテナ向け)
-
-minisign の **公開鍵** は `src-tauri/tauri.conf.json` の `plugins.updater.pubkey` に commit されています。公開鍵は署名の検証にしか使えず生成には使えないため、公開リポジトリに置いて安全です。秘匿対象は対応する **秘密鍵** だけです。
-
-1. minisign 鍵ペアを一度だけ生成: `pnpm tauri signer generate -w ~/.tauri/quotahud-updater.key`
-2. **公開鍵** (stdout に表示される base64 文字列、秘密鍵と同じディレクトリに `*.pub` としても保存されます) を `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` に commit します。
-3. **秘密鍵** とそのパスフレーズを GitHub リポジトリの secret に登録:
-   - `TAURI_SIGNING_PRIVATE_KEY` — 秘密鍵ファイルの中身
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — 鍵生成時に設定したパスフレーズ
-4. 秘密鍵は 1Password などにバックアップしてください。**紛失すると既存ユーザの自動アップデートが恒久的に壊れます** — 配布済みのバイナリはすべてこの公開鍵を埋め込んでビルドされているため、別の鍵で署名した artifact は検証に失敗します。
-5. `v*` タグを push すると、release ワークフローがプラットフォームごとのインストーラと一緒に `latest.json` + `.sig` をアップロードします。
-
-#### 鍵のローテーション
-
-秘密鍵が漏洩した場合は、**旧鍵で署名した最後のアップデート** で `pubkey` を新鍵に差し替えてから、新しい秘密鍵での署名運用に切り替えます。そのローテーション update より古いビルドのユーザは手動再インストールが必要です。
+> メンテナ向け: リリース / 署名鍵の運用手順 (鍵ペア生成・GitHub secrets・鍵ローテーション) は [`docs/PROJECT_SPEC.md` §12.3](docs/PROJECT_SPEC.md#123-release-artifacts) に記載しています。
 
 ## 必要要件
 

@@ -51,21 +51,7 @@ QuotaHUD has built-in auto-updates via the Tauri updater plugin. Once the app is
 
 Users who installed any build before this release (`v0.0.0` and earlier) must download the first updater-enabled release manually — the older binaries do not have the updater plugin embedded.
 
-### Release engineering (maintainers)
-
-The minisign **public key** lives in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) — that key is safe to commit because it can only verify signatures, not produce them. Only the matching **private key** must be kept secret.
-
-1. Generate a minisign keypair once: `pnpm tauri signer generate -w ~/.tauri/quotahud-updater.key`
-2. Commit the **public key** (the base64 string printed to stdout, also stored next to the private key as `*.pub`) to `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`.
-3. Register the **private key** and its passphrase as GitHub repo secrets:
-   - `TAURI_SIGNING_PRIVATE_KEY` — the private key file contents
-   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the passphrase set at generation time
-4. Back up the private key (1Password etc.). **Losing it permanently breaks auto-updates for existing users** because every shipped binary was compiled with the matching public key and will reject signatures from a fresh key.
-5. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig` alongside the platform installers.
-
-#### Key rotation
-
-If the private key is compromised, ship a final update signed with the old key that bumps the committed `pubkey` to a new one, then start signing with the new private key. Users still on builds older than that rotation update must reinstall manually.
+> Maintainers: the release/signing-key runbook (keypair generation, GitHub secrets, key rotation) lives in [`docs/PROJECT_SPEC.md` §12.3](docs/PROJECT_SPEC.md#123-release-artifacts).
 
 ## Requirements
 
