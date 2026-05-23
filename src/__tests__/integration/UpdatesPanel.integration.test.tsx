@@ -193,6 +193,54 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(store.get(updateStatusAtom).kind).toBe("idle");
   });
 
+  it("Update リソースは置き換え時と消費後に close() で必ず解放される", async () => {
+    // Tauri の Update は Resource ハンドル。pendingUpdate を上書き / クリア
+    // するときと downloadAndInstall を完走したときに close() を呼ばないと
+    // backend のリソース ID がリークするため、複数経路で release を確認する。
+    const closeA = vi.fn(async () => undefined);
+    const closeB = vi.fn(async () => undefined);
+    const downloadB = vi.fn(async () => undefined);
+    const updateA = {
+      version: "1.0.0",
+      body: "",
+      close: closeA,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    const updateB = {
+      version: "2.0.0",
+      body: "",
+      close: closeB,
+      downloadAndInstall: downloadB,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    vi.mocked(check)
+      .mockResolvedValueOnce(updateA)
+      .mockResolvedValueOnce(updateB);
+    setupListen();
+    await mountSettingsPanel();
+
+    // 1 回目の manual check で updateA を pending に積む。
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(closeA).not.toHaveBeenCalled();
+
+    // 2 回目の manual check で updateB に置き換わる: updateA は close される。
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(closeA).toHaveBeenCalledTimes(1);
+    expect(closeB).not.toHaveBeenCalled();
+
+    // download を完走すると updateB も close される。
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-download-button"));
+      await flush();
+    });
+    expect(downloadB).toHaveBeenCalledTimes(1);
+    expect(closeB).toHaveBeenCalledTimes(1);
+  });
+
   it("backend event で表示 version が更新された後の download は、キャッシュではなく再 check した最新 Update を install する", async () => {
     // 1) manual check で 1.0.0 を pending に積む
     // 2) backend が 2.0.0 の available event を emit し、表示 version だけ更新

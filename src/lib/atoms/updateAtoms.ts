@@ -165,8 +165,23 @@ function describeError(action: MessageDescriptor, err: unknown): string {
  */
 const pendingUpdateAtom = atom<Update | null>(null);
 
+/**
+ * `Update` is a Tauri Resource: the backend allocates a resource ID that
+ * leaks until `close()` is called or the process exits. Repeatedly checking
+ * for updates in a long-running session would accumulate dead handles, so
+ * every replace / clear / consume site routes through this helper.
+ */
+async function closeUpdate(update: Update | null): Promise<void> {
+  if (update === null) return;
+  // Resource.close() is the real plugin's disposer; tolerate test doubles
+  // that omit it, and swallow rejections so a release failure can't tank
+  // the caller's state transition.
+  if (typeof update.close !== "function") return;
+  await update.close().catch(() => undefined);
+}
+
 /** Trigger an explicit "check now" round-trip. */
-export const checkForUpdatesAtom = atom(null, async (_get, set) => {
+export const checkForUpdatesAtom = atom(null, async (get, set) => {
   set(updateStatusAtom, { kind: "checking" });
   const result = await check().catch(
     (err: unknown): Failure => failure(describeError(MSG.checkFailed, err)),
@@ -175,6 +190,8 @@ export const checkForUpdatesAtom = atom(null, async (_get, set) => {
     set(updateStatusAtom, { kind: "error", message: result.message });
     return;
   }
+  // Whatever we hold now is about to be replaced; release its backend handle.
+  await closeUpdate(get(pendingUpdateAtom));
   if (result === null) {
     set(updateStatusAtom, { kind: "idle" });
     set(pendingUpdateAtom, null);
@@ -217,15 +234,19 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
   let update =
     cached !== null && cached.version === displayedVersion ? cached : null;
   if (update === null) {
+    // Release the stale handle (if any) before allocating a new one.
+    if (cached !== null) await closeUpdate(cached);
     const recheck = await check().catch(
       (err: unknown): Failure =>
         failure(describeError(MSG.downloadFailed, err)),
     );
     if (isFailure(recheck)) {
+      set(pendingUpdateAtom, null);
       set(updateStatusAtom, { kind: "error", message: recheck.message });
       return;
     }
     if (recheck === null) {
+      set(pendingUpdateAtom, null);
       set(updateStatusAtom, { kind: "idle" });
       return;
     }
@@ -247,6 +268,10 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
       (err: unknown): Failure =>
         failure(describeError(MSG.downloadFailed, err)),
     );
+  // The handle is consumed regardless of outcome; drop it so future
+  // `available` cycles allocate a fresh resource.
+  await closeUpdate(update);
+  set(pendingUpdateAtom, null);
   if (isFailure(result)) {
     set(updateStatusAtom, { kind: "error", message: result.message });
   }
