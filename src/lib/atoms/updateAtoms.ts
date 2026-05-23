@@ -81,6 +81,16 @@ function nextStatusFromBackend(
   prev: UpdateStatus,
   payload: UpdateStatusPayload,
 ): UpdateStatus {
+  // Manual operations (Check now / Download / Install) must win over backend
+  // events. A late startup `noUpdate` arriving while the user is mid-check or
+  // mid-download must not yank the UI back to idle and re-enable buttons.
+  if (
+    prev.kind === "checking" ||
+    prev.kind === "downloading" ||
+    prev.kind === "ready"
+  ) {
+    return prev;
+  }
   switch (payload.status) {
     case "noUpdate":
       return prev.kind === "idle" ? prev : { kind: "idle" };

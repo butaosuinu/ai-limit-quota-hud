@@ -162,6 +162,37 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(vi.mocked(check).mock.calls.length).toBe(before + 1);
   });
 
+  it("manual check 中に届いた backend の noUpdate event は無視され、checking 状態が維持される", async () => {
+    // backend startup check が遅れて完了し、その間にユーザが「今すぐ確認」を
+    // 押した場合、後から届く noUpdate は manual 操作を上書きしてはいけない。
+    let resolveCheck: (
+      value: Awaited<ReturnType<typeof check>>,
+    ) => void = () => {};
+    vi.mocked(check).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      }),
+    );
+    const bus = setupListen();
+    const { store } = await mountSettingsPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("checking");
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate" });
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("checking");
+    // ここで本来の manual check を完走させて状態を畳む。
+    await act(async () => {
+      resolveCheck(null);
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("idle");
+  });
+
   it("backend が error event を流してもエラー以外の panel 要素はクラッシュせず残る", async () => {
     const bus = setupListen();
     const { store } = await mountSettingsPanel();
