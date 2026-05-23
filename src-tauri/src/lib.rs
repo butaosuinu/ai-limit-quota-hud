@@ -432,9 +432,34 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+/// Matches the literal placeholder we ship in `tauri.conf.json` until a
+/// release maintainer drops in a real minisign public key.
+const PLACEHOLDER_UPDATER_PUBKEY: &str =
+    "TODO_REPLACE_WITH_MINISIGN_PUBLIC_KEY_BEFORE_RELEASE";
+
+fn updater_pubkey_is_unconfigured(handle: &AppHandle) -> bool {
+    handle
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|p| p.get("pubkey"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.is_empty() || s == PLACEHOLDER_UPDATER_PUBKEY)
+        .unwrap_or(true)
+}
+
 fn spawn_startup_update_check(handle: AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
     use updater::{LastStartupStatus, UPDATER_STATUS_EVENT, UpdateStatusPayload};
+
+    if updater_pubkey_is_unconfigured(&handle) {
+        log::warn!(
+            "updater pubkey is the build-time placeholder; skipping startup check until a real \
+             minisign key is dropped into tauri.conf.json"
+        );
+        return;
+    }
 
     tauri::async_runtime::spawn(async move {
         let payload = match handle.updater() {

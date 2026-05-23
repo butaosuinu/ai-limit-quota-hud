@@ -193,6 +193,38 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(store.get(updateStatusAtom).kind).toBe("idle");
   });
 
+  it("download ボタンの重複クリックでは check() / downloadAndInstall が二重に走らない", async () => {
+    // available 状態からの「ダウンロード」連打。downloadAndInstallAtom は
+    // 入口でガードして 2 回目の invocation を no-op にすること。
+    const downloadAndInstall = vi.fn(async () => undefined);
+    const fakeUpdate = {
+      version: "5.0.0",
+      body: "",
+      downloadAndInstall,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    vi.mocked(check).mockResolvedValueOnce(fakeUpdate);
+    const bus = setupListen();
+    await mountSettingsPanel();
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, {
+        status: "available",
+        version: "5.0.0",
+        notes: "",
+      });
+      await flush();
+    });
+    const before = vi.mocked(check).mock.calls.length;
+    const btn = screen.getByTestId("updates-download-button");
+    await act(async () => {
+      fireEvent.click(btn);
+      fireEvent.click(btn);
+      fireEvent.click(btn);
+      await flush();
+    });
+    expect(vi.mocked(check).mock.calls.length).toBe(before + 1);
+    expect(downloadAndInstall.mock.calls.length).toBe(1);
+  });
+
   it("manual check で available を確定した後に届く stale な noUpdate event は available 状態を維持する", async () => {
     // backend startup check が遅れて noUpdate を emit するケース。すでに
     // ユーザの「今すぐ確認」が available を確定させていれば、その authoritative

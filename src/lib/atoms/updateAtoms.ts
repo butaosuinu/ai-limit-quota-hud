@@ -199,6 +199,13 @@ export const checkForUpdatesAtom = atom(null, async (_get, set) => {
  * before kicking off the download.
  */
 export const downloadAndInstallAtom = atom(null, async (get, set) => {
+  // Reserve the slot synchronously: the download button only renders in
+  // `available` state, and the kind transition unmounts it. Without this
+  // up-front write, rapid double-clicks fire before React unmounts the
+  // button and queue overlapping `check()` / `downloadAndInstall()` IPCs.
+  if (get(updateStatusAtom).kind !== "available") return;
+  set(updateStatusAtom, { kind: "downloading", progress: 0 });
+
   let update = get(pendingUpdateAtom);
   if (update === null) {
     const recheck = await check().catch(
@@ -217,7 +224,6 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
     set(pendingUpdateAtom, recheck);
   }
 
-  set(updateStatusAtom, { kind: "downloading", progress: 0 });
   let downloaded = 0;
   const result = await update
     .downloadAndInstall((event) => {
