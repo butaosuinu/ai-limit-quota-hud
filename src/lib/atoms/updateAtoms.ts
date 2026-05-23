@@ -98,10 +98,10 @@ async function subscribeToBackendStatus(
   set((prev) => nextStatusFromBackend(prev, last));
 }
 
-function nextStatusFromBackend(
+function shouldIgnoreBackendUpdate(
   prev: UpdateStatus,
   payload: UpdateStatusPayload,
-): UpdateStatus {
+): boolean {
   // Manual operations (Check now / Download / Install) must win over backend
   // events. A late startup `noUpdate` arriving while the user is mid-check or
   // mid-download must not yank the UI back to idle and re-enable buttons.
@@ -110,18 +110,34 @@ function nextStatusFromBackend(
     prev.kind === "downloading" ||
     prev.kind === "ready"
   ) {
-    return prev;
+    return true;
   }
   // An authoritative `available` (set by a manual check or by a fresher
   // backend snapshot) must not be downgraded by a stale `noUpdate` / `error`
   // arriving from an older startup check or from `get_last_update_status`.
   // A newer `available` payload still upgrades — handled in the case below.
+  //
+  // Similarly, a fresh manual `error` must not be silently cleared by a late
+  // `noUpdate`; the user needs to see the failure. Backend `available` and
+  // `error` payloads are still allowed to overwrite an existing error since
+  // those represent strictly newer information.
   if (
     prev.kind === "available" &&
     (payload.status === "noUpdate" || payload.status === "error")
   ) {
-    return prev;
+    return true;
   }
+  if (prev.kind === "error" && payload.status === "noUpdate") {
+    return true;
+  }
+  return false;
+}
+
+function nextStatusFromBackend(
+  prev: UpdateStatus,
+  payload: UpdateStatusPayload,
+): UpdateStatus {
+  if (shouldIgnoreBackendUpdate(prev, payload)) return prev;
   switch (payload.status) {
     case "noUpdate":
       return prev.kind === "idle" ? prev : { kind: "idle" };
@@ -208,6 +224,11 @@ export const checkForUpdatesAtom = atom(null, async (get, set) => {
     (err: unknown): Failure => failure(describeError(MSG.checkFailed, err)),
   );
   if (isFailure(result)) {
+    // Even on failure, drop the previous handle: callers can't act on it
+    // anymore (UI has moved to `error`), and leaving it open accumulates
+    // backend resource IDs across repeated failed sessions.
+    await closeUpdate(get(pendingUpdateAtom));
+    set(pendingUpdateAtom, null);
     set(updateStatusAtom, { kind: "error", message: result.message });
     return;
   }

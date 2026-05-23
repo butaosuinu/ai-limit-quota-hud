@@ -206,6 +206,52 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(checkBtn.disabled).toBe(true);
   });
 
+  it("manual check の失敗時、既存 pending Update は close されて消える", async () => {
+    const closeA = vi.fn(async () => undefined);
+    const updateA = {
+      version: "1.0.0",
+      body: "",
+      close: closeA,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    vi.mocked(check)
+      .mockResolvedValueOnce(updateA)
+      .mockRejectedValueOnce(new Error("network down"));
+    setupListen();
+    await mountSettingsPanel();
+    // 成功した manual check で updateA を pending に積む
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(closeA).not.toHaveBeenCalled();
+    // 失敗する manual check で updateA は close されて pending はクリア
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(closeA).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("updates-error")).toBeTruthy();
+  });
+
+  it("manual の error 状態は遅延 backend noUpdate event で隠されない", async () => {
+    vi.mocked(check).mockRejectedValueOnce(new Error("offline"));
+    const bus = setupListen();
+    const { store } = await mountSettingsPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("error");
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate" });
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("error");
+    expect(screen.getByTestId("updates-error").textContent).toContain(
+      "offline",
+    );
+  });
+
   it("ready 状態では「今すぐ確認」ボタンが disabled になり restart の機会が失われない", async () => {
     setupListen();
     const { store } = await mountSettingsPanel();
