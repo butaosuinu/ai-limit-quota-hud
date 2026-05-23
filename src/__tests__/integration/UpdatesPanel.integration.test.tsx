@@ -193,6 +193,30 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(store.get(updateStatusAtom).kind).toBe("idle");
   });
 
+  it("manual check で available を確定した後に届く stale な noUpdate event は available 状態を維持する", async () => {
+    // backend startup check が遅れて noUpdate を emit するケース。すでに
+    // ユーザの「今すぐ確認」が available を確定させていれば、その authoritative
+    // な状態を idle へ巻き戻してはいけない。
+    const fakeUpdate = {
+      version: "3.0.0",
+      body: "stable",
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    vi.mocked(check).mockResolvedValueOnce(fakeUpdate);
+    const bus = setupListen();
+    const { store } = await mountSettingsPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate" });
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
+    expect(screen.getByTestId("updates-download-button")).toBeTruthy();
+  });
+
   it("backend が error event を流してもエラー以外の panel 要素はクラッシュせず残る", async () => {
     const bus = setupListen();
     const { store } = await mountSettingsPanel();

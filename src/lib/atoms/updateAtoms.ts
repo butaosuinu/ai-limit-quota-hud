@@ -91,6 +91,16 @@ function nextStatusFromBackend(
   ) {
     return prev;
   }
+  // An authoritative `available` (set by a manual check or by a fresher
+  // backend snapshot) must not be downgraded by a stale `noUpdate` / `error`
+  // arriving from an older startup check or from `get_last_update_status`.
+  // A newer `available` payload still upgrades — handled in the case below.
+  if (
+    prev.kind === "available" &&
+    (payload.status === "noUpdate" || payload.status === "error")
+  ) {
+    return prev;
+  }
   switch (payload.status) {
     case "noUpdate":
       return prev.kind === "idle" ? prev : { kind: "idle" };
