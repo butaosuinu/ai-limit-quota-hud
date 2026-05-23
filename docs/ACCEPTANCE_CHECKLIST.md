@@ -133,8 +133,8 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 
 ## Phase: Auto-updates (Tauri updater plugin)
 
-- [ ] Settings に "Updates" セクションが表示され、現在の version / 「今すぐ確認」/「起動時に確認」トグル / 状態バナーが動作する
-- [ ] 起動時 default-on で updater check が走り、Settings から OFF にすると startup network call がゼロになる
-- [ ] CI の `release` workflow が tag push で `latest.json` + `.sig` を含む release を 3 OS 分発行する (macOS `.app.tar.gz`, Windows `.msi`, Linux `.AppImage`)
+- [x] Settings に "Updates" セクションが表示され、現在の version / 「今すぐ確認」/「起動時に確認」トグル / 状態バナーが動作する
+- [x] 起動時 default-on で updater check が走り、Settings から OFF にすると startup network call がゼロになる
+- [x] CI の `release` workflow が tag push で `latest.json` + `.sig` を含む release を 3 OS 分発行する (macOS `.app.tar.gz`, Windows `.msi`, Linux `.AppImage`)
 - [ ] 古い version → 新しい version への自動更新 → 自動再起動が macOS / Windows / Linux いずれかで動作確認できている
-- [ ] updater 通信失敗時に overlay/settings がクラッシュせず、UI にエラーが表示される
+- [x] updater 通信失敗時に overlay/settings がクラッシュせず、UI にエラーが表示される
