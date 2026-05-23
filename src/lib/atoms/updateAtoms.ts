@@ -31,7 +31,7 @@ export type UpdateStatus =
   | { kind: "error"; message: string };
 
 export const updateStatusAtom = atom<UpdateStatus>({ kind: "idle" });
-export const currentVersionAtom = atom<string | null>(null);
+export const currentVersionAtom = atom<string | undefined>(undefined);
 
 type Lifecycle = {
   cancelled: boolean;
@@ -131,20 +131,19 @@ function nextStatusFromBackend(
   }
 }
 
-// Cache across mounts: the bundled version is immutable for the app's
-// lifetime, so each remount of UpdatesPanel shouldn't re-issue the IPC.
-let cachedVersion: string | null = null;
+// The bundled version is fixed for the app's lifetime, so resolve it once on
+// the first mount and share the promise across every later UpdatesPanel mount
+// (remounts then don't re-issue the IPC). `undefined` = lookup failed (e.g. the
+// non-Tauri test env); the version row then renders "—".
+const versionCache: { promise?: Promise<string | undefined> } = {};
+const loadBundledVersion = (): Promise<string | undefined> =>
+  (versionCache.promise ??= getVersion().catch(() => undefined));
 
-currentVersionAtom.onMount = (set: (next: string | null) => void) => {
-  if (cachedVersion !== null) {
-    set(cachedVersion);
-    return;
-  }
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
+currentVersionAtom.onMount = (set: (next: string | undefined) => void) => {
+  const lifecycle = { cancelled: false };
   void (async () => {
-    const v = await getVersion().catch(() => null);
-    if (lifecycle.cancelled || v === null) return;
-    cachedVersion = v;
+    const v = await loadBundledVersion();
+    if (lifecycle.cancelled || v === undefined) return;
     set(v);
   })();
   return () => {
