@@ -193,6 +193,50 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(store.get(updateStatusAtom).kind).toBe("idle");
   });
 
+  it("backend event で表示 version が更新された後の download は、キャッシュではなく再 check した最新 Update を install する", async () => {
+    // 1) manual check で 1.0.0 を pending に積む
+    // 2) backend が 2.0.0 の available event を emit し、表示 version だけ更新
+    // 3) Download をクリックすると、stale な 1.0.0 ではなく再 check 経由で
+    //    取得した 2.0.0 の downloadAndInstall が呼ばれる
+    const staleDownload = vi.fn(async () => undefined);
+    const freshDownload = vi.fn(async () => undefined);
+    const stalePending = {
+      version: "1.0.0",
+      body: "stale",
+      downloadAndInstall: staleDownload,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    const freshUpdate = {
+      version: "2.0.0",
+      body: "fresh",
+      downloadAndInstall: freshDownload,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    vi.mocked(check)
+      .mockResolvedValueOnce(stalePending)
+      .mockResolvedValueOnce(freshUpdate);
+    const bus = setupListen();
+    await mountSettingsPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(screen.getByText("v1.0.0")).toBeTruthy();
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, {
+        status: "available",
+        version: "2.0.0",
+        notes: "fresh",
+      });
+      await flush();
+    });
+    expect(screen.getByText("v2.0.0")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-download-button"));
+      await flush();
+    });
+    expect(staleDownload).not.toHaveBeenCalled();
+    expect(freshDownload).toHaveBeenCalledTimes(1);
+  });
+
   it("download ボタンの重複クリックでは check() / downloadAndInstall が二重に走らない", async () => {
     // available 状態からの「ダウンロード」連打。downloadAndInstallAtom は
     // 入口でガードして 2 回目の invocation を no-op にすること。

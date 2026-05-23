@@ -203,10 +203,19 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
   // `available` state, and the kind transition unmounts it. Without this
   // up-front write, rapid double-clicks fire before React unmounts the
   // button and queue overlapping `check()` / `downloadAndInstall()` IPCs.
-  if (get(updateStatusAtom).kind !== "available") return;
+  const status = get(updateStatusAtom);
+  if (status.kind !== "available") return;
+  const { version: displayedVersion } = status;
   set(updateStatusAtom, { kind: "downloading", progress: 0 });
 
-  let update = get(pendingUpdateAtom);
+  // The cached Update may be stale: a fresher backend `available` event can
+  // overwrite the displayed version while leaving an older Update resource
+  // in `pendingUpdateAtom`. Re-fetch unless the cached version matches what
+  // the user is looking at, so we never install an older release than the
+  // one shown on the panel.
+  const cached = get(pendingUpdateAtom);
+  let update =
+    cached !== null && cached.version === displayedVersion ? cached : null;
   if (update === null) {
     const recheck = await check().catch(
       (err: unknown): Failure =>
