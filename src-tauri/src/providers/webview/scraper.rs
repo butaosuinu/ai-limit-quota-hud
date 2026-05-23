@@ -44,9 +44,12 @@ use super::{host_is_known_idp, ProviderHostAllowlist, SessionStorage};
 pub const TITLE_PREFIX: &str = "QHJSON:";
 
 /// Default timeout for one full hidden refresh cycle (window create →
-/// extractor JS emits a payload). Set to 25 s to leave headroom under the
-/// scheduler's 15 s soft timeout while still failing closed quickly if the
-/// page is unresponsive.
+/// extractor JS emits a payload). Set to 25 s — the scheduler wraps each
+/// refresh in its own 30 s outer timeout (`REFRESH_TIMEOUT_SECS`), and
+/// keeping the inner budget strictly smaller ensures the scraper's own
+/// `Timeout` error path (which destroys the hidden window via
+/// `WindowDestroyGuard`) wins over the outer "provider refresh timed out"
+/// snapshot.
 pub const DEFAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(25);
 
 /// Provider-supplied configuration consumed by [`WebviewScraper`]. Kept as a
@@ -357,7 +360,7 @@ fn apply_hidden_window_flags<'a, R: tauri::Runtime, M: Manager<R>>(
 /// The previous shape — running the refresh, then unconditionally calling
 /// `window.destroy()` after the `.await` — only worked when the local
 /// `tokio::time::timeout` fired. The scheduler wraps each `provider.refresh()`
-/// in its own outer 15 s `tokio::time::timeout`; when that one fires first,
+/// in its own outer 30 s `tokio::time::timeout`; when that one fires first,
 /// our future is dropped mid-await and the post-await cleanup is never
 /// reached, leaking the hidden window. A `Drop` impl runs on every
 /// termination path (success, timeout, cancellation, panic), so the window
