@@ -40,6 +40,19 @@ overlay 上のすべての行に `low` / `webview` バッジを描画するこ�
 
 ソースからビルドする場合は下記 [開発](#開発) を参照。
 
+## アップデート
+
+QuotaHUD は Tauri updater プラグインによる自動アップデートを内蔵しています。アプリ起動時に GitHub Releases を確認し、新しいバージョンがあればダウンロードして再起動を提案します。
+
+- デフォルト ON: 起動のたびに自動チェックが走ります。
+- オプトアウト: Settings → Updates → 「起動時に確認」トグルを OFF にしてください。
+
+### updater 導入前ビルドからの移行
+
+このリリース (`v0.0.0` 以前) より前のビルドをインストールしているユーザは、最初の updater 内蔵リリースだけは手動でダウンロードしてください — 旧バイナリには updater プラグインが組み込まれていません。
+
+> メンテナ向け: リリース / 署名鍵の運用手順 (鍵ペア生成・GitHub secrets・鍵ローテーション) は [`docs/PROJECT_SPEC.md` §12.3](docs/PROJECT_SPEC.md#123-release-artifacts) に記載しています。
+
 ## 必要要件
 
 - **Rust** stable (1.93+ で動作確認)
@@ -145,7 +158,6 @@ v1 から QuotaHUD は **opt-in** の WebView ベースプロバイダをサポ�
 
 - **macOS Developer ID 署名 + notarization** で直配布の `.dmg` / `.app.tar.gz` を署名 (現状は未署名)。
 - **Windows コード署名** で `.msi` / `.exe` の SmartScreen 摩擦を解消。
-- **Tauri updater** によるアプリ内アップデート — 上記署名鍵とリリースホスティングの決定に依存。
 - WebView プロバイダ統合 (`webview-claude-ai`、`webview-chatgpt-codex`) — `docs/PROJECT_SPEC.md` §13 Phase 2 を参照。
 
 ## 抽出器の不具合報告

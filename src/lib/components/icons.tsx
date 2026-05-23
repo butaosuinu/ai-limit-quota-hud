@@ -164,6 +164,16 @@ export function GlobeIcon(props: IconProps) {
   );
 }
 
+export function DownloadIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8 2v8" />
+      <path d="m5 7 3 3 3-3" />
+      <path d="M2.5 12.5h11" />
+    </Svg>
+  );
+}
+
 export function MenuBarIcon(props: IconProps) {
   return (
     <Svg {...props}>

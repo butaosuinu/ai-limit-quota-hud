@@ -8,12 +8,13 @@ mod providers;
 mod scheduler;
 mod settings;
 mod state;
+mod updater;
 
 use std::sync::Mutex;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::overlay::{
@@ -82,6 +83,13 @@ impl AppState {
 
 #[tauri::command]
 fn get_overlay_settings(state: tauri::State<'_, AppState>) -> OverlaySettings {
+    state.snapshot()
+}
+
+#[tauri::command]
+fn get_last_update_status(
+    state: tauri::State<'_, updater::LastStartupStatus>,
+) -> Option<updater::UpdateStatusPayload> {
     state.snapshot()
 }
 
@@ -303,8 +311,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             get_overlay_settings,
+            get_last_update_status,
             update_overlay_settings,
             commands::list_snapshots,
             commands::refresh_now,
@@ -319,6 +330,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let initial = settings::load(&handle);
             handle.manage(AppState::new(initial.clone()));
+            handle.manage(updater::LastStartupStatus::default());
 
             if let Some(window) = handle.get_webview_window(OVERLAY_WINDOW_LABEL) {
                 platform::apply_overlay_traits(&window);
@@ -341,6 +353,10 @@ pub fn run() {
             // missing-managed-state error.
             if let Err(err) = init_provider_runtime(&handle) {
                 log::error!("provider runtime init failed; provider features disabled: {err}");
+            }
+
+            if initial.check_updates_on_startup {
+                spawn_startup_update_check(handle.clone());
             }
 
             Ok(())
@@ -414,4 +430,37 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     handle.manage(provider_settings_store);
 
     Ok(())
+}
+
+fn spawn_startup_update_check(handle: AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+    use updater::{LastStartupStatus, UPDATER_STATUS_EVENT, UpdateStatusPayload};
+
+    tauri::async_runtime::spawn(async move {
+        let payload = match handle.updater() {
+            Ok(updater) => match updater.check().await {
+                Ok(Some(update)) => UpdateStatusPayload::Available {
+                    version: update.version.clone(),
+                    notes: update.body.clone().unwrap_or_default(),
+                },
+                Ok(None) => UpdateStatusPayload::NoUpdate,
+                Err(err) => {
+                    log::warn!("updater check failed: {err}");
+                    UpdateStatusPayload::Error { message: err.to_string() }
+                }
+            },
+            Err(err) => {
+                log::warn!("updater plugin unavailable: {err}");
+                UpdateStatusPayload::Error { message: err.to_string() }
+            }
+        };
+        // Persist before emitting so a webview that mounts after the emit
+        // can still recover the result via `get_last_update_status`.
+        handle
+            .state::<LastStartupStatus>()
+            .store(payload.clone());
+        if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
+            log::warn!("failed to emit updater status: {err}");
+        }
+    });
 }

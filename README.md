@@ -40,6 +40,19 @@ The overlay itself does not paint a `low` / `webview` pill on every row; the dis
 
 If you would rather build from source, follow [Development](#development) below.
 
+## Updates
+
+QuotaHUD has built-in auto-updates via the Tauri updater plugin. Once the app is launched, it checks GitHub Releases for a newer version and offers to download and restart.
+
+- Default-on: a startup check runs every launch.
+- Opt out: Settings → Updates → toggle off "Check on startup".
+
+### Migration from pre-updater builds
+
+Users who installed any build before this release (`v0.0.0` and earlier) must download the first updater-enabled release manually — the older binaries do not have the updater plugin embedded.
+
+> Maintainers: the release/signing-key runbook (keypair generation, GitHub secrets, key rotation) lives in [`docs/PROJECT_SPEC.md` §12.3](docs/PROJECT_SPEC.md#123-release-artifacts).
+
 ## Requirements
 
 - **Rust** stable (tested with 1.93+)
@@ -145,7 +158,6 @@ Tracked but **not** in this release:
 
 - **macOS Developer ID signing + notarization** for direct distribution (`.dmg` / `.app.tar.gz` are currently unsigned).
 - **Windows code signing** to remove SmartScreen friction on `.msi` / `.exe` artifacts.
-- **Tauri updater** for in-app updates — gated on the signing keys above and on a decision about release hosting.
 - WebView provider integrations (`webview-claude-ai`, `webview-chatgpt-codex`) — see `docs/PROJECT_SPEC.md` §13 Phase 2.
 
 ## Reporting an extractor issue

@@ -25,6 +25,7 @@ import {
 import { Kbd } from "./Kbd";
 import { SettingsRow } from "./SettingsRow";
 import { ToggleSwitch } from "./ToggleSwitch";
+import { UpdatesPanel } from "./UpdatesPanel";
 import { WebviewProvidersPanel } from "./WebviewProvidersPanel";
 import {
   CrosshairIcon,
@@ -311,6 +312,8 @@ export function SettingsPanel() {
             />
           </ul>
         </section>
+
+        <UpdatesPanel />
 
         <WebviewProvidersPanel />
       </div>

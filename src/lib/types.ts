@@ -35,6 +35,7 @@ export type OverlaySettings = {
   marginY: number;
   position: Position | null;
   menuBarSummary: MenuBarSummaryMode;
+  checkUpdatesOnStartup: boolean;
 };
 
 export type SnapshotStatus =
@@ -103,9 +104,21 @@ export const USAGE_UPDATED_EVENT = "usage://updated";
 
 export const OVERLAY_SETTINGS_CHANGED_EVENT = "overlay://settings-changed";
 
+export const UPDATER_STATUS_EVENT = "updater://status";
+
 export type SettingsChangedPayload = {
   settings: OverlaySettings;
 };
+
+/**
+ * Mirrors `UpdateStatusPayload` on the Rust side (camelCase + status tag).
+ * The `checking` transition is owned by the frontend write atom and never
+ * arrives via this event, so it is not part of this payload.
+ */
+export type UpdateStatusPayload =
+  | { status: "noUpdate" }
+  | { status: "available"; version: string; notes: string }
+  | { status: "error"; message: string };
 
 export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   opacity: 0.72,
@@ -119,4 +132,5 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   marginY: 24,
   position: null,
   menuBarSummary: "off",
+  checkUpdatesOnStartup: true,
 };

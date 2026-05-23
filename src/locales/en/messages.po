@@ -196,3 +196,91 @@ msgstr "Search settings (search feature coming soon)"
 #: src/lib/components/SettingsPanel.tsx:115
 msgid "設定を検索…"
 msgstr "Search settings…"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アップデート"
+msgstr "Updates"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "現在のバージョン"
+msgstr "Current version"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "インストールされている QuotaHUD のバージョン番号"
+msgstr "Installed QuotaHUD build version"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アップデートを確認"
+msgstr "Check for updates"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "最新リリースを GitHub から取得してチェックします"
+msgstr "Fetch the latest release from GitHub and check for an upgrade."
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "今すぐ確認"
+msgstr "Check now"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "起動時にアップデートを確認"
+msgstr "Check for updates on startup"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アプリ起動時に自動でアップデートをチェックします"
+msgstr "Automatically check for updates when the app starts."
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "新しいバージョンが利用可能"
+msgstr "A new version is available"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "ダウンロード"
+msgstr "Download"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "ダウンロード中..."
+msgstr "Downloading…"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "アップデートの準備完了"
+msgstr "Update ready to install"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "再起動してアップデートを適用します"
+msgstr "Relaunch the app to apply the update."
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "再起動して適用"
+msgstr "Relaunch to apply"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "待機中"
+msgstr "Idle"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "確認中…"
+msgstr "Checking…"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "利用可能"
+msgstr "Available"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "ダウンロード中"
+msgstr "Downloading"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "再起動が必要"
+msgstr "Restart required"
+
+#: src/lib/components/UpdatesPanel.tsx
+msgid "エラー"
+msgstr "Error"
+
+#: src/lib/atoms/updateAtoms.ts
+msgid "アップデート確認に失敗"
+msgstr "Failed to check for updates"
+
+#: src/lib/atoms/updateAtoms.ts
+msgid "アップデートのダウンロードに失敗"
+msgstr "Failed to download update"

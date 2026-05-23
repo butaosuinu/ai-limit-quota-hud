@@ -689,7 +689,56 @@ Signing/notarization can be added after MVP:
 
 - macOS Developer ID signing + notarization for direct distribution.
 - Windows code signing to reduce SmartScreen friction.
-- Tauri updater signing keys only if auto-update is enabled.
+
+Auto-update is **shipped in v1** via `tauri-plugin-updater`:
+
+- The updater endpoint points at
+  `https://github.com/butaosuinu/ai-limit-quota-hud/releases/latest/download/latest.json`
+  (GitHub Releases' `latest` view excludes draft and prerelease entries, so
+  pre-release tags do not roll out to existing users).
+- `bundle.createUpdaterArtifacts: true` is enabled in `tauri.conf.json`, so
+  every release run produces `latest.json` + per-artifact `.sig` files
+  alongside the platform installers.
+- minisign signing keys live in CI as the
+  `TAURI_SIGNING_PRIVATE_KEY` /
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets. This signing chain is
+  independent of OS code signing — the updater verifies its own minisign
+  signature on the downloaded bundle regardless of whether the bundle itself
+  carries a valid Developer ID or Authenticode signature.
+- The default-on startup updater check is an **explicit, documented
+  exception** to the AGENTS.md "no network call on startup" policy. Users
+  can opt out from **Settings → Updates → Check on startup** without
+  disabling the updater entirely (manual "Check now" still works).
+- OS-level code signing (Developer ID / `codesign` notarization, Windows
+  Authenticode) remains tracked as future work in its own issue and is
+  orthogonal to the updater signing keys above.
+
+#### Maintainer runbook — signing keys & rollout
+
+The minisign **public key** lives in `src-tauri/tauri.conf.json`
+(`plugins.updater.pubkey`) and is safe to commit because it can only verify
+signatures, not produce them. Only the matching **private key** must stay
+secret.
+
+1. Generate a minisign keypair once:
+   `pnpm tauri signer generate -w ~/.tauri/quotahud-updater.key`
+2. Commit the **public key** (the base64 string printed to stdout, also stored
+   next to the private key as `*.pub`) to
+   `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`.
+3. Register the **private key** and its passphrase as GitHub repo secrets:
+   - `TAURI_SIGNING_PRIVATE_KEY` — the private key file contents
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the passphrase set at generation
+     time
+4. Back up the private key (1Password etc.). **Losing it permanently breaks
+   auto-updates for existing users** because every shipped binary was compiled
+   with the matching public key and will reject signatures from a fresh key.
+5. Push a `v*` tag; the release workflow uploads `latest.json` + `.sig`
+   alongside the platform installers.
+
+**Key rotation:** if the private key is compromised, ship a final update signed
+with the old key that bumps the committed `pubkey` to a new one, then start
+signing with the new private key. Users still on builds older than that
+rotation update must reinstall manually.
 
 ## 13. MVP implementation phases
 
@@ -767,7 +816,8 @@ Acceptance:
 
 - Add GitHub Actions release workflow.
 - Produce unsigned artifacts first.
-- Add docs for signing and updater keys later.
+- Document the updater signing-key runbook (done — see §12.3). OS-level code
+  signing (Developer ID / Authenticode) docs remain future work.
 
 Acceptance:
 

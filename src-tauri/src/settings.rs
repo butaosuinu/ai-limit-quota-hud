@@ -51,6 +51,7 @@ pub struct OverlaySettings {
     pub margin_y: i32,
     pub position: Option<Position>,
     pub menu_bar_summary: MenuBarSummaryMode,
+    pub check_updates_on_startup: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -73,6 +74,7 @@ impl Default for OverlaySettings {
             margin_y: DEFAULT_MARGIN,
             position: None,
             menu_bar_summary: MenuBarSummaryMode::default(),
+            check_updates_on_startup: true,
         }
     }
 }
@@ -193,6 +195,7 @@ mod tests {
         assert!((loaded.opacity - 0.5).abs() < f64::EPSILON);
         assert_eq!(loaded.compact, OverlaySettings::default().compact);
         assert_eq!(loaded.locked, OverlaySettings::default().locked);
+        assert!(loaded.check_updates_on_startup);
     }
 
     #[test]
@@ -276,5 +279,16 @@ mod tests {
         save_to_path(&path, &settings).unwrap();
         let loaded = load_from_path(&path);
         assert_eq!(loaded.menu_bar_summary, MenuBarSummaryMode::WhenHidden);
+    }
+
+    #[test]
+    fn check_updates_on_startup_round_trip() {
+        let dir = TempDir::new().unwrap();
+        let path = temp_settings_path(&dir);
+        let mut settings = OverlaySettings::default();
+        settings.check_updates_on_startup = false;
+        save_to_path(&path, &settings).unwrap();
+        let loaded = load_from_path(&path);
+        assert!(!loaded.check_updates_on_startup);
     }
 }
