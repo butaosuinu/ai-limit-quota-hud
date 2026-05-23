@@ -29,6 +29,11 @@ src/locales/**/messages.d.ts
 
 # Claude Code: ローカル上書き設定のみ ignore。settings.json と hooks/ は共有する。
 .claude/settings.local.json
+# dmux pane 固有のローカル artifact (hooks / pane lock / runtime メタデータ)。
+# `dmux` CLI が worktree ごとに絶対パスで書き出すため共有してはいけない。
+.claude/dmux/
+.claude/hooks/dmux-*.cjs
+.claude/scheduled_tasks.lock
 
 # global gitignore に "Icon" (macOS Finder custom icon) ルールがあり、case-insensitive FS で
 # tools/icon/ ディレクトリ全体が誤って ignore されるため明示的に un-ignore する。

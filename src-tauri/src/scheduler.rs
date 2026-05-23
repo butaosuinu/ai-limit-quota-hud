@@ -2,10 +2,23 @@
 //!
 //! - Each provider has a minimum interval (defaults to 60s per AGENTS.md;
 //!   WebView providers raise that to a 300s floor / 600s default per spec §8).
-//! - Repeated failures double the effective interval, capped at 1 hour.
+//! - Repeated failures (Error or NoData) that surface to the UI double the
+//!   effective interval, capped at 10 minutes (`BACKOFF_CAP_SECS`).
 //! - A success resets the backoff for that provider.
 //! - Failures are isolated: one provider erroring out turns into an `Error`
 //!   snapshot row, never a panic or a cross-provider stall.
+//! - During the grace window (`GRACE_PERIOD_SECS`) the previous good rows
+//!   stay on screen instead of an Error/NoData row. Backoff does NOT grow
+//!   while grace is hiding the failure — otherwise the first surfaced retry
+//!   after grace would land at the cap (e.g. 10 min) instead of the base
+//!   interval, which contradicts the user-visible promise that recovery is
+//!   prompt once the system gives up on hiding.
+//! - Explicit refreshes (`refresh_now` / settings change / login flow
+//!   `scheduler::trigger`) bypass grace so the user sees the current state
+//!   — but the resulting Insert still feeds backoff. The startup tick is
+//!   also forced (so the user doesn't wait 60s for the first row) and we
+//!   want its failures to count, otherwise an app that opens into a broken
+//!   provider would retry at base interval forever.
 //! - `trigger_tx.try_send(())` debounces explicit triggers (channel capacity = 1).
 
 use std::collections::HashMap;
@@ -24,12 +37,28 @@ use crate::state::USAGE_UPDATED_EVENT;
 // successful WebView extract isn't cancelled into a false failure that
 // triggers exponential backoff.
 const REFRESH_TIMEOUT_SECS: u64 = 30;
-const BACKOFF_CAP_SECS: u64 = 3600;
-const MAX_BACKOFF_SHIFT: u32 = 6;
+/// Backoff cap. Applies to both Error (Cloudflare / timeout / DOM
+/// extract failure) and NoData (session expired / page returned no
+/// rows). Capped at 10 minutes — beyond that the user perceives the
+/// app as "stuck" and the next retry never lands soon enough to pick
+/// up a freshly-resolved Cloudflare challenge or session refresh.
+/// Recovery from a true session-expiry is faster than the backoff
+/// suggests because `open_provider_login_window` triggers a forced
+/// refresh as soon as the user lands back on the target origin.
+const BACKOFF_CAP_SECS: u64 = 600;
+/// Overflow guard on the shift in `effective_interval`. Strictly
+/// speaking only `< 64` is needed (`1u64 << 64` is UB), but we keep it
+/// well under that so `1u64 << shift` fits in `u32` for the
+/// `Duration::saturating_mul` call. With the current base=60s and
+/// cap=600s the cap actually clamps at `failures=4`; this constant
+/// only protects against very large failure counts.
+const MAX_BACKOFF_SHIFT: u32 = 4;
+// Compile-time guarantee for the `as u32` cast in `effective_interval`.
+const _: () = assert!(MAX_BACKOFF_SHIFT < 32);
 /// 連続失敗中でも last-good snapshot を表示し続ける猶予期間。
-/// この時間を超えても回復しなかった時点で、従来通り Error/NoData 行が UI
-/// に出る。Backoff (`BACKOFF_CAP_SECS`) より十分短く取ってあり、grace 内
-/// に複数回の再試行チャンスがある関係を維持する。
+/// この時間を超えても回復しなかった時点で、Error/NoData 行が UI に出る。
+/// Grace 中は backoff を育てない (詳細はモジュール doc を参照) — grace
+/// 切れ直後の最初の再試行を base interval で打てるよう保つ。
 const GRACE_PERIOD_SECS: u64 = 600;
 
 /// Handle held by the rest of the app — lets commands wake the scheduler
@@ -199,34 +228,21 @@ async fn refresh_once(
                 mk_error("provider refresh timed out".into())
             }
         };
-        if should_apply_grace(&snapshots) {
-            let since = *state.failing_since.entry(id).or_insert(observed);
-            let has_prev_good = provider_has_good_snapshot(&prev_snapshots, id);
-            let in_grace = within_grace_period(Some(since), observed, grace);
-            // Explicit refresh (refresh_now / settings change) bypasses grace
-            // so the user sees the actual current state rather than stale data.
-            if !force && has_prev_good && in_grace {
-                let elapsed = observed.duration_since(since).as_secs();
-                log::info!(
-                    "provider `{id}` within grace period ({elapsed}s / {GRACE_PERIOD_SECS}s), keeping last-good snapshot"
-                );
-                // Skip per_provider insert → merge_refreshed_snapshots carries
-                // forward the prev rows for this provider unchanged.
-                continue;
+        let decision = apply_refresh_outcome(
+            state,
+            id,
+            &prev_snapshots,
+            &snapshots,
+            force,
+            observed,
+            grace,
+        );
+        match decision {
+            OutcomeDecision::CarryForward => continue,
+            OutcomeDecision::Insert => {
+                per_provider.insert(id, snapshots);
             }
-            // Grace exhausted (or never qualified): increment failure count so
-            // exponential backoff kicks in for subsequent ticks, and surface
-            // the failure snapshot to the UI.
-            if !in_grace && has_prev_good {
-                log::warn!("provider `{id}` grace period exceeded, surfacing failure");
-            }
-            let count = state.failure_count.entry(id).or_insert(0);
-            *count = count.saturating_add(1);
-        } else {
-            state.failure_count.insert(id, 0);
-            state.failing_since.remove(id);
         }
-        per_provider.insert(id, snapshots);
     }
     if per_provider.is_empty() {
         return;
@@ -318,18 +334,117 @@ fn effective_interval(min: Duration, failures: u32) -> Duration {
     if failures == 0 {
         return min;
     }
-    let shift = failures.min(MAX_BACKOFF_SHIFT);
-    let multiplier = 1u64 << shift;
-    let scaled = min.saturating_mul(multiplier.try_into().unwrap_or(u32::MAX));
     let cap = Duration::from_secs(BACKOFF_CAP_SECS);
-    scaled.min(cap)
+    let shift = failures.min(MAX_BACKOFF_SHIFT);
+    // `MAX_BACKOFF_SHIFT < 32` (compile-time assert above) → `1u64 << shift`
+    // fits in u32 without overflow → cast is lossless.
+    let multiplier: u32 = 1u32 << shift;
+    let scaled = min.saturating_mul(multiplier);
+    // `.min(cap)` caps overall growth; `.max(min)` guarantees backoff never
+    // *shortens* the interval below the provider's own floor when `min > cap`
+    // (latent footgun if a future provider raises its `min_refresh_interval`
+    // above 600s).
+    scaled.min(cap).max(min)
 }
 
-/// 結果 vec が「全て Error / NoData で構成されており、grace 判定の対象」か。
-/// 空 vec (provider 無効化時) は false を返す — 従来通り prev rows を削除
-/// したいので grace は適用しない。
-fn should_apply_grace(snapshots: &[UsageSnapshot]) -> bool {
-    !snapshots.is_empty() && snapshots.iter().all(|s| s.status.is_failure())
+/// この tick で当該 provider から得られた結果の分類。
+/// `is_failure()` で SnapshotStatus に新 variant が追加されても
+/// 分類が自動追従する (model.rs の権威 partition に委譲)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefreshOutcome {
+    /// 1 つでも good (Ok/Warning/Critical) が含まれる、または空 vec
+    /// (provider 無効化時の "rows をクリアしたい" ケース)。
+    /// `failure_count` と `failing_since` をリセットする。
+    Good,
+    /// 全行が failure (Error/NoData)。Grace で last-good を carry forward
+    /// しつつ、grace 内でも backoff は育てて vendor を保護する。
+    /// 真の session 切れからの復旧は `open_provider_login_window` 経由の
+    /// nav callback が force=true 強制更新を発火するので backoff には
+    /// 影響されない。
+    Failure,
+}
+
+fn classify_outcome(snapshots: &[UsageSnapshot]) -> RefreshOutcome {
+    if snapshots.is_empty() {
+        return RefreshOutcome::Good;
+    }
+    if snapshots.iter().all(|s| s.status.is_failure()) {
+        RefreshOutcome::Failure
+    } else {
+        RefreshOutcome::Good
+    }
+}
+
+/// `apply_refresh_outcome` の出力 — refresh_once 側で per_provider への
+/// insert を行うか、prev 行を carry forward するかを示す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutcomeDecision {
+    /// per_provider に snapshots を入れる (新しい行を UI に出す)。
+    Insert,
+    /// per_provider に入れない (merge_refreshed_snapshots が prev 行を
+    /// そのまま carry forward する)。grace 中の失敗用。
+    CarryForward,
+}
+
+/// Pure state-machine: tick の結果を受け取り、scheduler state を更新し、
+/// per_provider への insert 判定を返す。`refresh_once` の外側 (AppHandle
+/// emit / menu_bar 等) と切り離してあるので unit テストで Ok → Failure →
+/// Failure → Ok のような scripted シーケンスを直接検証できる。
+fn apply_refresh_outcome(
+    state: &mut SchedulerState,
+    id: &'static str,
+    prev_snapshots: &[UsageSnapshot],
+    snapshots: &[UsageSnapshot],
+    force: bool,
+    observed: std::time::Instant,
+    grace: Duration,
+) -> OutcomeDecision {
+    match classify_outcome(snapshots) {
+        RefreshOutcome::Good => {
+            state.failure_count.insert(id, 0);
+            state.failing_since.remove(id);
+            OutcomeDecision::Insert
+        }
+        RefreshOutcome::Failure => {
+            let has_prev_good = provider_has_good_snapshot(prev_snapshots, id);
+            // failing_since は has_prev_good=true の時だけ anchor する。
+            // prev に good 行が無い (初回 startup や provider 切替直後) 場合
+            // grace 判定で使われないので、dead state を残さない。
+            let since = if has_prev_good {
+                Some(*state.failing_since.entry(id).or_insert(observed))
+            } else {
+                None
+            };
+            let in_grace = within_grace_period(since, observed, grace);
+            // Grace 中の `continue` (= CarryForward) では backoff を育てない。
+            // 理由: grace 切れ直後の最初の再試行が cap (600s) まで遅延すると、
+            // 元々 grace は「ユーザーには見せないがバックグラウンドで素直に
+            // 再試行する」窓だった意図に反する。Grace 外 (Insert 経路) でだけ
+            // failure_count を育てて exponential backoff を成立させる。
+            // Explicit refresh (force=true) も backoff には寄与しない — user
+            // が能動的に retry したのを罰しない。
+            if !force && has_prev_good && in_grace {
+                let elapsed = since
+                    .map(|s| observed.duration_since(s).as_secs())
+                    .unwrap_or(0);
+                log::info!(
+                    "provider `{id}` within grace period ({elapsed}s / {GRACE_PERIOD_SECS}s), keeping last-good snapshot"
+                );
+                return OutcomeDecision::CarryForward;
+            }
+            // Insert 経路では failure_count を必ず育てる — force=true の経路も
+            // 含む。startup tick (force=true) で失敗した時に次の auto tick が
+            // base interval で打ち返したら exponential backoff の意味を失う。
+            // refresh_now の連打で backoff が積もるリスクは残るが、それは
+            // vendor 側の HTTP rate limit に任せるべき問題。
+            let count = state.failure_count.entry(id).or_insert(0);
+            *count = count.saturating_add(1);
+            if !in_grace && has_prev_good {
+                log::warn!("provider `{id}` grace period exceeded, surfacing failure");
+            }
+            OutcomeDecision::Insert
+        }
+    }
 }
 
 /// prev snapshots に、当該 provider の「good」(Ok / Warning / Critical) 行
@@ -419,9 +534,23 @@ mod tests {
         assert_eq!(effective_interval(base, 1), Duration::from_secs(120));
         assert_eq!(effective_interval(base, 2), Duration::from_secs(240));
         assert_eq!(effective_interval(base, 3), Duration::from_secs(480));
-        assert_eq!(effective_interval(base, 6), Duration::from_secs(3600));
-        // Beyond the shift cap we stay at the cap.
-        assert_eq!(effective_interval(base, 30), Duration::from_secs(3600));
+        // BACKOFF_CAP_SECS = 600 → 600s から先は cap で頭打ち。
+        assert_eq!(effective_interval(base, 4), Duration::from_secs(600));
+        assert_eq!(effective_interval(base, 6), Duration::from_secs(600));
+        assert_eq!(effective_interval(base, 30), Duration::from_secs(600));
+    }
+
+    #[test]
+    fn effective_interval_never_shorter_than_base() {
+        // Latent footgun: if a future provider sets min_refresh_interval
+        // above BACKOFF_CAP_SECS (e.g. 900s as a vendor-side rate-limit
+        // courtesy), backoff must not silently *shorten* the wait below
+        // that floor. The `.max(min)` tail enforces it.
+        let big = Duration::from_secs(900);
+        assert_eq!(effective_interval(big, 0), big);
+        assert_eq!(effective_interval(big, 1), big);
+        assert_eq!(effective_interval(big, 4), big);
+        assert_eq!(effective_interval(big, 30), big);
     }
 
     #[test]
@@ -521,48 +650,66 @@ mod tests {
         assert!(!snapshots_equivalent(&[a], &[b]));
     }
 
-    // ---- grace period helpers ----
+    // ---- outcome classification ----
 
     #[test]
-    fn should_apply_grace_true_when_all_error() {
+    fn classify_outcome_all_error_is_failure() {
         let snapshots = vec![snap_with_status("a:1", SnapshotStatus::Error)];
-        assert!(should_apply_grace(&snapshots));
+        assert_eq!(classify_outcome(&snapshots), RefreshOutcome::Failure);
     }
 
     #[test]
-    fn should_apply_grace_true_when_all_no_data() {
+    fn classify_outcome_all_no_data_is_failure() {
+        // NoData も Error と同じ Failure 扱い: backoff + grace 両方適用。
+        // Session 切れからの復旧は scraper.rs の login flow callback が
+        // force=true 強制更新を発火するので backoff には影響されない。
         let snapshots = vec![
             snap_with_status("a:1", SnapshotStatus::NoData),
             snap_with_status("a:2", SnapshotStatus::NoData),
         ];
-        assert!(should_apply_grace(&snapshots));
+        assert_eq!(classify_outcome(&snapshots), RefreshOutcome::Failure);
     }
 
     #[test]
-    fn should_apply_grace_true_when_mixed_error_and_no_data() {
+    fn classify_outcome_mixed_error_and_no_data_is_failure() {
         let snapshots = vec![
             snap_with_status("a:1", SnapshotStatus::Error),
             snap_with_status("a:2", SnapshotStatus::NoData),
         ];
-        assert!(should_apply_grace(&snapshots));
+        assert_eq!(classify_outcome(&snapshots), RefreshOutcome::Failure);
     }
 
     #[test]
-    fn should_apply_grace_false_when_any_ok() {
-        // One Ok in the bunch means the provider has *some* data — don't carry
-        // forward stale rows, surface what we just got.
-        let snapshots = vec![
-            snap_with_status("a:1", SnapshotStatus::Ok),
-            snap_with_status("a:2", SnapshotStatus::Error),
-        ];
-        assert!(!should_apply_grace(&snapshots));
+    fn classify_outcome_any_good_is_good() {
+        // 1 行でも good (Ok/Warning/Critical) が混ざれば Good 扱い。
+        for good in [
+            SnapshotStatus::Ok,
+            SnapshotStatus::Warning,
+            SnapshotStatus::Critical,
+        ] {
+            let snapshots = vec![
+                snap_with_status("a:1", good),
+                snap_with_status("a:2", SnapshotStatus::Error),
+            ];
+            assert_eq!(
+                classify_outcome(&snapshots),
+                RefreshOutcome::Good,
+                "expected Good for mix of {good:?} + Error"
+            );
+        }
     }
 
     #[test]
-    fn should_apply_grace_false_when_empty() {
-        // Empty = provider disabled (or never produced anything). Preserve
-        // the existing "clear my rows" behavior — do not enter grace.
-        assert!(!should_apply_grace(&[]));
+    fn classify_outcome_warning_only_is_good() {
+        let snapshots = vec![snap_with_status("a:1", SnapshotStatus::Warning)];
+        assert_eq!(classify_outcome(&snapshots), RefreshOutcome::Good);
+    }
+
+    #[test]
+    fn classify_outcome_empty_is_good() {
+        // Empty = provider 無効化時。"rows をクリアしたい" 用途で
+        // failure_count もリセットされてほしいので Good 扱い。
+        assert_eq!(classify_outcome(&[]), RefreshOutcome::Good);
     }
 
     #[test]
@@ -629,5 +776,193 @@ mod tests {
         let grace = Duration::from_secs(600);
         let now = start + grace + Duration::from_secs(1);
         assert!(!within_grace_period(Some(start), now, grace));
+    }
+
+    // ---- apply_refresh_outcome integration: state-machine sequences ----
+    //
+    // refresh_once は AppHandle / emit を絡めるため直接 unit テストし辛い。
+    // 状態遷移の中核 (failure_count / failing_since / decision) は
+    // apply_refresh_outcome に抽出してあるので、ここで scripted シーケンス
+    // を流して整合性を検証する。code review findings #1-#4 と #13 の
+    // regression-fix を anchor する。
+
+    const TEST_GRACE: Duration = Duration::from_secs(600);
+
+    fn ok_snap(id: &str) -> UsageSnapshot {
+        snap_with_status(id, SnapshotStatus::Ok)
+    }
+
+    fn err_snap(id: &str) -> UsageSnapshot {
+        snap_with_status(id, SnapshotStatus::Error)
+    }
+
+    fn nodata_snap(id: &str) -> UsageSnapshot {
+        snap_with_status(id, SnapshotStatus::NoData)
+    }
+
+    #[test]
+    fn apply_outcome_good_resets_failure_state() {
+        let mut state = SchedulerState::default();
+        state.failure_count.insert("a", 3);
+        state.failing_since.insert("a", std::time::Instant::now());
+        let prev: Vec<UsageSnapshot> = vec![];
+        let snaps = vec![ok_snap("a:1")];
+        let now = std::time::Instant::now();
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &snaps, false, now, TEST_GRACE);
+        assert_eq!(d, OutcomeDecision::Insert);
+        assert_eq!(state.failure_count.get("a").copied(), Some(0));
+        assert!(!state.failing_since.contains_key("a"));
+    }
+
+    #[test]
+    fn apply_outcome_failure_without_prev_good_inserts_and_skips_anchor() {
+        // Startup-first-tick Error: prev は空、has_prev_good=false。
+        // failing_since は anchor されない (finding #13)。
+        let mut state = SchedulerState::default();
+        let prev: Vec<UsageSnapshot> = vec![];
+        let snaps = vec![err_snap("a:1")];
+        let now = std::time::Instant::now();
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &snaps, false, now, TEST_GRACE);
+        assert_eq!(d, OutcomeDecision::Insert);
+        assert_eq!(state.failure_count.get("a").copied(), Some(1));
+        assert!(
+            !state.failing_since.contains_key("a"),
+            "failing_since anchor を has_prev_good=false で残してはいけない"
+        );
+    }
+
+    #[test]
+    fn apply_outcome_failure_with_prev_good_carries_forward_under_grace() {
+        // Good → Error sequence。prev に Ok があるので grace 発火、
+        // OutcomeDecision::CarryForward が返る。
+        let mut state = SchedulerState::default();
+        let prev = vec![ok_snap("a:1")];
+        let snaps = vec![err_snap("a:1")];
+        let now = std::time::Instant::now();
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &snaps, false, now, TEST_GRACE);
+        assert_eq!(d, OutcomeDecision::CarryForward);
+        assert_eq!(
+            state.failure_count.get("a").copied(),
+            None,
+            "grace 中 (CarryForward) は backoff を育てない — \
+             grace 切れ直後の最初の retry が base interval で打てる必要がある"
+        );
+        assert!(state.failing_since.contains_key("a"));
+    }
+
+    #[test]
+    fn apply_outcome_force_bypasses_grace_inserts() {
+        // refresh_now (force=true) は grace を bypass、Insert に倒す。
+        let mut state = SchedulerState::default();
+        let prev = vec![ok_snap("a:1")];
+        let snaps = vec![err_snap("a:1")];
+        let now = std::time::Instant::now();
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &snaps, true, now, TEST_GRACE);
+        assert_eq!(d, OutcomeDecision::Insert);
+        assert_eq!(
+            state.failure_count.get("a").copied(),
+            // force=true でも Insert (grace bypass) すれば backoff は育てる。
+            // 起動 tick の Failure を仮に放置すると、次回 auto tick が base
+            // interval で打ち返してしまい exponential backoff の意味を失う。
+            Some(1),
+            "force=true でも Insert なら failure_count を育てる"
+        );
+    }
+
+    #[test]
+    fn apply_outcome_failure_after_grace_window_surfaces() {
+        // failing_since が grace 期間を超えた状態で再度 Failure → Insert。
+        // anchor は or_insert で no-op、original の時点に維持される。
+        let mut state = SchedulerState::default();
+        // Forward-walking arithmetic to avoid `Instant - Duration` underflow on
+        // freshly-booted CI hosts where the monotonic clock origin is small.
+        let started = std::time::Instant::now();
+        let now = started + TEST_GRACE + Duration::from_secs(1);
+        state.failing_since.insert("a", started);
+        state.failure_count.insert("a", 5);
+        let prev = vec![ok_snap("a:1")];
+        let snaps = vec![err_snap("a:1")];
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &snaps, false, now, TEST_GRACE);
+        assert_eq!(d, OutcomeDecision::Insert);
+        assert_eq!(state.failure_count.get("a").copied(), Some(6));
+        assert_eq!(
+            state.failing_since.get("a").copied(),
+            Some(started),
+            "or_insert は anchor を再書き込みしない — original t0 を維持"
+        );
+    }
+
+    #[test]
+    fn apply_outcome_nodata_treated_like_error_under_grace() {
+        // Finding #1 regression-fix: NoData も Failure 扱いなので、prev に
+        // Good があれば grace で carry forward される。NoData が prev Ok
+        // を破壊しない。
+        let mut state = SchedulerState::default();
+        let prev = vec![ok_snap("a:1")];
+        let snaps = vec![nodata_snap("a:1")];
+        let now = std::time::Instant::now();
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &snaps, false, now, TEST_GRACE);
+        assert_eq!(
+            d,
+            OutcomeDecision::CarryForward,
+            "NoData も grace の対象 — prev Ok を carry forward"
+        );
+        // CarryForward 中は backoff を育てない (grace 切れ後の最初の retry
+        // を base interval で打てるよう保つ)。
+        assert_eq!(state.failure_count.get("a").copied(), None);
+    }
+
+    #[test]
+    fn apply_outcome_error_then_nodata_does_not_reset_failing_since() {
+        // Finding #3 regression-fix: Error → NoData → Error で grace clock
+        // が re-anchor されてはいけない。両方 Failure 扱いなので failing_since
+        // は最初の Error 時点のまま維持される。
+        let mut state = SchedulerState::default();
+        let prev = vec![ok_snap("a:1")];
+        let t0 = std::time::Instant::now();
+        // Tick1 Error: anchor at t0
+        apply_refresh_outcome(&mut state, "a", &prev, &vec![err_snap("a:1")], false, t0, TEST_GRACE);
+        let anchored_at = *state.failing_since.get("a").expect("failing_since anchored");
+        // Tick2 NoData: prev に Ok があれば CarryForward。anchor は維持される。
+        let t1 = t0 + Duration::from_secs(60);
+        let d = apply_refresh_outcome(&mut state, "a", &prev, &vec![nodata_snap("a:1")], false, t1, TEST_GRACE);
+        assert_eq!(d, OutcomeDecision::CarryForward);
+        assert_eq!(
+            state.failing_since.get("a").copied(),
+            Some(anchored_at),
+            "NoData が failing_since を re-anchor してはいけない"
+        );
+        // Tick3 Error: anchor は依然 t0、grace clock は 120s 経過
+        let t2 = t0 + Duration::from_secs(120);
+        apply_refresh_outcome(&mut state, "a", &prev, &vec![err_snap("a:1")], false, t2, TEST_GRACE);
+        assert_eq!(
+            state.failing_since.get("a").copied(),
+            Some(anchored_at),
+            "3 回目 Failure でも anchor は最初の Error 時点のまま"
+        );
+        // 全 3 tick とも CarryForward (in_grace) なので failure_count は 0 のまま。
+        assert_eq!(state.failure_count.get("a").copied(), None);
+    }
+
+    #[test]
+    fn apply_outcome_recovery_resets_to_base_interval() {
+        // 連続失敗で failure_count が 5 まで育った後、Good で 0 リセット。
+        let mut state = SchedulerState::default();
+        state.failure_count.insert("a", 5);
+        state.failing_since.insert("a", std::time::Instant::now());
+        let prev = vec![ok_snap("a:1")];
+        let snaps = vec![ok_snap("a:1")];
+        let d = apply_refresh_outcome(
+            &mut state,
+            "a",
+            &prev,
+            &snaps,
+            false,
+            std::time::Instant::now(),
+            TEST_GRACE,
+        );
+        assert_eq!(d, OutcomeDecision::Insert);
+        assert_eq!(state.failure_count.get("a").copied(), Some(0));
+        assert!(!state.failing_since.contains_key("a"));
     }
 }
