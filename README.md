@@ -8,8 +8,8 @@ A small cross-platform desktop overlay that surfaces remaining AI subscription-u
 
 ## Product showcase
 
-| Overlay HUD | Settings |
-| --- | --- |
+| Overlay HUD                                                                                                       | Settings                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | ![Transparent overlay HUD showing remaining Claude and Codex usage as horizontal gauges](docs/images/overlay.png) | ![Settings window with Raycast-style list rows for overlay options and WebView providers](docs/images/settings.png) |
 
 QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Each opted-in provider becomes a single row with a horizontal remaining-usage gauge and a `reset at …` timestamp, so you can glance at it during a long coding session without context-switching to the vendor's web UI. The Settings window — a regular focusable window — hosts overlay tuning (opacity, click-through, lock, position) and the WebView provider login flow.
@@ -20,10 +20,10 @@ QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Ea
 
 QuotaHUD labels every snapshot internally with a `source` and a `confidence` value so estimates are never confused with measurements. **All shipped providers scrape the vendor web UI**, so every value below is an estimate that may break when the vendor changes their layout.
 
-| `source`         | `confidence` | What it is                                                                       | Treat as     |
-| ---------------- | ------------ | -------------------------------------------------------------------------------- | ------------ |
-| `webview-scrape` | `low`        | DOM extracted from the vendor's own usage page inside an opt-in WebView          | **Estimate** |
-| `unavailable`    | —            | Provider configured but no reliable data yet (`NoData` / `Error`)                | No claim     |
+| `source`         | `confidence` | What it is                                                              | Treat as     |
+| ---------------- | ------------ | ----------------------------------------------------------------------- | ------------ |
+| `webview-scrape` | `low`        | DOM extracted from the vendor's own usage page inside an opt-in WebView | **Estimate** |
+| `unavailable`    | —            | Provider configured but no reliable data yet (`NoData` / `Error`)       | No claim     |
 
 The overlay itself does not paint a `low` / `webview` pill on every row; the disclosure lives in this table and is repeated next to each opt-in toggle in the Settings window. Snapshot status (`warning` / `critical` / `no-data` / `error`) and the associated `message` are still surfaced on the row so the user can react to acute conditions. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
 

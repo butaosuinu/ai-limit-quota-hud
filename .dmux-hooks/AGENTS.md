@@ -34,45 +34,46 @@ Create executable bash scripts in `.dmux-hooks/` that run automatically at key l
 
 ### Pane Lifecycle Hooks
 
-| Hook | When | Common Use Cases |
-|------|------|------------------|
-| `before_pane_create` | Before pane creation | Validation, notifications, pre-flight checks |
-| `pane_created` | After pane, before worktree | Configure tmux settings, prepare environment |
-| `worktree_created` | After worktree creation, before agent launch | Install deps, copy configs, setup git |
-| `before_pane_close` | Before closing | Save state, backup uncommitted work |
-| `pane_closed` | After closed | Cleanup resources, analytics, notifications |
+| Hook                 | When                                         | Common Use Cases                             |
+| -------------------- | -------------------------------------------- | -------------------------------------------- |
+| `before_pane_create` | Before pane creation                         | Validation, notifications, pre-flight checks |
+| `pane_created`       | After pane, before worktree                  | Configure tmux settings, prepare environment |
+| `worktree_created`   | After worktree creation, before agent launch | Install deps, copy configs, setup git        |
+| `before_pane_close`  | Before closing                               | Save state, backup uncommitted work          |
+| `pane_closed`        | After closed                                 | Cleanup resources, analytics, notifications  |
 
 ### Worktree Lifecycle Hooks
 
-| Hook | When | Common Use Cases |
-|------|------|------------------|
+| Hook                     | When                    | Common Use Cases                 |
+| ------------------------ | ----------------------- | -------------------------------- |
 | `before_worktree_remove` | Before worktree removal | Archive worktree, save artifacts |
-| `worktree_removed` | After worktree removed | Cleanup external references |
+| `worktree_removed`       | After worktree removed  | Cleanup external references      |
 
 ### Merge Lifecycle Hooks
 
-| Hook | When | Common Use Cases |
-|------|------|------------------|
-| `pre_merge` | Before merge operation | Run final tests, create backups |
+| Hook         | When                   | Common Use Cases                  |
+| ------------ | ---------------------- | --------------------------------- |
+| `pre_merge`  | Before merge operation | Run final tests, create backups   |
 | `post_merge` | After successful merge | Deploy, close issues, notify team |
 
 ### Interactive Hooks (with HTTP callbacks)
 
-| Hook | When | Common Use Cases |
-|------|------|------------------|
-| `run_test` | When tests triggered | Run test suite, report status via HTTP |
-| `run_dev` | When dev server triggered | Start dev server, create tunnel, report URL |
-
+| Hook       | When                      | Common Use Cases                            |
+| ---------- | ------------------------- | ------------------------------------------- |
+| `run_test` | When tests triggered      | Run test suite, report status via HTTP      |
+| `run_dev`  | When dev server triggered | Start dev server, create tunnel, report URL |
 
 ## Environment Variables
 
 ### Always Available
+
 ```bash
 DMUX_ROOT="/path/to/project"           # Project root directory
 DMUX_SERVER_PORT="3142"                # HTTP server port
 ```
 
 ### Pane Context (most hooks)
+
 ```bash
 DMUX_PANE_ID="dmux-1234567890"         # dmux pane identifier
 DMUX_SLUG="fix-auth-bug"               # Branch/worktree name
@@ -82,12 +83,14 @@ DMUX_TMUX_PANE_ID="%38"                # tmux pane ID
 ```
 
 ### Worktree Context
+
 ```bash
 DMUX_WORKTREE_PATH="/path/.dmux/worktrees/fix-auth-bug"
 DMUX_BRANCH="fix-auth-bug"             # Same as slug
 ```
 
 ### Bootstrap Progress Context
+
 ```bash
 DMUX_PROGRESS="1"                      # Set when output is shown in the new pane setup UI
 DMUX_STATUS_PREFIX="DMUX_STATUS:"      # Prefix for clean status messages
@@ -106,6 +109,7 @@ status() {
 ```
 
 ### Merge Context
+
 ```bash
 DMUX_TARGET_BRANCH="main"              # Branch being merged into
 ```
@@ -115,6 +119,7 @@ DMUX_TARGET_BRANCH="main"              # Branch being merged into
 Interactive hooks (`run_test` and `run_dev`) can update dmux UI via HTTP.
 
 ### Update Test Status
+
 ```bash
 curl -X PUT "http://localhost:$DMUX_SERVER_PORT/api/panes/$DMUX_PANE_ID/test"   -H "Content-Type: application/json"   -d '{"status": "running", "output": "optional test output"}'
 
@@ -122,6 +127,7 @@ curl -X PUT "http://localhost:$DMUX_SERVER_PORT/api/panes/$DMUX_PANE_ID/test"   
 ```
 
 ### Update Dev Server
+
 ```bash
 curl -X PUT "http://localhost:$DMUX_SERVER_PORT/api/panes/$DMUX_PANE_ID/dev"   -H "Content-Type: application/json"   -d '{"status": "running", "url": "http://localhost:3000"}'
 
@@ -132,6 +138,7 @@ curl -X PUT "http://localhost:$DMUX_SERVER_PORT/api/panes/$DMUX_PANE_ID/dev"   -
 ## Common Patterns
 
 ### Pattern 1: Install Dependencies
+
 ```bash
 #!/bin/bash
 # .dmux-hooks/worktree_created
@@ -168,6 +175,7 @@ fi
 ```
 
 ### Pattern 2: Copy Configuration
+
 ```bash
 #!/bin/bash
 # .dmux-hooks/worktree_created
@@ -186,6 +194,7 @@ done
 ```
 
 ### Pattern 3: Run Tests with Status Updates
+
 ```bash
 #!/bin/bash
 # .dmux-hooks/run_test
@@ -215,6 +224,7 @@ rm -f "$OUTPUT_FILE"
 ```
 
 ### Pattern 4: Dev Server with Tunnel
+
 ```bash
 #!/bin/bash
 # .dmux-hooks/run_dev
@@ -250,6 +260,7 @@ echo "[Hook] Dev server running at $URL (PID: $DEV_PID)"
 ```
 
 ### Pattern 5: Post-Merge Deployment
+
 ```bash
 #!/bin/bash
 # .dmux-hooks/post_merge
@@ -293,6 +304,7 @@ fi
 ## Testing Hooks
 
 ### Manual Testing
+
 ```bash
 # 1. Set environment variables
 export DMUX_ROOT="$(pwd)"
@@ -311,12 +323,14 @@ echo $?  # Should be 0 for success
 ```
 
 ### Syntax Check
+
 ```bash
 # Check for syntax errors without running
 bash -n ./.dmux-hooks/worktree_created
 ```
 
 ### Shellcheck (if available)
+
 ```bash
 shellcheck ./.dmux-hooks/worktree_created
 ```
@@ -326,6 +340,7 @@ shellcheck ./.dmux-hooks/worktree_created
 Before creating hooks, analyze these files in the project:
 
 ### Package Manager Detection
+
 ```bash
 # Check which package manager is used
 if [ -f "pnpm-lock.yaml" ]; then
@@ -338,6 +353,7 @@ fi
 ```
 
 ### Test Command Discovery
+
 ```bash
 # Read package.json to find test command
 cat package.json | grep '"test"'
@@ -346,6 +362,7 @@ jq -r '.scripts.test' package.json
 ```
 
 ### Dev Command Discovery
+
 ```bash
 # Read package.json to find dev command
 cat package.json | grep '"dev"'
@@ -354,12 +371,14 @@ jq -r '.scripts.dev' package.json
 ```
 
 ### Environment Variables
+
 ```bash
 # Check for .env files to copy
 ls -la | grep '.env'
 ```
 
 ### Build System
+
 ```bash
 # Detect build system
 if [ -f "vite.config.ts" ]; then
@@ -407,6 +426,7 @@ If a hook isn't working:
 7. **Check tool availability**: `command -v required_tool`
 
 ### Debug Mode
+
 ```bash
 #!/bin/bash
 # Add to top of hook for debugging
@@ -441,5 +461,5 @@ When creating a new hook:
 
 ---
 
-*This documentation was auto-generated from dmux source code.*
-*Version: 2026-04-22*
+_This documentation was auto-generated from dmux source code._
+_Version: 2026-04-22_

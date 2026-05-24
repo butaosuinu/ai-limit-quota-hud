@@ -837,11 +837,8 @@ body,
   padding: 4px 22px 4px 9px;
   appearance: none;
   cursor: pointer;
-  background-image: linear-gradient(
-      45deg,
-      transparent 50%,
-      var(--text-tertiary) 50%
-    ),
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-tertiary) 50%),
     linear-gradient(135deg, var(--text-tertiary) 50%, transparent 50%);
   background-position:
     calc(100% - 11px) 50%,
