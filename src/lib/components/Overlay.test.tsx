@@ -254,8 +254,8 @@ describe("Overlay", () => {
   });
 
   it("cancels async drag setup when the mouse is released before setup finishes", async () => {
-    let resolvePosition: (position: { x: number; y: number }) => void =
-      () => undefined;
+    let resolvePosition: (position: { x: number; y: number }) => void = () =>
+      undefined;
     const positionPromise = new Promise<{ x: number; y: number }>((resolve) => {
       resolvePosition = resolve;
     });
@@ -306,7 +306,9 @@ describe("Overlay", () => {
 
   it("does not start manual window drag from SVG children in interactive controls", () => {
     renderOverlay({ settings: { locked: false } });
-    const iconPath = screen.getByTestId("overlay-refresh").querySelector("path");
+    const iconPath = screen
+      .getByTestId("overlay-refresh")
+      .querySelector("path");
     expect(iconPath).not.toBeNull();
     fireEvent.mouseDown(iconPath!, {
       button: 0,

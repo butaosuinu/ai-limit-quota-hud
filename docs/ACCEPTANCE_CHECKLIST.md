@@ -83,10 +83,10 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       every supported platform: removes `webview-<provider>/` on Windows /
       Linux, and removes the `dataStoreIdentifier`-scoped
       `WKWebsiteDataStore` (or per-origin records on macOS <14) on macOS.
-      *(macOS: best-effort — see README "Known limitations" — the next
+      _(macOS: best-effort — see README "Known limitations" — the next
       refresh tick calls `clear_all_browsing_data` because Tauri 2 does not
       yet expose a public API to drop the per-identifier
-      `WKWebsiteDataStore`.)*
+      `WKWebsiteDataStore`.)_
 - [x] A Cloudflare challenge surfaces as `SnapshotStatus::Error` with a
       human-readable message, not a crash.
 - [x] A redirect to `/login` surfaces as `SnapshotStatus::NoData` with a
@@ -103,9 +103,9 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 - [x] The configured `min_refresh_interval` is **at least 300 seconds** for
       WebView providers (default 600 seconds).
 - [x] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
-      origin loaded in the WebView. *(Result channel uses
+      origin loaded in the WebView. _(Result channel uses
       `document.title` + the `QHJSON:` prefix; no `__TAURI__` plumbing is
-      injected into external origins.)*
+      injected into external origins.)_
 - [x] During login, redirects to well-known identity providers (Google,
       Apple, Microsoft, Okta, Cloudflare Access, GitHub, etc.) are allowed
       so that the provider's first-party login flow completes (see

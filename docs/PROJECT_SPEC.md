@@ -419,7 +419,7 @@ Hard rules:
     `WKWebsiteDataStore.removeData(ofTypes:for:completionHandler:)` scoped
     to the provider's target origin (for example `claude.ai`,
     `chatgpt.com`).
-  In all cases the next refresh must require a fresh login.
+    In all cases the next refresh must require a fresh login.
 - **`source=webview-scrape`, `confidence=low`.** The DOM contract of an
   external web app is not a stable interface. Results must always render as
   `confidence: low` and be marked clearly in the UI tooltip.
