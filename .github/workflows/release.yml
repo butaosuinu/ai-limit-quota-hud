@@ -123,5 +123,5 @@ jobs:
             - Windows: the installer is not code-signed. SmartScreen will warn — choose "More info" → "Run anyway" if you trust the build.
             - Linux: the `.AppImage` may need `chmod +x` before launching. `.deb` is provided as well.
 
-            Developer ID signing and notarization are tracked as future work — see the README "Roadmap / Future work" section. Auto-updates via Tauri updater are enabled in this build; see the README "Updates" section for details.
+            Developer ID signing and notarization are tracked as future work — see the `docs/DEVELOPMENT.md` "Roadmap / Future work" section. Auto-updates via Tauri updater are enabled in this build; see the README "Updates" section for details.
           args: ${{ matrix.args }}

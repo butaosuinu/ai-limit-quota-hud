@@ -14,18 +14,9 @@ A small cross-platform desktop overlay that surfaces remaining AI subscription-u
 
 QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Each opted-in provider becomes a single row with a horizontal remaining-usage gauge and a `reset at …` timestamp, so you can glance at it during a long coding session without context-switching to the vendor's web UI. The Settings window — a regular focusable window — hosts overlay tuning (opacity, click-through, lock, position) and the WebView provider login flow.
 
-> Status: **Phase 1 (overlay UX) + Phase 3 (CI / release packaging).** The overlay is interactive — tray menu, click-through toggle, global shortcut, drag/lock, and a separate Settings window are all wired up. WebView providers (Phase 2) are being built next; see `docs/PROJECT_SPEC.md` §8 / §13.
+## Heads up: every value is an estimate
 
-## Data source caveat
-
-QuotaHUD labels every snapshot internally with a `source` and a `confidence` value so estimates are never confused with measurements. **All shipped providers scrape the vendor web UI**, so every value below is an estimate that may break when the vendor changes their layout.
-
-| `source`         | `confidence` | What it is                                                              | Treat as     |
-| ---------------- | ------------ | ----------------------------------------------------------------------- | ------------ |
-| `webview-scrape` | `low`        | DOM extracted from the vendor's own usage page inside an opt-in WebView | **Estimate** |
-| `unavailable`    | —            | Provider configured but no reliable data yet (`NoData` / `Error`)       | No claim     |
-
-The overlay itself does not paint a `low` / `webview` pill on every row; the disclosure lives in this table and is repeated next to each opt-in toggle in the Settings window. Snapshot status (`warning` / `critical` / `no-data` / `error`) and the associated `message` are still surfaced on the row so the user can react to acute conditions. Phase 1 still renders no live rows; the WebView providers land in Phase 2.
+All shipped providers read the figure straight off the vendor's own web UI, so every number is an **estimate** (`source=webview-scrape`, `confidence=low`) that can break when the vendor changes their page layout. When extraction fails QuotaHUD shows a `no-data` / `error` status on the row instead of guessing — it never presents a stale or invented number as fact.
 
 ## Installation
 
@@ -36,9 +27,9 @@ The overlay itself does not paint a `low` / `webview` pill on every row; the dis
    - **macOS** (`.dmg` / `.app.tar.gz`): ad-hoc signed but not notarized, so Gatekeeper still asks for confirmation on first launch — you should no longer see the "is damaged … move it to the Trash" error. Right-click the `.app` and choose **Open** (on macOS 15 Sequoia, try to open it once, then allow it under **System Settings → Privacy & Security → Open Anyway**), or run `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` after copying it across.
    - **Windows** (`.msi` / `.exe`): SmartScreen will show "Windows protected your PC". Click **More info** → **Run anyway** if you trust the build.
    - **Linux** (`.AppImage` / `.deb`): for the AppImage run `chmod +x QuotaHUD-*.AppImage` once, then launch it. The `.deb` installs into the system package manager.
-3. The first launch shows the overlay window. Use the tray menu or the Settings window to configure providers (Phase 2+).
+3. The first launch shows the overlay window. Use the tray menu or the Settings window to configure providers.
 
-If you would rather build from source, follow [Development](#development) below.
+If you would rather build from source, see [Development](docs/DEVELOPMENT.md).
 
 ## Updates
 
@@ -51,47 +42,20 @@ QuotaHUD has built-in auto-updates via the Tauri updater plugin. Once the app is
 
 Users who installed any build before this release (`v0.0.0` and earlier) must download the first updater-enabled release manually — the older binaries do not have the updater plugin embedded.
 
-> Maintainers: the release/signing-key runbook (keypair generation, GitHub secrets, key rotation) lives in [`docs/PROJECT_SPEC.md` §12.3](docs/PROJECT_SPEC.md#123-release-artifacts).
-
-## Requirements
-
-- **Rust** stable (tested with 1.93+)
-- **Node.js** 20+ and **pnpm** 10+
-- macOS, Windows, or Linux. Phase 1 has only been exercised on macOS.
-
-## Development
-
-```bash
-pnpm install
-pnpm tauri dev       # launches the overlay window
-pnpm tauri build     # builds a distributable for the current OS
-```
-
-Other scripts:
-
-```bash
-pnpm typecheck       # tsc --noEmit
-pnpm lint            # oxlint + eslint
-pnpm test            # vitest
-cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-CI runs `typecheck`, `lint`, `test`, and `cargo test` as four independent jobs (with `cargo test` on a macOS/Windows/Linux matrix). `pnpm tauri build` is intentionally **not** part of CI — the release workflow (`v*` tag trigger) takes care of producing real bundles via `tauri-apps/tauri-action`, which keeps PR CI cheap while still covering every OS at release time.
-
 ## Using the overlay
 
-Phase 1 ships two windows:
+QuotaHUD shows two windows:
 
-- **`overlay`** — the transparent always-on-top HUD. Drag-to-move when unlocked, click-through when enabled. Sample rows are static.
-- **`settings`** — a regular window that hosts the opacity slider, compact / lock / click-through / visibility toggles, the persisted position, and a "reset to defaults" button. Hidden at startup; opened from the tray.
+- **Overlay** — the transparent always-on-top HUD. Drag-to-move when unlocked, click-through when enabled.
+- **Settings** — a regular window with the opacity slider, compact / lock / click-through / visibility toggles, the persisted position, and a "reset to defaults" button. Hidden at startup; opened from the tray.
 
 ### Tray menu
 
 QuotaHUD installs a system-tray icon (left-click opens the menu on every supported OS):
 
 - **Show/Hide overlay** — toggles visibility without quitting.
-- **Click-through** — checkbox; when on, mouse events pass through the overlay.
-- **Lock position** — checkbox; when off, the overlay becomes draggable.
+- **Click-through** — when on, mouse events pass through the overlay.
+- **Lock position** — when off, the overlay becomes draggable.
 - **Settings…** — opens the Settings window.
 - **Quit QuotaHUD** — exits the app.
 
@@ -99,51 +63,29 @@ QuotaHUD installs a system-tray icon (left-click opens the menu on every support
 
 `Cmd/Ctrl + Shift + \` toggles click-through. Registration is best-effort — if another app already owns the chord, QuotaHUD logs a warning and continues without it.
 
-### Settings persistence
-
-Overlay state (opacity, compact, click-through, lock, visibility, position, corner/margin) is persisted as JSON under the platform-standard app config directory:
-
-- macOS: `~/Library/Application Support/dev.quotahud.app/settings.json`
-- Windows: `%APPDATA%/dev.quotahud.app/settings.json`
-- Linux: `$XDG_CONFIG_HOME/dev.quotahud.app/settings.json` (or `~/.config/...`)
-
-No secrets live here — provider tokens go through the OS credential store in later phases.
-
-## Providers
-
-Phase 1 ships no provider integrations. Phase 2 (see `docs/PROJECT_SPEC.md` §8 / §13) adds two opt-in WebView providers:
-
-- **`webview-claude-ai`** — loads `https://claude.ai/settings/usage` inside an isolated WebView session and scrapes the visible remaining-usage figure.
-- **`webview-chatgpt-codex`** — loads `https://chatgpt.com/codex/cloud/settings/analytics` the same way.
-
-Both providers are **disabled by default**. Each one is enabled from Settings, opens a visible vendor login window on first use (QuotaHUD never renders its own login form), and refreshes via a hidden WebView at a 600s default (300s floor). Session cookies stay in the OS-native WebView cookie store; a "Delete provider data" button forces re-login. Every snapshot is `source=webview-scrape`, `confidence=low`.
+Overlay state (opacity, position, toggles) is persisted as JSON under the platform-standard app config directory. No secrets are stored there.
 
 ## WebView providers (opt-in)
 
-Starting in v1 QuotaHUD supports **opt-in** WebView-backed providers that read each vendor's own usage page directly in an embedded Tauri WebView. These providers are **disabled by default**: nothing navigates out to the network until you toggle them on in **Settings → WebView プロバイダ**.
+QuotaHUD reads each vendor's own usage page directly in an embedded WebView. These providers are **disabled by default** — nothing navigates out to the network until you toggle them on in **Settings → WebView プロバイダ**.
 
-- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans). Implemented in this build (`webview-claude-ai`).
-- **ChatGPT Codex (web)** — reads `chatgpt.com` Codex analytics. Backend lands separately ([issue #31](https://github.com/butaosuinu/ai-limit-quota-hud/issues/31)); the UI toggle is present but the Tauri commands return an error today.
+- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans). Implemented in this build.
+- **ChatGPT Codex (web)** — reads `chatgpt.com` Codex analytics. The UI toggle is present, but the backend lands separately ([issue #31](https://github.com/butaosuinu/ai-limit-quota-hud/issues/31)) and the command returns an error today.
 
-All WebView snapshots are labeled `source = webview-scrape`, `confidence = low`. The DOM contract of a third-party web app is **not** a stable interface — when the page layout changes the extractor falls back to `Error` or `NoData` instead of guessing.
+Enabling a provider opens the vendor's own login window on first use (QuotaHUD never renders its own login form), then refreshes via a hidden WebView. Session cookies stay in the OS-native WebView cookie store; a **Delete provider data** button forces re-login. QuotaHUD never reads keystrokes, passwords, or individual cookie values. For the refresh-interval and isolation rules see [`docs/PROJECT_SPEC.md` §8](docs/PROJECT_SPEC.md#8-provider-architecture--opt-in-webview-providers).
 
-**Hard rules (see `docs/PROJECT_SPEC.md` §8.7):**
+**Known limitations:**
 
-- Refresh interval has a 600 s default and a 300 s floor — we do not poll vendor sites more often than that.
-- The hidden refresh window has `visible=false`, `focused=false`, `decorations=false`, `resizable=false`. On Windows / Linux it also has `skip_taskbar=true`; on macOS the AppKit `NSWindow` has no per-window taskbar concept, so `visible=false` is sufficient.
-- Tauri's internal IPC (`__TAURI__`) is **not** exposed on `claude.ai`. The extractor JS reports its result via `document.title` only; QuotaHUD never reads keystrokes, passwords, or individual cookies.
-
-### Known limitations
-
-- **macOS WKWebView session deletion is best-effort.** Tauri 2 / Wry expose `data_store_identifier([u8; 16])` for per-provider session isolation, but they do **not** expose a public API to remove a `WKWebsiteDataStore` after the fact. The **Delete provider data** button on macOS therefore logs a warning and relies on the next refresh tick to call `clear_all_browsing_data` on the in-process WebView. On macOS 13 and older the per-`dataStoreIdentifier` store is non-persistent across launches — that is documented here so users do not assume "Delete data" wipes a cookie store they cannot otherwise see. On Windows / Linux the action simply `rm -rf`'s the per-provider `webview-<provider>/` directory under the app data directory.
-- **Cloudflare challenges interrupt refresh.** When claude.ai serves a "Verify you are human" interstitial we surface `SnapshotStatus::Error` rather than trying to bypass it. Open claude.ai in a normal browser to clear the challenge, then trigger a refresh from the overlay.
-- **Login session expiry.** If the cookie store has aged out, the next refresh surfaces `SnapshotStatus::NoData` ("session expired"). Use **Settings → WebView プロバイダ → ログイン** to re-authenticate in a visible window.
+- **Cloudflare challenges interrupt refresh.** When claude.ai serves a "Verify you are human" interstitial we surface an error rather than trying to bypass it. Open claude.ai in a normal browser to clear the challenge, then trigger a refresh.
+- **Login session expiry.** If the cookie store has aged out, the next refresh shows "session expired". Use **Settings → WebView プロバイダ → ログイン** to re-authenticate.
 
 ## OS-specific overlay limitations
 
-- **macOS**: transparent overlay relies on Tauri's `macOSPrivateApi: true`. Acceptable for direct binary distribution; not Mac App Store-friendly. The Phase 1 native hook asks AppKit to join every Space and stay above full-screen apps (`NSWindowCollectionBehavior::CanJoinAllSpaces | Stationary | FullScreenAuxiliary`).
-- **Windows**: Tauri's `skipTaskbar` + `alwaysOnTop` are honored, but the Win32-level polish (`WS_EX_TOOLWINDOW`, virtual-desktop fallback, `WS_EX_NOACTIVATE`) is deferred to Phase 2. **Persistent visibility across every Windows virtual desktop is not guaranteed** — depending on the OS build, the overlay may stay on the desktop it was last shown on. Re-show via the tray icon as a workaround. The limitation is documented rather than hidden.
-- **Linux**: X11 is the primary target; EWMH-compliant window managers honor Tauri's `alwaysOnTop`. **Wayland is best-effort only** — most compositors refuse `alwaysOnTop` / sticky hints, and the overlay may not float above every surface. The app does not crash when hints are denied; it just degrades. The detected `XDG_SESSION_TYPE` is logged at startup so degraded behavior is identifiable in bug reports.
+- **macOS**: the transparent overlay relies on a Tauri private API — fine for direct binary distribution, but not Mac App Store-friendly.
+- **Windows**: persistent visibility across every virtual desktop is **not guaranteed** — depending on the OS build the overlay may stay on the desktop it was last shown on. Re-show it via the tray icon.
+- **Linux**: X11 is the primary target. **Wayland is best-effort only** — most compositors refuse always-on-top / sticky hints, so the overlay may not float above every surface. The app degrades safely instead of crashing.
+
+Details and the platform-specific implementation notes live in [`docs/PROJECT_SPEC.md` §9](docs/PROJECT_SPEC.md#9-overlayplatform-implementation).
 
 ## Privacy and security
 
@@ -152,17 +94,13 @@ All WebView snapshots are labeled `source = webview-scrape`, `confidence = low`.
 - QuotaHUD does not handle API keys, OAuth tokens, or proxy credentials. The only persisted authentication material is the OS-native WebView cookie store for opt-in WebView providers — QuotaHUD code never reads individual cookie values, and "Delete provider data" wipes the per-provider session.
 - During the vendor login flow, redirects to well-known identity providers (Google, Apple, Microsoft, Okta, Cloudflare Access, GitHub, …) are allowed because the vendor's own auth requires them. Outside the login redirect chain, the WebView is restricted to the configured target origin.
 
-## Roadmap / Future work
-
-Tracked but **not** in this release:
-
-- **macOS Developer ID signing + notarization** for direct distribution (`.dmg` / `.app.tar.gz` are currently unsigned).
-- **Windows code signing** to remove SmartScreen friction on `.msi` / `.exe` artifacts.
-- WebView provider integrations (`webview-claude-ai`, `webview-chatgpt-codex`) — see `docs/PROJECT_SPEC.md` §13 Phase 2.
-
 ## Reporting an extractor issue
 
 Open an issue with **sanitized** DOM excerpts (strip identifiers, conversation content, anything that would reveal account-specific data). Do not paste raw page dumps.
+
+## Development
+
+Build commands, requirements, CI structure, and the roadmap live in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 ## License
 
