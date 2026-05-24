@@ -20,11 +20,11 @@ QuotaHUD は画面の隅に透過・常時最前面の HUD を常駐させます
 
 ## インストール
 
-> Developer ID / Windows コード署名のセットアップが整うまでリリースは **未署名** です。バイナリは GitHub Actions のリリースワークフローで生成されますが、署名や notarization のための鍵は使用されません。
+> macOS ビルドは **ad-hoc 署名** 済みです（Apple Developer ID / notarization はまだ未対応）。Windows ビルドは **未署名** です。リリースワークフローでは Apple / Windows のコード署名証明書は使用していません。
 
 1. [GitHub Releases ページ](https://github.com/butaosuinu/ai-limit-quota-hud/releases)から OS 用の最新ビルドを取得。
 2. インストール／展開:
-   - **macOS** (`.dmg` / `.app.tar.gz`): notarize されていないため、初回起動時に Gatekeeper が拒否します。`.app` を右クリックして **開く** を選ぶか、`/Applications/QuotaHUD.app` にコピー後 `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` を実行してください。
+   - **macOS** (`.dmg` / `.app.tar.gz`): ad-hoc 署名済みですが notarize されていないため、初回起動時のみ Gatekeeper の確認が出ます（「壊れているため開けません…ゴミ箱に入れてください」は出なくなります）。`.app` を右クリックして **開く** を選ぶ（macOS 15 Sequoia では一度開こうとしてから **システム設定 → プライバシーとセキュリティ → このまま開く** で許可）か、`/Applications/QuotaHUD.app` にコピー後 `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` を実行してください。
    - **Windows** (`.msi` / `.exe`): SmartScreen が「Windows によって PC が保護されました」と表示します。ビルドを信頼するなら **詳細情報** → **実行** をクリック。
    - **Linux** (`.AppImage` / `.deb`): AppImage は一度だけ `chmod +x QuotaHUD-*.AppImage` してから起動。`.deb` はシステムパッケージマネージャ経由でインストールします。
 3. 初回起動で overlay ウィンドウが表示されます。tray メニュー、または Settings ウィンドウからプロバイダを設定してください。

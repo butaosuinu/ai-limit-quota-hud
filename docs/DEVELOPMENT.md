@@ -39,7 +39,7 @@ cheap while still covering every OS at release time.
 Tracked but **not** in the current release:
 
 - **macOS Developer ID signing + notarization** for direct distribution
-  (`.dmg` / `.app.tar.gz` are currently unsigned).
+  (`.dmg` / `.app.tar.gz` are currently ad-hoc signed, not notarized).
 - **Windows code signing** to remove SmartScreen friction on `.msi` / `.exe`
   artifacts.
 - WebView provider integrations (`webview-claude-ai`, `webview-chatgpt-codex`) —
