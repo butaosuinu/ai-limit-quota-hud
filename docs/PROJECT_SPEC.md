@@ -685,7 +685,10 @@ Target artifacts:
 - Windows: `.msi` and/or `.exe` installer.
 - Linux: `.AppImage`, `.deb`, and optionally `.rpm`.
 
-Signing/notarization can be added after MVP:
+macOS builds are **ad-hoc signed** (`bundle.macOS.signingIdentity: "-"` in
+`tauri.conf.json`), so Gatekeeper treats them as signed-but-unverified rather
+than "damaged"; users still confirm on first launch because the bundle is not
+notarized. Full signing/notarization can be added after MVP:
 
 - macOS Developer ID signing + notarization for direct distribution.
 - Windows code signing to reduce SmartScreen friction.

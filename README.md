@@ -29,11 +29,11 @@ The overlay itself does not paint a `low` / `webview` pill on every row; the dis
 
 ## Installation
 
-> Releases are **unsigned** until we have a Developer ID / Windows code-signing setup. The binaries themselves are produced by the GitHub Actions release workflow with no signing or notarization keys involved.
+> macOS builds are **ad-hoc signed** (no Apple Developer ID / notarization yet); Windows builds are **unsigned**. The release workflow does not use any Apple or Windows code-signing certificate.
 
 1. Grab the latest build for your OS from the [GitHub Releases page](https://github.com/butaosuinu/ai-limit-quota-hud/releases).
 2. Install or extract:
-   - **macOS** (`.dmg` / `.app.tar.gz`): the app is not notarized. On first launch Gatekeeper will refuse it — right-click the `.app` and choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` after copying it across.
+   - **macOS** (`.dmg` / `.app.tar.gz`): ad-hoc signed but not notarized, so Gatekeeper still asks for confirmation on first launch — you should no longer see the "is damaged … move it to the Trash" error. Right-click the `.app` and choose **Open** (on macOS 15 Sequoia, try to open it once, then allow it under **System Settings → Privacy & Security → Open Anyway**), or run `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` after copying it across.
    - **Windows** (`.msi` / `.exe`): SmartScreen will show "Windows protected your PC". Click **More info** → **Run anyway** if you trust the build.
    - **Linux** (`.AppImage` / `.deb`): for the AppImage run `chmod +x QuotaHUD-*.AppImage` once, then launch it. The `.deb` installs into the system package manager.
 3. The first launch shows the overlay window. Use the tray menu or the Settings window to configure providers (Phase 2+).

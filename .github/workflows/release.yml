@@ -117,11 +117,11 @@ jobs:
           releaseDraft: true
           prerelease: false
           releaseBody: |
-            Unsigned alpha build of QuotaHUD.
+            Alpha build of QuotaHUD. macOS binaries are ad-hoc signed; Windows is unsigned.
 
-            - macOS: the app is not notarized. Right-click the `.app` → "Open" the first time, or run `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` after copying it. The `.dmg` is also unsigned.
+            - macOS: ad-hoc signed but not notarized, so Gatekeeper still asks on first launch (the "is damaged … move it to the Trash" error should be gone). Right-click the `.app` → "Open" (on macOS 15, then allow it under System Settings → Privacy & Security → Open Anyway), or run `xattr -dr com.apple.quarantine /Applications/QuotaHUD.app` after copying it.
             - Windows: the installer is not code-signed. SmartScreen will warn — choose "More info" → "Run anyway" if you trust the build.
             - Linux: the `.AppImage` may need `chmod +x` before launching. `.deb` is provided as well.
 
-            Signing and notarization are tracked as future work — see the README "Roadmap / Future work" section. Auto-updates via Tauri updater are enabled in this build; see the README "Updates" section for details.
+            Developer ID signing and notarization are tracked as future work — see the README "Roadmap / Future work" section. Auto-updates via Tauri updater are enabled in this build; see the README "Updates" section for details.
           args: ${{ matrix.args }}
