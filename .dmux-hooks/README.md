@@ -12,6 +12,7 @@ This directory contains hooks that run automatically at key lifecycle events in 
    - `examples/` directory contains starter templates
 
 3. **Create a hook**:
+
    ```bash
    touch worktree_created
    chmod +x worktree_created
@@ -42,6 +43,7 @@ This directory contains hooks that run automatically at key lifecycle events in 
 ## Documentation
 
 See `AGENTS.md` or `CLAUDE.md` for complete documentation including:
+
 - Environment variables
 - HTTP callback API
 - Common patterns
