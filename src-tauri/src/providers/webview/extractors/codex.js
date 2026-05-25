@@ -338,7 +338,7 @@
     // anchors fold via `bodyLower` so they match regardless of casing.
     var anchors =
       windowKind === "weekly"
-        ? ["週あたり", "weekly", "per week"]
+        ? ["週間利用上限", "週あたり", "weekly", "per week"]
         : ["5時間", "5h session", "5-hour session", "session limit", "5 hour"];
     var bodyLower = bodyTxt.toLowerCase();
     // Japanese リセット first via a single alternation so the FIRST one in

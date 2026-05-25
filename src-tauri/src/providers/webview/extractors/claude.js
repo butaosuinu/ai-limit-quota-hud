@@ -150,6 +150,15 @@
       var label = m[1].trim();
       if (label.length > 0 && label.length <= 80) return label;
     }
+    // Japanese absolute weekly form: "8:00 (日)にリセット" — a clock time plus
+    // a parenthesised weekday. claude.ai renders the weekly window this way
+    // while the 5h window uses the relative "N時間後" form handled below.
+    var jpWeekday = context.match(
+      /(\d{1,2}:\d{2})\s*[（(]\s*([日月火水木金土])\s*[)）]/,
+    );
+    if (jpWeekday) {
+      return jpWeekday[1] + " (" + jpWeekday[2] + ")";
+    }
     // Japanese: "4時間17分後にリセット" — at least one numeric component
     // is required so the optional-only group cannot match "後" alone.
     var jp = context.match(
@@ -164,8 +173,57 @@
     return null;
   }
 
+  // Map a label's weekday token to a 0-6 index (Sunday = 0), or -1 when the
+  // label names no weekday. Japanese weekdays are only honoured inside
+  // parentheses — bare 日 / 月 also mean "day" / "month" in the relative
+  // forms, so the paren guard keeps "N日後" from being read as a weekday.
+  function resolveWeekday(label) {
+    var jp = label.match(/[（(]\s*([日月火水木金土])\s*[)）]/);
+    if (jp) return "日月火水木金土".indexOf(jp[1]);
+    // Whole-token match (full name or 3-letter abbreviation) so a weekday
+    // prefix can't be read out of an unrelated word — e.g. "mon" in "month".
+    var en = label
+      .toLowerCase()
+      .match(
+        /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat)\b/,
+      );
+    if (en) {
+      return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"].indexOf(
+        en[1].slice(0, 3),
+      );
+    }
+    return -1;
+  }
+
   function deriveResetAt(label) {
     if (!label) return null;
+    // Absolute weekday + clock-time form used by claude.ai's weekly window:
+    // "8:00 (日)" (Japanese) or "8:00 AM Sun" (English). Resolve to the next
+    // occurrence of that weekday/time strictly after now in local time, then
+    // serialise to UTC ISO like the relative branches below (mirrors the
+    // local-time HH:MM handling in extractors/codex.js).
+    var dow = resolveWeekday(label);
+    var tod = label.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+    if (dow >= 0 && tod) {
+      var hh = parseInt(tod[1], 10);
+      var mm = parseInt(tod[2], 10);
+      var ap = tod[3] ? tod[3].toLowerCase() : "";
+      if (ap === "pm" && hh < 12) hh += 12;
+      else if (ap === "am" && hh === 12) hh = 0;
+      if (hh >= 0 && hh < 24 && mm >= 0 && mm < 60) {
+        var now = new Date();
+        var dt = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          hh,
+          mm,
+        );
+        dt.setDate(dt.getDate() + ((dow - now.getDay() + 7) % 7));
+        if (dt.getTime() <= now.getTime()) dt.setDate(dt.getDate() + 7);
+        return dt.toISOString();
+      }
+    }
     // English form: a single "<n> <minute|hour|day|week>(s)" component is
     // enough for the page's relative labels.
     var m = label.match(/(\d+)\s*(minute|hour|day|week)s?/i);
