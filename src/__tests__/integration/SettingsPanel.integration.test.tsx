@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Provider, createStore } from "jotai";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { i18n } from "@lingui/core";
 
 import { resetInvoke, setupInvoke } from "../helpers/invokeMock";
 import { setupListen } from "../helpers/eventBus";
@@ -40,6 +41,10 @@ async function mountSettings(
 
 afterEach(() => {
   resetInvoke();
+  window.localStorage.clear();
+  // Locale-switch tests mutate the shared `i18n` singleton; restore ja so the
+  // Japanese-text assertions in the other suites stay valid.
+  i18n.activate("ja");
 });
 
 describe("SettingsPanel integration — opacity slider", () => {
@@ -176,6 +181,35 @@ describe("SettingsPanel integration — reset", () => {
     expect(next.opacity).toBe(DEFAULT_OVERLAY_SETTINGS.opacity);
     expect(next.compact).toBe(DEFAULT_OVERLAY_SETTINGS.compact);
     expect(next.locked).toBe(DEFAULT_OVERLAY_SETTINGS.locked);
+  });
+});
+
+describe("SettingsPanel integration — locale select", () => {
+  it("persistsAndActivatesSelectedLocaleOnChange", async () => {
+    setupListen();
+    await mountSettings();
+    const select = screen.getByLabelText("表示言語") as HTMLSelectElement;
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "en" } });
+      await flush();
+    });
+    expect(window.localStorage.getItem("quotahud.locale")).toBe("en");
+    expect(i18n.locale).toBe("en");
+  });
+
+  it("abortsTheInFlightActivationWhenLocaleSwitchedAgain", async () => {
+    setupListen();
+    await mountSettings();
+    const select = screen.getByLabelText("表示言語") as HTMLSelectElement;
+    // Two switches in one tick: the second onChange aborts the first
+    // activation's controller, so only the latest locale (ja) commits.
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "en" } });
+      fireEvent.change(select, { target: { value: "ja" } });
+      await flush();
+    });
+    expect(window.localStorage.getItem("quotahud.locale")).toBe("ja");
+    expect(i18n.locale).toBe("ja");
   });
 });
 
