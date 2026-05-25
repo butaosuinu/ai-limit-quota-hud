@@ -184,6 +184,27 @@ describe("codex.js — deriveResetAt", () => {
     expect(weekly?.resetAt).toMatch(/^2026-05-20T/u);
   });
 
+  it("derivesWeeklyResetWhenLabelUsesWeeklyLimitAnchor", async () => {
+    // The live page labels the weekly card "週間利用上限" (not "週あたり");
+    // the reset must still resolve via the 週間 anchor.
+    const payload = await runExtractor(CODEX_JS, {
+      html: `
+        <div>
+          週間利用上限 97%
+        </div>
+        <div>
+          週間利用上限 リセット：2026/05/31 6:24
+        </div>
+      `,
+      now: FIXED_NOW,
+    });
+    const rows = payload?.ok ? payload.rows : [];
+    const weekly = rows.find(
+      (r) => (r as { windowKind: string }).windowKind === "weekly",
+    );
+    expect(weekly?.resetAt).toBe(new Date(2026, 4, 31, 6, 24).toISOString());
+  });
+
   it("derivesHhMmAsFutureTimestampStrictlyAfterNow", async () => {
     // HH:MM parsing depends on local timezone (Date constructor with
     // (y, m, d, h, m) is local-time). Assert only on the observable contract:

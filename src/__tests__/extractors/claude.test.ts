@@ -209,6 +209,68 @@ describe("claude.js — reset label parsing", () => {
     expect(row?.resetAt).toBe(expected);
   });
 
+  it("derivesResetAtFromJapaneseWeekdayTime", async () => {
+    // claude.ai's weekly window shows an absolute "HH:MM (曜日)にリセット"
+    // label, unlike the 5h window's relative "N時間後" form.
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <div>
+          <div>週間使用量</div>
+          <div>6% · 8:00 (日)にリセット</div>
+        </div>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const row = payload?.ok ? payload.rows[0] : undefined;
+    const iso = row?.resetAt as string | null | undefined;
+    expect(iso).toBeTruthy();
+    // Weekday math is local-time, so assert the observable contract: the next
+    // Sunday (日 = 0), strictly in the future, within a week.
+    const reset = new Date(iso!);
+    expect(reset.getDay()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(FIXED_NOW.getTime());
+    expect(reset.getTime() - FIXED_NOW.getTime()).toBeLessThanOrEqual(
+      7 * 24 * 3600 * 1000,
+    );
+  });
+
+  it("derivesResetAtFromEnglishWeekdayTime", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <div>
+          <div>Weekly usage</div>
+          <div>6% · Resets at 8:00 AM Sun</div>
+        </div>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const row = payload?.ok ? payload.rows[0] : undefined;
+    const iso = row?.resetAt as string | null | undefined;
+    expect(iso).toBeTruthy();
+    const reset = new Date(iso!);
+    expect(reset.getDay()).toBe(0);
+    expect(reset.getTime()).toBeGreaterThan(FIXED_NOW.getTime());
+  });
+
+  it("doesNotReadWeekdayOutOfUnrelatedWord", async () => {
+    // "mon" must not be matched inside "month" — that would yield a wrong
+    // Monday reset instead of leaving resetAt unresolved.
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <div>
+          <div>Weekly usage</div>
+          <div>6% · Resets at 8:00 next month</div>
+        </div>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const row = payload?.ok ? payload.rows[0] : undefined;
+    expect(row?.resetAt).toBeNull();
+  });
+
   it("leavesResetAtNullWhenNoLabelMatches", async () => {
     const payload = await runExtractor(CLAUDE_JS, {
       html: `
