@@ -16,43 +16,37 @@ export const overlaySettingsAtom = atom<OverlaySettings>(
   DEFAULT_OVERLAY_SETTINGS,
 );
 
-type Lifecycle = {
-  cancelled: boolean;
-  unlisten: (() => void) | null;
-};
-
 overlaySettingsAtom.onMount = (set) => {
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
-  void bootstrapOverlaySync(set, lifecycle);
-  return () => {
-    lifecycle.cancelled = true;
-    if (lifecycle.unlisten !== null) lifecycle.unlisten();
-  };
+  const mount = new AbortController();
+  void bootstrapOverlaySync(set, mount.signal);
+  return () => mount.abort();
 };
 
 async function bootstrapOverlaySync(
   set: (next: OverlaySettings) => void,
-  lifecycle: Lifecycle,
+  signal: AbortSignal,
 ): Promise<void> {
   // Subscribe first so events emitted while we wait on `get_overlay_settings`
-  // aren't lost. Track whether a fresher event has already landed so the
-  // initial snapshot — which may already be stale — doesn't roll it back.
-  let receivedFreshEvent = false;
+  // aren't lost. A fresh event aborts this guard so the initial snapshot —
+  // which may already be stale — doesn't roll it back.
+  const freshEvent = new AbortController();
   const unlisten = await listen<SettingsChangedPayload>(
     OVERLAY_SETTINGS_CHANGED_EVENT,
     (event) => {
-      receivedFreshEvent = true;
+      freshEvent.abort();
       set(event.payload.settings);
     },
   ).catch((err: unknown) => {
     console.warn("overlay settings event subscription failed", err);
     return null;
   });
-  if (lifecycle.cancelled) {
+  if (signal.aborted) {
     if (unlisten !== null) unlisten();
     return;
   }
-  lifecycle.unlisten = unlisten;
+  if (unlisten !== null) {
+    signal.addEventListener("abort", () => unlisten(), { once: true });
+  }
 
   const initial = await invoke<OverlaySettings>("get_overlay_settings").catch(
     (err: unknown) => {
@@ -60,10 +54,10 @@ async function bootstrapOverlaySync(
       return null;
     },
   );
-  if (lifecycle.cancelled) return;
+  if (signal.aborted) return;
   // Loose comparison: a stubbed/empty IPC response can yield `undefined`,
   // and committing it would crash any consumer that reads `settings.*`.
-  if (initial != null && !receivedFreshEvent) set(initial);
+  if (initial != null && !freshEvent.signal.aborted) set(initial);
 }
 
 /**
