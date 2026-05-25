@@ -8,6 +8,7 @@ import {
   type SnapshotStatus,
   type UsageSnapshot,
 } from "../types";
+import { normalizeSnapshots, type WireUsageSnapshot } from "../wire";
 
 export const snapshotsAtom = atom<readonly UsageSnapshot[]>([]);
 
@@ -24,30 +25,30 @@ async function bootstrapUsageSync(
   // A fresh `USAGE_UPDATED_EVENT` aborts this guard so the initial snapshot —
   // which may already be stale — never rolls back event-delivered data.
   const freshEvent = new AbortController();
-  const unlisten = await listen<readonly UsageSnapshot[]>(
+  const unlisten = await listen<readonly WireUsageSnapshot[]>(
     USAGE_UPDATED_EVENT,
     (event) => {
       freshEvent.abort();
-      set(event.payload);
+      set(normalizeSnapshots(event.payload));
     },
   ).catch((err: unknown) => {
     console.warn("usage subscription failed", err);
-    return null;
+    return undefined;
   });
   if (signal.aborted) {
-    if (unlisten !== null) unlisten();
+    if (unlisten !== undefined) unlisten();
     return;
   }
-  if (unlisten !== null) {
+  if (unlisten !== undefined) {
     signal.addEventListener("abort", () => unlisten(), { once: true });
   }
 
   const initial = await listSnapshots().catch((err: unknown) => {
     console.warn("list_snapshots failed", err);
-    return null;
+    return undefined;
   });
   if (signal.aborted) return;
-  if (initial !== null && !freshEvent.signal.aborted) set(initial);
+  if (initial !== undefined && !freshEvent.signal.aborted) set(initial);
 }
 
 const STATUS_PRIORITY: Record<SnapshotStatus, number> = {
@@ -157,10 +158,10 @@ const NO_RESET_LABEL = "--:--";
  * replace it.
  */
 export function formatResetCountdown(
-  resetAt: string | null,
+  resetAt: string | undefined,
   now: number,
 ): string {
-  if (resetAt === null) return NO_RESET_LABEL;
+  if (resetAt === undefined) return NO_RESET_LABEL;
   const resetMs = new Date(resetAt).getTime();
   if (Number.isNaN(resetMs)) return NO_RESET_LABEL;
   const resetDate = new Date(resetMs);

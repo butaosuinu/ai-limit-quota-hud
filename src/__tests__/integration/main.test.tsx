@@ -7,7 +7,7 @@ import { flush } from "../helpers/flush";
 type CapturedNode = { windowLabel: string };
 type ReactElementLike = { props: Record<string, unknown> };
 
-let captured: CapturedNode | null = null;
+let captured: CapturedNode | undefined = undefined;
 
 function isReactElementLike(node: unknown): node is ReactElementLike {
   return (
@@ -41,7 +41,7 @@ vi.mock("react-dom/client", () => ({
 }));
 
 beforeEach(() => {
-  captured = null;
+  captured = undefined;
   document.body.innerHTML = '<div id="root"></div>';
   setupInvoke();
   setupListen();
@@ -82,7 +82,7 @@ describe("main.tsx bootstrap", () => {
     // Dynamic imports + activateLocale need real time before render fires.
     // 50 × ~2 ms easily covers the lazy chunk + i18n catalog import.
     for (let i = 0; i < 50; i += 1) {
-      if (captured !== null) break;
+      if (captured !== undefined) break;
       await flush(2);
     }
     expect(captured?.windowLabel).toBe("settings");

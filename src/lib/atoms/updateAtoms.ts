@@ -35,18 +35,18 @@ export const currentVersionAtom = atom<string | undefined>(undefined);
 
 type Lifecycle = {
   cancelled: boolean;
-  unlisten: (() => void) | null;
+  unlisten: (() => void) | undefined;
 };
 
 type StatusUpdater = UpdateStatus | ((prev: UpdateStatus) => UpdateStatus);
 type StatusSetter = (next: StatusUpdater) => void;
 
 updateStatusAtom.onMount = (set: StatusSetter) => {
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
+  const lifecycle: Lifecycle = { cancelled: false, unlisten: undefined };
   void subscribeToBackendStatus(set, lifecycle);
   return () => {
     lifecycle.cancelled = true;
-    if (lifecycle.unlisten !== null) lifecycle.unlisten();
+    if (lifecycle.unlisten !== undefined) lifecycle.unlisten();
   };
 };
 
@@ -59,8 +59,8 @@ async function subscribeToBackendStatus(
     (event) => {
       set((prev) => nextStatusFromBackend(prev, event.payload));
     },
-  ).catch(() => null);
-  if (unlisten === null) return;
+  ).catch(() => undefined);
+  if (unlisten === undefined) return;
   if (lifecycle.cancelled) {
     unlisten();
     return;
@@ -70,10 +70,13 @@ async function subscribeToBackendStatus(
   // The startup updater check may have emitted before we registered the
   // listener above (it runs from `setup()` in lib.rs, before the settings
   // webview mounts). Pull the persisted result so the UI doesn't miss it.
-  const last = await invoke<UpdateStatusPayload | null>(
-    "get_last_update_status",
-  ).catch(() => null);
-  if (lifecycle.cancelled || last == null) return;
+  // Rust returns `Option<UpdateStatusPayload>` (JSON null when absent); a
+  // stubbed IPC can resolve undefined — coalesce both to undefined.
+  const last =
+    (await invoke<UpdateStatusPayload | null>("get_last_update_status").catch(
+      () => undefined,
+    )) ?? undefined;
+  if (lifecycle.cancelled || last === undefined) return;
   set((prev) => nextStatusFromBackend(prev, last));
 }
 
@@ -178,7 +181,7 @@ function describeError(action: MessageDescriptor, err: unknown): string {
  * Holds the `Update` resource returned by `check()` so the install action can
  * be driven from a separate atom without re-running the check.
  */
-const pendingUpdateAtom = atom<Update | null>(null);
+const pendingUpdateAtom = atom<Update | undefined>(undefined);
 
 /**
  * `Update` is a Tauri Resource: the backend allocates a resource ID that
@@ -186,8 +189,8 @@ const pendingUpdateAtom = atom<Update | null>(null);
  * for updates in a long-running session would accumulate dead handles, so
  * every replace / clear / consume site routes through this helper.
  */
-async function closeUpdate(update: Update | null): Promise<void> {
-  if (update === null) return;
+async function closeUpdate(update: Update | undefined): Promise<void> {
+  if (update === undefined) return;
   // Resource.close() is the real plugin's disposer; tolerate test doubles
   // that omit it, and swallow rejections so a release failure can't tank
   // the caller's state transition.
@@ -199,21 +202,23 @@ async function closeUpdate(update: Update | null): Promise<void> {
  * Resolve the `Update` handle to install. Reuses the cached handle when it
  * matches the version shown on the panel; otherwise releases the stale handle
  * and re-runs `check()` so a fresher backend `available` is never installed as
- * an older release. Returns `null` when no update is available.
+ * an older release. Returns `undefined` when no update is available.
  */
 async function resolveUpdateHandle(
-  cached: Update | null,
+  cached: Update | undefined,
   displayedVersion: string,
-): Promise<Update | Failure | null> {
-  if (cached !== null && cached.version === displayedVersion) return cached;
-  if (cached !== null) await closeUpdate(cached);
-  return await check().catch(
+): Promise<Update | Failure | undefined> {
+  if (cached?.version === displayedVersion) return cached;
+  if (cached !== undefined) await closeUpdate(cached);
+  // `check()` resolves null when no update is available; normalize to undefined.
+  const checked = await check().catch(
     (err: unknown): Failure => failure(describeError(MSG.downloadFailed, err)),
   );
+  return checked ?? undefined;
 }
 
 /** Trigger an explicit "check now" round-trip. */
-export const checkForUpdatesAtom = atom(null, async (get, set) => {
+export const checkForUpdatesAtom = atom(undefined, async (get, set) => {
   set(updateStatusAtom, { kind: "checking" });
   const result = await check().catch(
     (err: unknown): Failure => failure(describeError(MSG.checkFailed, err)),
@@ -223,22 +228,24 @@ export const checkForUpdatesAtom = atom(null, async (get, set) => {
     // anymore (UI has moved to `error`), and leaving it open accumulates
     // backend resource IDs across repeated failed sessions.
     await closeUpdate(get(pendingUpdateAtom));
-    set(pendingUpdateAtom, null);
+    set(pendingUpdateAtom, undefined);
     set(updateStatusAtom, { kind: "error", message: result.message });
     return;
   }
   // Whatever we hold now is about to be replaced; release its backend handle.
   await closeUpdate(get(pendingUpdateAtom));
-  if (result === null) {
+  // `check()` resolves null when no update is available; normalize to undefined.
+  const update = result ?? undefined;
+  if (update === undefined) {
     set(updateStatusAtom, { kind: "idle" });
-    set(pendingUpdateAtom, null);
+    set(pendingUpdateAtom, undefined);
     return;
   }
-  set(pendingUpdateAtom, result);
+  set(pendingUpdateAtom, update);
   set(updateStatusAtom, {
     kind: "available",
-    version: result.version,
-    notes: result.body ?? "",
+    version: update.version,
+    notes: update.body ?? "",
   });
 });
 
@@ -252,7 +259,7 @@ export const checkForUpdatesAtom = atom(null, async (get, set) => {
  * frontend's `pendingUpdateAtom`. Re-run `check()` to materialize it here
  * before kicking off the download.
  */
-export const downloadAndInstallAtom = atom(null, async (get, set) => {
+export const downloadAndInstallAtom = atom(undefined, async (get, set) => {
   // Reserve the slot synchronously: the download button only renders in
   // `available` state, and the kind transition unmounts it. Without this
   // up-front write, rapid double-clicks fire before React unmounts the
@@ -269,12 +276,12 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
   const cached = get(pendingUpdateAtom);
   const resolved = await resolveUpdateHandle(cached, displayedVersion);
   if (isFailure(resolved)) {
-    set(pendingUpdateAtom, null);
+    set(pendingUpdateAtom, undefined);
     set(updateStatusAtom, { kind: "error", message: resolved.message });
     return;
   }
-  if (resolved === null) {
-    set(pendingUpdateAtom, null);
+  if (resolved === undefined) {
+    set(pendingUpdateAtom, undefined);
     set(updateStatusAtom, { kind: "idle" });
     return;
   }
@@ -304,13 +311,13 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
   // The handle is consumed regardless of outcome; drop it so future
   // `available` cycles allocate a fresh resource.
   await closeUpdate(update);
-  set(pendingUpdateAtom, null);
+  set(pendingUpdateAtom, undefined);
   if (isFailure(result)) {
     set(updateStatusAtom, { kind: "error", message: result.message });
   }
 });
 
 /** Relaunch the app once an update has finished installing. */
-export const relaunchAfterUpdateAtom = atom(null, async () => {
+export const relaunchAfterUpdateAtom = atom(undefined, async () => {
   await relaunch();
 });

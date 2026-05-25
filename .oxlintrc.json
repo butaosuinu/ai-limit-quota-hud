@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "unicorn/no-null": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "src/__tests__/**/*",
+        "src/test/**/*"
+      ],
+      "rules": {
+        "unicorn/no-null": "off"
+      }
+    }
+  ]
+}

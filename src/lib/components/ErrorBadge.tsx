@@ -2,11 +2,11 @@ import type { SnapshotStatus } from "../types";
 
 type Props = {
   status: SnapshotStatus;
-  message?: string | null;
+  message?: string;
 };
 
-const STATUS_LABEL: Record<SnapshotStatus, string | null> = {
-  ok: null,
+const STATUS_LABEL: Record<SnapshotStatus, string | undefined> = {
+  ok: undefined,
   warning: "warn",
   critical: "crit",
   "no-data": "no data",
@@ -15,8 +15,8 @@ const STATUS_LABEL: Record<SnapshotStatus, string | null> = {
 
 export function ErrorBadge({ status, message }: Props) {
   const statusLabel = STATUS_LABEL[status];
-  if (statusLabel === null) return null;
-  const tooltip = message ?? undefined;
+  if (statusLabel === undefined) return undefined;
+  const tooltip = message;
   return (
     <span className="error-badge-group" title={tooltip}>
       <span

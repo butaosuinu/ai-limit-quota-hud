@@ -27,7 +27,7 @@ describe("providerSettingsAtom — bootstrap", () => {
     expect(store.get(providerSettingsAtom).enabled["webview-claude-ai"]).toBe(
       true,
     );
-    expect(store.get(providerSettingsErrorAtom)).toBeNull();
+    expect(store.get(providerSettingsErrorAtom)).toBeUndefined();
     unsub();
   });
 
@@ -128,7 +128,7 @@ describe("providerSettingsAtom — write atoms", () => {
     expect(store.get(providerSettingsAtom).enabled["webview-claude-ai"]).toBe(
       true,
     );
-    expect(store.get(providerSettingsErrorAtom)).toBeNull();
+    expect(store.get(providerSettingsErrorAtom)).toBeUndefined();
     unsub();
   });
 
@@ -167,7 +167,7 @@ describe("providerSettingsAtom — write atoms", () => {
     await waitForState();
     expect(store.get(providerSettingsErrorAtom)).toContain("boot fail");
     await store.set(openProviderLoginAtom, "webview-claude-ai");
-    expect(store.get(providerSettingsErrorAtom)).toBeNull();
+    expect(store.get(providerSettingsErrorAtom)).toBeUndefined();
     unsub();
   });
 
@@ -200,7 +200,7 @@ describe("providerSettingsAtom — write atoms", () => {
     await waitForState();
     expect(store.get(providerSettingsErrorAtom)).toContain("boot fail");
     await store.set(deleteProviderDataAtom, "webview-chatgpt-codex");
-    expect(store.get(providerSettingsErrorAtom)).toBeNull();
+    expect(store.get(providerSettingsErrorAtom)).toBeUndefined();
     unsub();
   });
 

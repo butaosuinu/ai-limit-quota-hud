@@ -161,9 +161,9 @@ describe("SettingsPanel integration — toggles", () => {
 });
 
 describe("SettingsPanel integration — saved position", () => {
-  it("showsUnsavedLabelWhenAtomPositionIsNull", async () => {
+  it("showsUnsavedLabelWhenAtomPositionIsUndefined", async () => {
     setupListen();
-    await mountSettings({ position: null });
+    await mountSettings({ position: undefined });
     expect(screen.getByText("未保存")).toBeTruthy();
   });
 
