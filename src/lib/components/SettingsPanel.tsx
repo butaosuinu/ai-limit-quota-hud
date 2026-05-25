@@ -66,6 +66,11 @@ export function SettingsPanel() {
   const updateSettings = useSetAtom(updateOverlaySettingsAtom);
   const localeActivation = useRef<AbortController | undefined>(undefined);
 
+  // Abort an in-flight locale activation when the panel unmounts so a late
+  // dynamic import can't activate a stale locale and overwrite a newer choice
+  // made after reopening the settings window.
+  useEffect(() => () => localeActivation.current?.abort(), []);
+
   // Slider drives a local value during drag so the IPC fires only on release.
   const [draftOpacity, setDraftOpacity] = useState(settings.opacity);
   useEffect(() => {
