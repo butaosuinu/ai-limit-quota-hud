@@ -468,6 +468,32 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(screen.getByTestId("updates-download-button")).toBeTruthy();
   });
 
+  it("daily noUpdate が available をクリアするとき manual check の Update ハンドルを close する", async () => {
+    // 手動 check で積んだ pendingUpdate を、daily noUpdate による available→idle
+    // 遷移で取り残すとリソースリークになる。遷移と同時に close されること。
+    const close = vi.fn(async () => undefined);
+    const fakeUpdate = {
+      version: "7.0.0",
+      body: "notes",
+      close,
+    } as unknown as Awaited<ReturnType<typeof check>>;
+    vi.mocked(check).mockResolvedValueOnce(fakeUpdate);
+    const bus = setupListen();
+    const { store } = await mountSettingsPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("updates-check-button"));
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate", source: "daily" });
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("idle");
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("backend が error event を流してもエラー以外の panel 要素はクラッシュせず残る", async () => {
     const bus = setupListen();
     const { store } = await mountSettingsPanel();
