@@ -1,9 +1,9 @@
 //! Per-OS overlay tweaks. Each backend isolates OS-specific `unsafe` code.
 
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 

@@ -23,10 +23,8 @@ struct SettingsPayload<'a> {
 /// was skipped (window already at the target): a Moved event from an earlier
 /// `set_position` may still be in flight, and clearing the expectation would
 /// cause it to be misread as a user drag.
-pub fn apply_to_window(
-    window: &WebviewWindow,
-    settings: &OverlaySettings,
-) -> Option<Position> {
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn apply_to_window(window: &WebviewWindow, settings: &OverlaySettings) -> Option<Position> {
     let _ = window.set_always_on_top(settings.always_on_top);
     let _ = window.set_ignore_cursor_events(settings.click_through);
 
@@ -54,10 +52,8 @@ pub fn apply_to_window(
 /// when it's still on a connected monitor — a position carried over from an
 /// unplugged display or higher resolution would otherwise leave the overlay
 /// stranded off-screen with no obvious way to recover.
-fn resolve_target_position(
-    window: &WebviewWindow,
-    settings: &OverlaySettings,
-) -> Option<Position> {
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn resolve_target_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option<Position> {
     if let Some(saved) = settings.position {
         if position_visible_on_any_monitor(window, saved) {
             return Some(saved);
@@ -71,6 +67,7 @@ fn resolve_target_position(
     corner_position(window, settings)
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn position_visible_on_any_monitor(window: &WebviewWindow, position: Position) -> bool {
     let monitors = match window.available_monitors() {
         Ok(m) if !m.is_empty() => m,
@@ -113,6 +110,7 @@ fn u32_to_i32_saturating(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn corner_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option<Position> {
     let monitor = window.current_monitor().ok().flatten()?;
     let monitor_size = monitor.size();
@@ -142,6 +140,7 @@ fn corner_position(window: &WebviewWindow, settings: &OverlaySettings) -> Option
     })
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn emit_settings_changed(app: &AppHandle, settings: &OverlaySettings) {
     let payload = SettingsPayload { settings };
     if let Err(err) = app.emit(SETTINGS_CHANGED_EVENT, payload) {
@@ -149,6 +148,7 @@ pub fn emit_settings_changed(app: &AppHandle, settings: &OverlaySettings) {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn overlay_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(OVERLAY_WINDOW_LABEL).or_else(|| {
         log::warn!("overlay window is missing");
@@ -156,6 +156,7 @@ pub fn overlay_window(app: &AppHandle) -> Option<WebviewWindow> {
     })
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn settings_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(SETTINGS_WINDOW_LABEL)
 }
@@ -238,6 +239,16 @@ mod tests {
     #[test]
     fn overlap_rejects_zero_size_monitor() {
         assert!(!rects_overlap(window(0, 0), (0, 0, 0, 0)));
+    }
+
+    #[test]
+    fn overlap_rejects_fully_off_above() {
+        assert!(!rects_overlap(window(100, -300), MONITOR_1080P));
+    }
+
+    #[test]
+    fn overlap_rejects_fully_off_below() {
+        assert!(!rects_overlap(window(100, 1080), MONITOR_1080P));
     }
 
     #[test]

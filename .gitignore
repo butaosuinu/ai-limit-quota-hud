@@ -22,6 +22,7 @@ yarn-error.log*
 .vscode/*
 !.vscode/extensions.json
 .dmux/
+.codex/
 
 # Lingui コンパイル成果物 (po は git 管理、ts は自動生成のため除外)
 src/locales/**/messages.ts

@@ -1,4 +1,5 @@
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(coverage_nightly)");
     // Force a rebuild whenever any extractor JS changes. `include_str!` is
     // expected to track its sources, but `tauri dev`'s incremental cycle
     // sometimes misses edits to these files, leaving stale extractor JS

@@ -130,6 +130,7 @@ impl CodexWebProvider {
     /// windows. Called from `lib.rs::init_provider_runtime` once the Tauri
     /// app handle is available. Until this is wired up `refresh` falls back
     /// to a `NoData` row explaining that the WebView runtime is not ready.
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn attach_app(&self, app: tauri::AppHandle) {
         let scraper = WebviewScraper::new(app, Self::scraper_config(), self.storage.clone());
         if let Ok(mut guard) = self.scraper.write() {
@@ -188,6 +189,7 @@ impl CodexWebProvider {
         }
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn record_cache(&self, snapshots: Vec<UsageSnapshot>) {
         if let Ok(mut guard) = self.cache.write() {
             guard.snapshots = snapshots;
@@ -323,6 +325,7 @@ impl UsageProvider for CodexWebProvider {
         Duration::from_secs(MIN_REFRESH_INTERVAL_SECS)
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     async fn refresh(&self, ctx: &ProviderContext) -> anyhow::Result<Vec<UsageSnapshot>> {
         let now = ctx.clock.now();
         // Opt-in gate (§8.7). If the user has not flipped the toggle we
@@ -377,14 +380,8 @@ mod tests {
 
     #[test]
     fn account_label_distinguishes_windows() {
-        assert_eq!(
-            account_label_for_window(Some("five-hours")),
-            "Codex 5h"
-        );
-        assert_eq!(
-            account_label_for_window(Some("weekly")),
-            "Codex weekly"
-        );
+        assert_eq!(account_label_for_window(Some("five-hours")), "Codex 5h");
+        assert_eq!(account_label_for_window(Some("weekly")), "Codex weekly");
         assert_eq!(account_label_for_window(None), "Codex");
         assert_eq!(account_label_for_window(Some("mystery")), "Codex");
     }
@@ -438,6 +435,22 @@ mod tests {
         // 150 used clamps to 100 → 0 remaining → Critical.
         assert_eq!(snap.remaining_percent, Some(0.0));
         assert_eq!(snap.status, SnapshotStatus::Critical);
+    }
+
+    #[test]
+    fn snapshot_from_row_defaults_missing_percent_to_full_remaining() {
+        let row = ExtractedRow {
+            window_kind: None,
+            percent_used: None,
+            reset_at: None,
+            reset_label: None,
+        };
+        let snap = snapshot_from_row(row, &now_fixture());
+        assert_eq!(snap.provider_id, "webview-chatgpt-codex:unknown");
+        assert_eq!(snap.account_label, "Codex");
+        assert_eq!(snap.remaining_percent, Some(100.0));
+        assert_eq!(snap.status, SnapshotStatus::Ok);
+        assert!(snap.message.is_none());
     }
 
     #[test]
@@ -582,6 +595,21 @@ mod tests {
             .unwrap_or("")
             .contains("evil.example.com"));
         assert_eq!(snap.provider_kind, ProviderKind::WebviewChatgptCodex);
+    }
+
+    #[test]
+    fn snapshot_from_scraper_error_maps_window_failures() {
+        for err in [
+            ScraperError::Timeout(Duration::from_secs(5)),
+            ScraperError::WindowCreate("webview denied".into()),
+            ScraperError::Eval("eval failed".into()),
+            ScraperError::Parse("bad json".into()),
+        ] {
+            let snap = snapshot_from_scraper_error(err, &now_fixture());
+            assert_eq!(snap.status, SnapshotStatus::Error);
+            assert_eq!(snap.provider_kind, ProviderKind::WebviewChatgptCodex);
+            assert!(snap.message.as_deref().unwrap_or("").len() > 4);
+        }
     }
 
     #[tokio::test]

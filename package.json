@@ -20,7 +20,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "test:rs:coverage": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --workspace --branch --html --output-dir coverage-rs",
+    "test:rs:coverage": "cargo +nightly llvm-cov --manifest-path src-tauri/Cargo.toml --workspace --branch --text --output-dir coverage-rs",
     "i18n:extract": "lingui extract --clean",
     "i18n:compile": "lingui compile --typescript",
     "tauri": "tauri"

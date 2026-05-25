@@ -127,7 +127,8 @@ pub fn compute_remaining_percent(
         return Some(pct);
     }
     match (limit, remaining) {
-        (Some(l), Some(r)) if l > 0 => {
+        (Some(l), Some(r)) if l > 0 =>
+        {
             #[allow(clippy::cast_precision_loss)]
             Some((r as f64 / l as f64) * 100.0)
         }
@@ -365,7 +366,10 @@ mod tests {
     #[test]
     fn confidence_serde_kebab_case() {
         assert_eq!(serde_json::to_string(&Confidence::Low).unwrap(), "\"low\"");
-        assert_eq!(serde_json::to_string(&Confidence::High).unwrap(), "\"high\"");
+        assert_eq!(
+            serde_json::to_string(&Confidence::High).unwrap(),
+            "\"high\""
+        );
     }
 
     #[test]
@@ -394,7 +398,10 @@ mod tests {
         assert!(json.get("accountLabel").is_some());
         assert!(json.get("remainingPercent").is_some());
         assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("error"));
-        assert_eq!(json.get("source").and_then(|v| v.as_str()), Some("unavailable"));
+        assert_eq!(
+            json.get("source").and_then(|v| v.as_str()),
+            Some("unavailable")
+        );
     }
 
     #[test]
