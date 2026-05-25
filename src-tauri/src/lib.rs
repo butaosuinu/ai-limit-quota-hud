@@ -13,6 +13,7 @@ mod state;
 mod updater;
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -33,6 +34,11 @@ const MENU_ID_SETTINGS: &str = "open_settings";
 const MENU_ID_QUIT: &str = "quit";
 
 const CLICK_THROUGH_SHORTCUT: &str = "CommandOrControl+Shift+Backslash";
+
+/// Interval for the background update check that supplements the startup
+/// check. Gated by the same `check_updates_on_startup` setting, re-read on
+/// every tick so a runtime toggle takes effect without respawning the loop.
+const DAILY_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub(crate) struct AppState {
     settings: Mutex<OverlaySettings>,
@@ -371,6 +377,9 @@ pub fn run() {
             if initial.check_updates_on_startup {
                 spawn_startup_update_check(handle.clone());
             }
+            // Always spawn the daily loop; it re-reads the toggle each tick so
+            // enabling updates at runtime starts checking without a respawn.
+            spawn_daily_update_check(handle.clone());
 
             Ok(())
         })
@@ -446,38 +455,62 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+/// Run one update check and publish the result through the shared path
+/// (`LastStartupStatus` cache + `UPDATER_STATUS_EVENT` emit). Shared by the
+/// startup check and the daily background loop.
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn spawn_startup_update_check(handle: AppHandle) {
+async fn run_update_check(handle: &AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
     use updater::{LastStartupStatus, UpdateStatusPayload, UPDATER_STATUS_EVENT};
 
-    tauri::async_runtime::spawn(async move {
-        let payload = match handle.updater() {
-            Ok(updater) => match updater.check().await {
-                Ok(Some(update)) => UpdateStatusPayload::Available {
-                    version: update.version.clone(),
-                    notes: update.body.clone().unwrap_or_default(),
-                },
-                Ok(None) => UpdateStatusPayload::NoUpdate,
-                Err(err) => {
-                    log::warn!("updater check failed: {err}");
-                    UpdateStatusPayload::Error {
-                        message: err.to_string(),
-                    }
-                }
+    let payload = match handle.updater() {
+        Ok(updater) => match updater.check().await {
+            Ok(Some(update)) => UpdateStatusPayload::Available {
+                version: update.version.clone(),
+                notes: update.body.clone().unwrap_or_default(),
             },
+            Ok(None) => UpdateStatusPayload::NoUpdate,
             Err(err) => {
-                log::warn!("updater plugin unavailable: {err}");
+                log::warn!("updater check failed: {err}");
                 UpdateStatusPayload::Error {
                     message: err.to_string(),
                 }
             }
-        };
-        // Persist before emitting so a webview that mounts after the emit
-        // can still recover the result via `get_last_update_status`.
-        handle.state::<LastStartupStatus>().store(payload.clone());
-        if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
-            log::warn!("failed to emit updater status: {err}");
+        },
+        Err(err) => {
+            log::warn!("updater plugin unavailable: {err}");
+            UpdateStatusPayload::Error {
+                message: err.to_string(),
+            }
+        }
+    };
+    // Persist before emitting so a webview that mounts after the emit
+    // can still recover the result via `get_last_update_status`.
+    handle.state::<LastStartupStatus>().store(payload.clone());
+    if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
+        log::warn!("failed to emit updater status: {err}");
+    }
+}
+
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn spawn_startup_update_check(handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        run_update_check(&handle).await;
+    });
+}
+
+/// Supplement the startup check with a once-a-day background check so a
+/// long-running overlay still surfaces new releases. The toggle is re-read on
+/// each tick (not captured at spawn) so toggling it at runtime takes effect on
+/// the next tick; while disabled the loop just wakes and no-ops.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn spawn_daily_update_check(handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(DAILY_UPDATE_CHECK_INTERVAL).await;
+            if handle.state::<AppState>().snapshot().check_updates_on_startup {
+                run_update_check(&handle).await;
+            }
         }
     });
 }

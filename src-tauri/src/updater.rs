@@ -1,5 +1,5 @@
 //! Updater status event payloads emitted to the frontend, plus a small
-//! holder that lets the frontend fetch the last startup-check result if it
+//! holder that lets the frontend fetch the last update-check result if it
 //! mounted after the event was published.
 
 use std::sync::Mutex;
@@ -19,9 +19,10 @@ pub enum UpdateStatusPayload {
     Error { message: String },
 }
 
-/// Backend-side cache of the most recent startup-check result. The settings
-/// webview may mount after `spawn_startup_update_check` has already emitted
-/// the event, so the frontend reads this on bootstrap to recover the value.
+/// Backend-side cache of the most recent update-check result (startup check or
+/// the daily background check). The settings webview may mount after a check
+/// has already emitted the event, so the frontend reads this on bootstrap to
+/// recover the value.
 #[derive(Default)]
 pub struct LastStartupStatus(Mutex<Option<UpdateStatusPayload>>);
 

@@ -62,7 +62,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Error states must be visible in the UI without crashing the overlay.
 - No telemetry by default.
 - No network call should happen on startup unless the user configured a provider that requires it.
-- Exception: the Tauri updater plugin performs a startup check by default. Users can opt out via Settings → Updates.
+- Exception: the Tauri updater plugin performs an update check on startup and once every 24 hours by default. Users can opt out of both via Settings → Updates.
 - Avoid polling faster than necessary. Default provider refresh interval should be configurable and no faster than 60 seconds.
 - Make platform-specific overlay behavior explicit in `src-tauri/src/platform/`.
 

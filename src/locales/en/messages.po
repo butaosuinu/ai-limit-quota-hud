@@ -17,7 +17,7 @@ msgstr ""
 msgid "{providerLabel} を有効化"
 msgstr "Enable {providerLabel}"
 
-#: src/lib/components/SettingsPanel.tsx:161
+#: src/lib/components/SettingsPanel.tsx:176
 msgid "Appearance"
 msgstr "Appearance"
 
@@ -29,8 +29,8 @@ msgstr "Reads chatgpt.com Codex Cloud analytics in an embedded WebView to show P
 msgid "claude.ai/settings/usage を埋め込み WebView で読み取り、Pro/Max の 5h / weekly 残量を表示。confidence は常に low。"
 msgstr "Reads claude.ai/settings/usage in an embedded WebView to show Pro/Max 5h and weekly headroom. Confidence is always low."
 
-#: src/lib/components/SettingsPanel.tsx:91
-#: src/lib/components/SettingsPanel.tsx:193
+#: src/lib/components/SettingsPanel.tsx:99
+#: src/lib/components/SettingsPanel.tsx:208
 msgid "Compact モード"
 msgstr "Compact mode"
 
@@ -42,23 +42,23 @@ msgstr "Disabled"
 msgid "Enabled"
 msgstr "Enabled"
 
-#: src/lib/components/SettingsPanel.tsx:135
+#: src/lib/components/SettingsPanel.tsx:143
 msgid "English と 日本語 を切り替えます。"
 msgstr "Switch between English and 日本語."
 
-#: src/lib/components/SettingsPanel.tsx:278
+#: src/lib/components/SettingsPanel.tsx:293
 msgid "HUD 非表示時のみ"
 msgstr "Only when HUD is hidden"
 
-#: src/lib/components/SettingsPanel.tsx:259
+#: src/lib/components/SettingsPanel.tsx:274
 msgid "macOS のみ対応"
 msgstr "macOS only"
 
-#: src/lib/components/SettingsPanel.tsx:257
+#: src/lib/components/SettingsPanel.tsx:272
 msgid "macOS のメニューバーに Claude / Codex の 5h リミット残量を表示"
 msgstr "Show Claude / Codex 5h limit headroom in the macOS menu bar"
 
-#: src/lib/components/SettingsPanel.tsx:240
+#: src/lib/components/SettingsPanel.tsx:255
 msgid "off にすると overlay ウィンドウを隠す (設定は保持)"
 msgstr "Turn off to hide the overlay window (settings are preserved)."
 
@@ -66,32 +66,32 @@ msgstr "Turn off to hide the overlay window (settings are preserved)."
 msgid "Opt-in · Low confidence"
 msgstr "Opt-in · Low confidence"
 
-#: src/lib/components/SettingsPanel.tsx:210
+#: src/lib/components/SettingsPanel.tsx:225
 msgid "overlay のドラッグを無効化して意図しない移動を防ぐ"
 msgstr "Disable overlay dragging to prevent accidental moves."
 
-#: src/lib/components/SettingsPanel.tsx:180
+#: src/lib/components/SettingsPanel.tsx:195
 msgid "overlay の不透明度"
 msgstr "Overlay opacity"
 
-#: src/lib/components/SettingsPanel.tsx:297
+#: src/lib/components/SettingsPanel.tsx:312
 msgid "overlay をドラッグするとここに座標が保存される"
 msgstr "Drag the overlay to save its coordinates here."
 
-#: src/lib/components/SettingsPanel.tsx:94
-#: src/lib/components/SettingsPanel.tsx:238
+#: src/lib/components/SettingsPanel.tsx:102
+#: src/lib/components/SettingsPanel.tsx:253
 msgid "Overlay を表示"
 msgstr "Show overlay"
 
-#: src/lib/components/SettingsPanel.tsx:168
+#: src/lib/components/SettingsPanel.tsx:183
 msgid "overlay 全体の透明度。15%〜100%"
 msgstr "Overall overlay transparency, 15% to 100%."
 
-#: src/lib/components/SettingsPanel.tsx:289
+#: src/lib/components/SettingsPanel.tsx:304
 msgid "Position"
 msgstr "Position"
 
-#: src/lib/components/SettingsPanel.tsx:106
+#: src/lib/components/SettingsPanel.tsx:114
 msgid "QuotaHUD Settings"
 msgstr "QuotaHUD Settings"
 
@@ -103,11 +103,11 @@ msgstr "QuotaHUD shows chatgpt.com's own login page; it does not read your passw
 msgid "QuotaHUD は claude.ai 自身のログイン画面を表示し、パスワードや cookie を読み取りません。データは『削除』でいつでもクリアできます。"
 msgstr "QuotaHUD shows claude.ai's own login page; it does not read your password or cookies. Clear stored data with 'Delete' at any time."
 
-#: src/lib/components/SettingsPanel.tsx:334
+#: src/lib/components/SettingsPanel.tsx:351
 msgid "Reset to defaults"
 msgstr "Reset to defaults"
 
-#: src/lib/components/SettingsPanel.tsx:195
+#: src/lib/components/SettingsPanel.tsx:210
 msgid "title / footer / reset 表示を畳んで 1 行サイズに収める"
 msgstr "Collapse title / footer / reset into a single-line layout."
 
@@ -119,14 +119,54 @@ msgstr "WebView Providers"
 msgid "WebView providers は外部サイトの DOM を読み取って残量を表示するため、データは常に<0>confidence: low</0> としてマークされます。"
 msgstr "WebView providers read DOM from third-party sites to display remaining quota, so the data is always marked <0>confidence: low</0>."
 
-#: src/lib/components/SettingsPanel.tsx:93
-#: src/lib/components/SettingsPanel.tsx:223
+#: src/lib/components/UpdatesPanel.tsx:56
+msgid "アップデート"
+msgstr "Updates"
+
+#: src/lib/atoms/updateAtoms.ts:170
+msgid "アップデートのダウンロードに失敗"
+msgstr "Failed to download update"
+
+#: src/lib/components/UpdatesPanel.tsx:200
+msgid "アップデートの準備完了"
+msgstr "Update ready to install"
+
+#: src/lib/components/UpdatesPanel.tsx:80
+msgid "アップデートを確認"
+msgstr "Check for updates"
+
+#: src/lib/atoms/updateAtoms.ts:169
+msgid "アップデート確認に失敗"
+msgstr "Failed to check for updates"
+
+#: src/lib/components/UpdatesPanel.tsx:70
+msgid "インストールされている QuotaHUD のバージョン番号"
+msgstr "Installed QuotaHUD build version"
+
+#: src/lib/components/UpdatesPanel.tsx:226
+msgid "エラー"
+msgstr "Error"
+
+#: src/lib/components/SettingsPanel.tsx:101
+#: src/lib/components/SettingsPanel.tsx:238
 msgid "クリックスルー"
 msgstr "Click-through"
 
-#: src/lib/components/SettingsPanel.tsx:322
+#: src/lib/components/SettingsPanel.tsx:339
 msgid "クリックスルーをトグル"
 msgstr "Toggle click-through"
+
+#: src/lib/components/UpdatesPanel.tsx:174
+msgid "ダウンロード"
+msgstr "Download"
+
+#: src/lib/components/UpdatesPanel.tsx:224
+msgid "ダウンロード中"
+msgstr "Downloading"
+
+#: src/lib/components/UpdatesPanel.tsx:186
+msgid "ダウンロード中..."
+msgstr "Downloading…"
 
 #: src/lib/components/WebviewProvidersPanel.tsx:146
 msgid "データを削除"
@@ -144,11 +184,11 @@ msgstr "Failed to update provider toggle"
 msgid "プロバイダ設定の取得に失敗"
 msgstr "Failed to fetch provider settings"
 
-#: src/lib/components/SettingsPanel.tsx:225
+#: src/lib/components/SettingsPanel.tsx:240
 msgid "マウス操作を背面に透過。{modKey} + Shift + \\ で即時切替"
 msgstr "Pass mouse events through to the window below. {modKey} + Shift + \\ to toggle instantly."
 
-#: src/lib/components/SettingsPanel.tsx:96
+#: src/lib/components/SettingsPanel.tsx:104
 msgid "メニューバー簡易表示"
 msgstr "Menu bar summary"
 
@@ -160,127 +200,88 @@ msgstr "Log in"
 msgid "ログインウィンドウを開けませんでした"
 msgstr "Could not open the login window"
 
-#: src/lib/components/SettingsPanel.tsx:167
+#: src/lib/components/SettingsPanel.tsx:182
 msgid "不透明度"
 msgstr "Opacity"
 
-#: src/lib/components/SettingsPanel.tsx:92
-#: src/lib/components/SettingsPanel.tsx:208
-msgid "位置をロック"
-msgstr "Lock position"
-
-#: src/lib/components/SettingsPanel.tsx:295
-msgid "保存された位置"
-msgstr "Saved position"
-
-#: src/lib/components/SettingsPanel.tsx:276
-msgid "常に表示"
-msgstr "Always"
-
-#: src/lib/components/SettingsPanel.tsx:302
-msgid "未保存"
-msgstr "Not saved"
-
-#: src/lib/components/SettingsPanel.tsx:95
-msgid "表示言語"
-msgstr "Display language"
-
-#: src/lib/components/SettingsPanel.tsx:128
-msgid "言語"
-msgstr "Language"
-
-#: src/lib/components/SettingsPanel.tsx:117
-msgid "設定を検索 (検索機能は今後追加予定)"
-msgstr "Search settings (search feature coming soon)"
-
-#: src/lib/components/SettingsPanel.tsx:115
-msgid "設定を検索…"
-msgstr "Search settings…"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "アップデート"
-msgstr "Updates"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "現在のバージョン"
-msgstr "Current version"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "インストールされている QuotaHUD のバージョン番号"
-msgstr "Installed QuotaHUD build version"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "アップデートを確認"
-msgstr "Check for updates"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "最新リリースを GitHub から取得してチェックします"
-msgstr "Fetch the latest release from GitHub and check for an upgrade."
-
-#: src/lib/components/UpdatesPanel.tsx
+#: src/lib/components/UpdatesPanel.tsx:99
 msgid "今すぐ確認"
 msgstr "Check now"
 
-#: src/lib/components/UpdatesPanel.tsx
-msgid "起動時にアップデートを確認"
-msgstr "Check for updates on startup"
+#: src/lib/components/SettingsPanel.tsx:100
+#: src/lib/components/SettingsPanel.tsx:223
+msgid "位置をロック"
+msgstr "Lock position"
 
-#: src/lib/components/UpdatesPanel.tsx
-msgid "アプリ起動時に自動でアップデートをチェックします"
-msgstr "Automatically check for updates when the app starts."
+#: src/lib/components/SettingsPanel.tsx:310
+msgid "保存された位置"
+msgstr "Saved position"
 
-#: src/lib/components/UpdatesPanel.tsx
-msgid "新しいバージョンが利用可能"
-msgstr "A new version is available"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "ダウンロード"
-msgstr "Download"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "ダウンロード中..."
-msgstr "Downloading…"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "アップデートの準備完了"
-msgstr "Update ready to install"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "再起動してアップデートを適用します"
-msgstr "Relaunch the app to apply the update."
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "再起動して適用"
-msgstr "Relaunch to apply"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "待機中"
-msgstr "Idle"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "確認中…"
-msgstr "Checking…"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "利用可能"
-msgstr "Available"
-
-#: src/lib/components/UpdatesPanel.tsx
-msgid "ダウンロード中"
-msgstr "Downloading"
-
-#: src/lib/components/UpdatesPanel.tsx
+#: src/lib/components/UpdatesPanel.tsx:225
 msgid "再起動が必要"
 msgstr "Restart required"
 
-#: src/lib/components/UpdatesPanel.tsx
-msgid "エラー"
-msgstr "Error"
+#: src/lib/components/UpdatesPanel.tsx:201
+msgid "再起動してアップデートを適用します"
+msgstr "Relaunch the app to apply the update."
 
-#: src/lib/atoms/updateAtoms.ts
-msgid "アップデート確認に失敗"
-msgstr "Failed to check for updates"
+#: src/lib/components/UpdatesPanel.tsx:209
+msgid "再起動して適用"
+msgstr "Relaunch to apply"
 
-#: src/lib/atoms/updateAtoms.ts
-msgid "アップデートのダウンロードに失敗"
-msgstr "Failed to download update"
+#: src/lib/components/UpdatesPanel.tsx:81
+msgid "最新リリースを GitHub から取得してチェックします"
+msgstr "Fetch the latest release from GitHub and check for an upgrade."
+
+#: src/lib/components/UpdatesPanel.tsx:223
+msgid "利用可能"
+msgstr "Available"
+
+#: src/lib/components/SettingsPanel.tsx:291
+msgid "常に表示"
+msgstr "Always"
+
+#: src/lib/components/UpdatesPanel.tsx:221
+msgid "待機中"
+msgstr "Idle"
+
+#: src/lib/components/UpdatesPanel.tsx:155
+msgid "新しいバージョンが利用可能"
+msgstr "A new version is available"
+
+#: src/lib/components/SettingsPanel.tsx:317
+msgid "未保存"
+msgstr "Not saved"
+
+#: src/lib/components/UpdatesPanel.tsx:69
+msgid "現在のバージョン"
+msgstr "Current version"
+
+#: src/lib/components/UpdatesPanel.tsx:222
+msgid "確認中…"
+msgstr "Checking…"
+
+#: src/lib/components/UpdatesPanel.tsx:41
+#: src/lib/components/UpdatesPanel.tsx:107
+msgid "自動でアップデートを確認"
+msgstr "Check for updates automatically"
+
+#: src/lib/components/SettingsPanel.tsx:103
+msgid "表示言語"
+msgstr "Display language"
+
+#: src/lib/components/SettingsPanel.tsx:136
+msgid "言語"
+msgstr "Language"
+
+#: src/lib/components/SettingsPanel.tsx:125
+msgid "設定を検索 (検索機能は今後追加予定)"
+msgstr "Search settings (search feature coming soon)"
+
+#: src/lib/components/SettingsPanel.tsx:123
+msgid "設定を検索…"
+msgstr "Search settings…"
+
+#: src/lib/components/UpdatesPanel.tsx:109
+msgid "起動時と1日1回、自動でアップデートをチェックします"
+msgstr "Checks for updates on launch and once a day"

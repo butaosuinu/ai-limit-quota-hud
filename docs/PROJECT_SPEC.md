@@ -708,10 +708,15 @@ Auto-update is **shipped in v1** via `tauri-plugin-updater`:
   independent of OS code signing — the updater verifies its own minisign
   signature on the downloaded bundle regardless of whether the bundle itself
   carries a valid Developer ID or Authenticode signature.
-- The default-on startup updater check is an **explicit, documented
-  exception** to the AGENTS.md "no network call on startup" policy. Users
-  can opt out from **Settings → Updates → Check on startup** without
-  disabling the updater entirely (manual "Check now" still works).
+- The default-on updater check runs **on startup and once every 24 hours**
+  while the app stays open, an **explicit, documented exception** to the
+  AGENTS.md "no network call on startup" policy. Both automatic checks are
+  governed by a single **Settings → Updates → Check automatically** toggle;
+  turning it off stops the startup and the daily check without disabling the
+  updater entirely (manual "Check now" still works). The toggle is re-read on
+  every daily tick, so toggling it at runtime takes effect on the next tick.
+  The daily timer is a `tokio::time::sleep` loop: after a long system sleep it
+  may fire late, but it still fires and never drops a check.
 - OS-level code signing (Developer ID / `codesign` notarization, Windows
   Authenticode) remains tracked as future work in its own issue and is
   orthogonal to the updater signing keys above.

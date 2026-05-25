@@ -38,7 +38,7 @@ export function UpdatesPanel() {
   const downloadAndInstall = useSetAtom(downloadAndInstallAtom);
   const relaunchApp = useSetAtom(relaunchAfterUpdateAtom);
 
-  const checkUpdatesToggleLabel = _(msg`起動時にアップデートを確認`);
+  const checkUpdatesToggleLabel = _(msg`自動でアップデートを確認`);
 
   const chip = renderChip(status, _);
   const isChecking = status.kind === "checking";
@@ -104,8 +104,10 @@ export function UpdatesPanel() {
 
         <SettingsRow
           icon={<InfoIcon />}
-          title={_(msg`起動時にアップデートを確認`)}
-          description={_(msg`アプリ起動時に自動でアップデートをチェックします`)}
+          title={_(msg`自動でアップデートを確認`)}
+          description={_(
+            msg`起動時と1日1回、自動でアップデートをチェックします`,
+          )}
           accessory={
             <ToggleSwitch
               id="check-updates-on-startup"
