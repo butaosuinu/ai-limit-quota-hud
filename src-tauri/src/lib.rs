@@ -459,9 +459,9 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
 /// (`LastStartupStatus` cache + `UPDATER_STATUS_EVENT` emit). Shared by the
 /// startup check and the daily background loop.
 #[cfg_attr(coverage_nightly, coverage(off))]
-async fn run_update_check(handle: &AppHandle) {
+async fn run_update_check(handle: &AppHandle, source: updater::UpdateCheckSource) {
     use tauri_plugin_updater::UpdaterExt;
-    use updater::{LastStartupStatus, UpdateStatusPayload, UPDATER_STATUS_EVENT};
+    use updater::{LastStartupStatus, UpdateStatusEvent, UpdateStatusPayload, UPDATER_STATUS_EVENT};
 
     let payload = match handle.updater() {
         Ok(updater) => match updater.check().await {
@@ -485,9 +485,11 @@ async fn run_update_check(handle: &AppHandle) {
         }
     };
     // Persist before emitting so a webview that mounts after the emit
-    // can still recover the result via `get_last_update_status`.
+    // can still recover the result via `get_last_update_status`. The cache
+    // keeps the bare payload (no source) because bootstrap replays are always
+    // treated conservatively on the frontend.
     handle.state::<LastStartupStatus>().store(payload.clone());
-    if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
+    if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, UpdateStatusEvent { payload, source }) {
         log::warn!("failed to emit updater status: {err}");
     }
 }
@@ -495,7 +497,7 @@ async fn run_update_check(handle: &AppHandle) {
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn spawn_startup_update_check(handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        run_update_check(&handle).await;
+        run_update_check(&handle, updater::UpdateCheckSource::Startup).await;
     });
 }
 
@@ -509,7 +511,7 @@ fn spawn_daily_update_check(handle: AppHandle) {
         loop {
             tokio::time::sleep(DAILY_UPDATE_CHECK_INTERVAL).await;
             if handle.state::<AppState>().snapshot().check_updates_on_startup {
-                run_update_check(&handle).await;
+                run_update_check(&handle, updater::UpdateCheckSource::Daily).await;
             }
         }
     });

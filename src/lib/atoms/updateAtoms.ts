@@ -8,7 +8,11 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 
 import { i18n } from "../i18n";
-import { UPDATER_STATUS_EVENT, type UpdateStatusPayload } from "../types";
+import {
+  UPDATER_STATUS_EVENT,
+  type UpdateStatusEvent,
+  type UpdateStatusPayload,
+} from "../types";
 
 /**
  * Tauri 2 auto-updater bridge.
@@ -54,10 +58,14 @@ async function subscribeToBackendStatus(
   set: StatusSetter,
   lifecycle: Lifecycle,
 ): Promise<void> {
-  const unlisten = await listen<UpdateStatusPayload>(
+  const unlisten = await listen<UpdateStatusEvent>(
     UPDATER_STATUS_EVENT,
     (event) => {
-      set((prev) => nextStatusFromBackend(prev, event.payload));
+      // Live events are the freshest backend knowledge. A `daily` check is
+      // authoritative (see `shouldIgnoreBackendUpdate`); a `startup` check is
+      // treated conservatively because it can race a manual "check now".
+      const isDailyCheck = event.payload.source === "daily";
+      set((prev) => nextStatusFromBackend(prev, event.payload, isDailyCheck));
     },
   ).catch(() => undefined);
   if (unlisten === undefined) return;
@@ -77,49 +85,61 @@ async function subscribeToBackendStatus(
       () => undefined,
     )) ?? undefined;
   if (lifecycle.cancelled || last === undefined) return;
-  set((prev) => nextStatusFromBackend(prev, last));
+  // A bootstrap replay can be stale relative to a manual check the user has
+  // already run, so it is never treated as an authoritative daily result.
+  set((prev) => nextStatusFromBackend(prev, last, false));
 }
 
-function shouldIgnoreBackendUpdate(
-  prev: UpdateStatus,
-  payload: UpdateStatusPayload,
-): boolean {
-  // Manual operations (Check now / Download / Install) must win over backend
-  // events. A late startup `noUpdate` arriving while the user is mid-check or
-  // mid-download must not yank the UI back to idle and re-enable buttons.
-  if (
+// Manual operations (Check now / Download / Install) must win over backend
+// events: a late `noUpdate` arriving while the user is mid-check or
+// mid-download must not yank the UI back to idle and re-enable buttons.
+function isManualOperationActive(prev: UpdateStatus): boolean {
+  return (
     prev.kind === "checking" ||
     prev.kind === "downloading" ||
     prev.kind === "ready"
-  ) {
-    return true;
-  }
-  // An authoritative `available` (set by a manual check or by a fresher
-  // backend snapshot) must not be downgraded by a stale `noUpdate` / `error`
-  // arriving from an older startup check or from `get_last_update_status`.
-  // A newer `available` payload still upgrades — handled in the case below.
-  //
-  // Similarly, a fresh manual `error` must not be silently cleared by a late
-  // `noUpdate`; the user needs to see the failure. Backend `available` and
-  // `error` payloads are still allowed to overwrite an existing error since
-  // those represent strictly newer information.
+  );
+}
+
+// An authoritative `available` (set by a manual check or a fresher backend
+// snapshot) must not be downgraded by a stale `noUpdate` / `error` arriving
+// from a concurrent startup check or from `get_last_update_status`; a newer
+// `available` still upgrades. Likewise a fresh manual `error` must not be
+// silently cleared by a late `noUpdate` — the user needs to see the failure.
+function downgradesAuthoritativeState(
+  prev: UpdateStatus,
+  payload: UpdateStatusPayload,
+): boolean {
   if (
     prev.kind === "available" &&
     (payload.status === "noUpdate" || payload.status === "error")
   ) {
     return true;
   }
-  if (prev.kind === "error" && payload.status === "noUpdate") {
-    return true;
-  }
-  return false;
+  return prev.kind === "error" && payload.status === "noUpdate";
+}
+
+function shouldIgnoreBackendUpdate(
+  prev: UpdateStatus,
+  payload: UpdateStatusPayload,
+  isDailyCheck: boolean,
+): boolean {
+  if (isManualOperationActive(prev)) return true;
+  // A daily check is the freshest backend knowledge: a definitive `noUpdate`
+  // (the release was withdrawn, or the user updated by other means) must clear
+  // a now-stale `available`/`error` instead of leaving it stuck on screen. A
+  // daily `error`, by contrast, is a transient failure (network blip) and is
+  // left to the conservative guard below so it cannot hide a known `available`.
+  if (isDailyCheck && payload.status === "noUpdate") return false;
+  return downgradesAuthoritativeState(prev, payload);
 }
 
 function nextStatusFromBackend(
   prev: UpdateStatus,
   payload: UpdateStatusPayload,
+  isDailyCheck: boolean,
 ): UpdateStatus {
-  if (shouldIgnoreBackendUpdate(prev, payload)) return prev;
+  if (shouldIgnoreBackendUpdate(prev, payload, isDailyCheck)) return prev;
   switch (payload.status) {
     case "noUpdate":
       return prev.kind === "idle" ? prev : { kind: "idle" };

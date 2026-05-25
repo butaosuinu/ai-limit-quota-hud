@@ -120,6 +120,18 @@ export type UpdateStatusPayload =
   | { status: "available"; version: string; notes: string }
   | { status: "error"; message: string };
 
+/** Which automatic check produced a status. Mirrors Rust `UpdateCheckSource`. */
+export type UpdateCheckSource = "startup" | "daily";
+
+/**
+ * Payload of `UPDATER_STATUS_EVENT`: the status plus the originating check.
+ * Mirrors Rust `UpdateStatusEvent` (flattened payload + `source`). The cached
+ * `get_last_update_status` value stays the bare `UpdateStatusPayload`.
+ */
+export type UpdateStatusEvent = UpdateStatusPayload & {
+  source: UpdateCheckSource;
+};
+
 export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   opacity: 0.72,
   compact: false,

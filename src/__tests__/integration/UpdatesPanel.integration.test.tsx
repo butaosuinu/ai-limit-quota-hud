@@ -377,10 +377,10 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     expect(downloadAndInstall.mock.calls.length).toBe(1);
   });
 
-  it("manual check で available を確定した後に届く stale な noUpdate event は available 状態を維持する", async () => {
-    // backend startup check が遅れて noUpdate を emit するケース。すでに
-    // ユーザの「今すぐ確認」が available を確定させていれば、その authoritative
-    // な状態を idle へ巻き戻してはいけない。
+  it("manual check で available を確定した後に届く startup の noUpdate event は available 状態を維持する", async () => {
+    // 起動時 startup check が遅れて noUpdate を emit するケース。すでに
+    // ユーザの「今すぐ確認」が available を確定させていれば、startup は manual
+    // と並走しうるため、その authoritative な状態を idle へ巻き戻してはいけない。
     const fakeUpdate = {
       version: "3.0.0",
       body: "stable",
@@ -394,7 +394,46 @@ describe("設定画面の Updates セクション — ユーザー操作", () =>
     });
     expect(store.get(updateStatusAtom).kind).toBe("available");
     await act(async () => {
-      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate" });
+      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate", source: "startup" });
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
+    expect(screen.getByTestId("updates-download-button")).toBeTruthy();
+  });
+
+  it("daily check の noUpdate event は stale な available 表示をクリアする", async () => {
+    // bootstrap で available を表示した後、24h 後の定期チェックが noUpdate を
+    // 返したら (リリース取り下げ等)、最新の backend 状態として古い available を
+    // idle へ畳む。startup の late noUpdate (上のケース) とは扱いが異なる。
+    const bus = setupListen();
+    const { store } = await mountSettingsPanel({
+      lastUpdateStatus: { status: "available", version: "9.9.9", notes: "old" },
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, { status: "noUpdate", source: "daily" });
+      await flush();
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("idle");
+    expect(screen.getByTestId("updates-status-chip").textContent).toContain(
+      "待機中",
+    );
+  });
+
+  it("daily check の error event は known な available 表示を隠さない", async () => {
+    // 定期チェックの一時的失敗 (ネットワーク断) は available を上書きしない。
+    // noUpdate と違い error は「更新が無い」ことを意味しないため保守的に扱う。
+    const bus = setupListen();
+    const { store } = await mountSettingsPanel({
+      lastUpdateStatus: { status: "available", version: "9.9.9", notes: "old" },
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
+    await act(async () => {
+      bus.emit(UPDATER_STATUS_EVENT, {
+        status: "error",
+        message: "offline",
+        source: "daily",
+      });
       await flush();
     });
     expect(store.get(updateStatusAtom).kind).toBe("available");
