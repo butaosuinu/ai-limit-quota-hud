@@ -195,6 +195,23 @@ async function closeUpdate(update: Update | null): Promise<void> {
   await update.close().catch(() => undefined);
 }
 
+/**
+ * Resolve the `Update` handle to install. Reuses the cached handle when it
+ * matches the version shown on the panel; otherwise releases the stale handle
+ * and re-runs `check()` so a fresher backend `available` is never installed as
+ * an older release. Returns `null` when no update is available.
+ */
+async function resolveUpdateHandle(
+  cached: Update | null,
+  displayedVersion: string,
+): Promise<Update | Failure | null> {
+  if (cached !== null && cached.version === displayedVersion) return cached;
+  if (cached !== null) await closeUpdate(cached);
+  return await check().catch(
+    (err: unknown): Failure => failure(describeError(MSG.downloadFailed, err)),
+  );
+}
+
 /** Trigger an explicit "check now" round-trip. */
 export const checkForUpdatesAtom = atom(null, async (get, set) => {
   set(updateStatusAtom, { kind: "checking" });
@@ -247,39 +264,35 @@ export const downloadAndInstallAtom = atom(null, async (get, set) => {
 
   // The cached Update may be stale: a fresher backend `available` event can
   // overwrite the displayed version while leaving an older Update resource
-  // in `pendingUpdateAtom`. Re-fetch unless the cached version matches what
-  // the user is looking at, so we never install an older release than the
-  // one shown on the panel.
+  // in `pendingUpdateAtom`. `resolveUpdateHandle` re-fetches unless the cached
+  // version matches what the user is looking at.
   const cached = get(pendingUpdateAtom);
-  let update =
-    cached !== null && cached.version === displayedVersion ? cached : null;
-  if (update === null) {
-    // Release the stale handle (if any) before allocating a new one.
-    if (cached !== null) await closeUpdate(cached);
-    const recheck = await check().catch(
-      (err: unknown): Failure =>
-        failure(describeError(MSG.downloadFailed, err)),
-    );
-    if (isFailure(recheck)) {
-      set(pendingUpdateAtom, null);
-      set(updateStatusAtom, { kind: "error", message: recheck.message });
-      return;
-    }
-    if (recheck === null) {
-      set(pendingUpdateAtom, null);
-      set(updateStatusAtom, { kind: "idle" });
-      return;
-    }
-    update = recheck;
-    set(pendingUpdateAtom, recheck);
+  const resolved = await resolveUpdateHandle(cached, displayedVersion);
+  if (isFailure(resolved)) {
+    set(pendingUpdateAtom, null);
+    set(updateStatusAtom, { kind: "error", message: resolved.message });
+    return;
   }
+  if (resolved === null) {
+    set(pendingUpdateAtom, null);
+    set(updateStatusAtom, { kind: "idle" });
+    return;
+  }
+  const update = resolved;
+  // A freshly re-checked handle (≠ cached) becomes the new pending resource.
+  if (update !== cached) set(pendingUpdateAtom, update);
 
-  let downloaded = 0;
   const result = await update
     .downloadAndInstall((event) => {
       if (event.event === "Progress") {
-        downloaded += event.data.chunkLength;
-        set(updateStatusAtom, { kind: "downloading", progress: downloaded });
+        set(updateStatusAtom, (prev) =>
+          prev.kind === "downloading"
+            ? {
+                kind: "downloading",
+                progress: prev.progress + event.data.chunkLength,
+              }
+            : prev,
+        );
       } else if (event.event === "Finished") {
         set(updateStatusAtom, { kind: "ready" });
       }

@@ -2,7 +2,7 @@ import { msg } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLingui } from "@lingui/react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import {
   MAX_OPACITY,
@@ -14,6 +14,7 @@ import {
   type Locale,
   SUPPORTED_LOCALES,
   activateLocale,
+  isSupported,
   persistLocale,
 } from "../i18n";
 import {
@@ -56,13 +57,14 @@ const LOCALE_LABELS: Readonly<Record<Locale, string>> = {
 };
 
 function isMenuBarSummaryMode(value: string): value is MenuBarSummaryMode {
-  return (MENU_BAR_SUMMARY_MODES as readonly string[]).includes(value);
+  return MENU_BAR_SUMMARY_MODES.some((mode) => mode === value);
 }
 
 export function SettingsPanel() {
   const { i18n, _ } = useLingui();
   const settings = useAtomValue(overlaySettingsAtom);
   const updateSettings = useSetAtom(updateOverlaySettingsAtom);
+  const localeActivation = useRef<AbortController | undefined>(undefined);
 
   // Slider drives a local value during drag so the IPC fires only on release.
   const [draftOpacity, setDraftOpacity] = useState(settings.opacity);
@@ -140,9 +142,16 @@ export function SettingsPanel() {
                   value={i18n.locale}
                   aria-label={languageLabel}
                   onChange={(event) => {
-                    const next = event.currentTarget.value as Locale;
+                    const next = event.currentTarget.value;
+                    if (!isSupported(next)) return;
                     persistLocale(next);
-                    void activateLocale(next);
+                    localeActivation.current?.abort();
+                    const controller = new AbortController();
+                    localeActivation.current = controller;
+                    void activateLocale({
+                      locale: next,
+                      signal: controller.signal,
+                    });
                   }}
                 >
                   {SUPPORTED_LOCALES.map((locale) => (

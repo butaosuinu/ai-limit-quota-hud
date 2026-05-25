@@ -11,47 +11,43 @@ import {
 
 export const snapshotsAtom = atom<readonly UsageSnapshot[]>([]);
 
-type Lifecycle = {
-  cancelled: boolean;
-  unlisten: (() => void) | null;
-};
-
 snapshotsAtom.onMount = (set) => {
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
-  void bootstrapUsageSync(set, lifecycle);
-  return () => {
-    lifecycle.cancelled = true;
-    if (lifecycle.unlisten !== null) lifecycle.unlisten();
-  };
+  const mount = new AbortController();
+  void bootstrapUsageSync(set, mount.signal);
+  return () => mount.abort();
 };
 
 async function bootstrapUsageSync(
   set: (next: readonly UsageSnapshot[]) => void,
-  lifecycle: Lifecycle,
+  signal: AbortSignal,
 ): Promise<void> {
-  let receivedFreshEvent = false;
+  // A fresh `USAGE_UPDATED_EVENT` aborts this guard so the initial snapshot —
+  // which may already be stale — never rolls back event-delivered data.
+  const freshEvent = new AbortController();
   const unlisten = await listen<readonly UsageSnapshot[]>(
     USAGE_UPDATED_EVENT,
     (event) => {
-      receivedFreshEvent = true;
+      freshEvent.abort();
       set(event.payload);
     },
   ).catch((err: unknown) => {
     console.warn("usage subscription failed", err);
     return null;
   });
-  if (lifecycle.cancelled) {
+  if (signal.aborted) {
     if (unlisten !== null) unlisten();
     return;
   }
-  lifecycle.unlisten = unlisten;
+  if (unlisten !== null) {
+    signal.addEventListener("abort", () => unlisten(), { once: true });
+  }
 
   const initial = await listSnapshots().catch((err: unknown) => {
     console.warn("list_snapshots failed", err);
     return null;
   });
-  if (lifecycle.cancelled) return;
-  if (initial !== null && !receivedFreshEvent) set(initial);
+  if (signal.aborted) return;
+  if (initial !== null && !freshEvent.signal.aborted) set(initial);
 }
 
 const STATUS_PRIORITY: Record<SnapshotStatus, number> = {
