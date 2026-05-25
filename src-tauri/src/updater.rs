@@ -47,16 +47,19 @@ pub struct UpdateStatusEvent {
 /// Backend-side cache of the most recent update-check result (startup check or
 /// the daily background check). The settings webview may mount after a check
 /// has already emitted the event, so the frontend reads this on bootstrap to
-/// recover the value.
+/// recover the value. The full `UpdateStatusEvent` (including `source`) is kept
+/// so a bootstrap replay can apply the same freshness rule as a live event —
+/// e.g. a cached daily `noUpdate` can still clear a stale `available` when the
+/// live event was missed (renderer reload / panel remount).
 #[derive(Default)]
-pub struct LastStartupStatus(Mutex<Option<UpdateStatusPayload>>);
+pub struct LastStartupStatus(Mutex<Option<UpdateStatusEvent>>);
 
 impl LastStartupStatus {
-    pub fn store(&self, status: UpdateStatusPayload) {
+    pub fn store(&self, status: UpdateStatusEvent) {
         *self.0.lock().expect("last-startup-status mutex poisoned") = Some(status);
     }
 
-    pub fn snapshot(&self) -> Option<UpdateStatusPayload> {
+    pub fn snapshot(&self) -> Option<UpdateStatusEvent> {
         self.0
             .lock()
             .expect("last-startup-status mutex poisoned")
@@ -73,17 +76,29 @@ mod tests {
         let status = LastStartupStatus::default();
         assert!(status.snapshot().is_none());
 
-        status.store(UpdateStatusPayload::NoUpdate);
+        status.store(UpdateStatusEvent {
+            payload: UpdateStatusPayload::NoUpdate,
+            source: UpdateCheckSource::Startup,
+        });
         assert!(matches!(
             status.snapshot(),
-            Some(UpdateStatusPayload::NoUpdate)
+            Some(UpdateStatusEvent {
+                payload: UpdateStatusPayload::NoUpdate,
+                source: UpdateCheckSource::Startup,
+            })
         ));
 
-        status.store(UpdateStatusPayload::Error {
-            message: "network unavailable".into(),
+        status.store(UpdateStatusEvent {
+            payload: UpdateStatusPayload::Error {
+                message: "network unavailable".into(),
+            },
+            source: UpdateCheckSource::Daily,
         });
         match status.snapshot() {
-            Some(UpdateStatusPayload::Error { message }) => {
+            Some(UpdateStatusEvent {
+                payload: UpdateStatusPayload::Error { message },
+                source: UpdateCheckSource::Daily,
+            }) => {
                 assert_eq!(message, "network unavailable");
             }
             other => panic!("expected latest error status, got {other:?}"),

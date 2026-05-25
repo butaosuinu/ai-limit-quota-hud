@@ -8,7 +8,10 @@ import { resetInvoke, setupInvoke } from "../helpers/invokeMock";
 import { setupListen } from "../helpers/eventBus";
 import { flush } from "../helpers/flush";
 import { overlaySettingsAtom } from "../../lib/atoms/overlayAtoms";
-import { updateStatusAtom } from "../../lib/atoms/updateAtoms";
+import {
+  type UpdateStatus,
+  updateStatusAtom,
+} from "../../lib/atoms/updateAtoms";
 import { SettingsPanel } from "../../lib/components/SettingsPanel";
 import { withI18n } from "../../test/i18nTestUtils";
 import {
@@ -26,9 +29,11 @@ import {
 async function mountSettingsPanel({
   initial = {},
   lastUpdateStatus = null,
+  initialStatus,
 }: {
   initial?: Partial<OverlaySettings>;
-  lastUpdateStatus?: UpdateStatusPayload | null;
+  lastUpdateStatus?: (UpdateStatusPayload & { source?: string }) | null;
+  initialStatus?: UpdateStatus;
 } = {}) {
   const merged: OverlaySettings = { ...DEFAULT_OVERLAY_SETTINGS, ...initial };
   setupInvoke({
@@ -40,6 +45,7 @@ async function mountSettingsPanel({
   });
   const store = createStore();
   store.set(overlaySettingsAtom, merged);
+  if (initialStatus !== undefined) store.set(updateStatusAtom, initialStatus);
   const rendered = render(
     withI18n(
       <Provider store={store}>
@@ -90,6 +96,28 @@ describe("設定画面の Updates セクション — 起動時 bootstrap", () =
       "offline",
     );
     expect(screen.getByTestId("updates-panel")).toBeTruthy();
+  });
+
+  it("cached daily noUpdate は remount で retain された stale な available をクリアする", async () => {
+    // ライブ daily event を取りこぼした状態 (renderer reload / panel remount で
+    // atom が available を保持したまま) で再マウントしても、cache に source 付き
+    // で残った daily noUpdate が bootstrap 経路で available をクリアする。
+    setupListen();
+    const { store } = await mountSettingsPanel({
+      initialStatus: { kind: "available", version: "9.9.9", notes: "old" },
+      lastUpdateStatus: { status: "noUpdate", source: "daily" },
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("idle");
+  });
+
+  it("cached startup noUpdate は retain された available を保守的に維持する", async () => {
+    // startup の cache は manual check と並走しうるため bootstrap でも保守的。
+    setupListen();
+    const { store } = await mountSettingsPanel({
+      initialStatus: { kind: "available", version: "9.9.9", notes: "old" },
+      lastUpdateStatus: { status: "noUpdate", source: "startup" },
+    });
+    expect(store.get(updateStatusAtom).kind).toBe("available");
   });
 });
 

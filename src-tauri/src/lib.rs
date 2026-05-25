@@ -99,7 +99,7 @@ fn get_overlay_settings(state: tauri::State<'_, AppState>) -> OverlaySettings {
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn get_last_update_status(
     state: tauri::State<'_, updater::LastStartupStatus>,
-) -> Option<updater::UpdateStatusPayload> {
+) -> Option<updater::UpdateStatusEvent> {
     state.snapshot()
 }
 
@@ -484,12 +484,13 @@ async fn run_update_check(handle: &AppHandle, source: updater::UpdateCheckSource
             }
         }
     };
-    // Persist before emitting so a webview that mounts after the emit
-    // can still recover the result via `get_last_update_status`. The cache
-    // keeps the bare payload (no source) because bootstrap replays are always
-    // treated conservatively on the frontend.
-    handle.state::<LastStartupStatus>().store(payload.clone());
-    if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, UpdateStatusEvent { payload, source }) {
+    // Persist before emitting so a webview that mounts after the emit can still
+    // recover the result via `get_last_update_status`. The cached event keeps
+    // its `source` so a bootstrap replay applies the same freshness rule as a
+    // live event (a daily `noUpdate` can clear a stale `available`).
+    let event = UpdateStatusEvent { payload, source };
+    handle.state::<LastStartupStatus>().store(event.clone());
+    if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, event) {
         log::warn!("failed to emit updater status: {err}");
     }
 }

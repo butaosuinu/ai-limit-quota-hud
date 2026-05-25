@@ -81,13 +81,15 @@ async function subscribeToBackendStatus(
   // Rust returns `Option<UpdateStatusPayload>` (JSON null when absent); a
   // stubbed IPC can resolve undefined — coalesce both to undefined.
   const last =
-    (await invoke<UpdateStatusPayload | null>("get_last_update_status").catch(
+    (await invoke<UpdateStatusEvent | null>("get_last_update_status").catch(
       () => undefined,
     )) ?? undefined;
   if (lifecycle.cancelled || last === undefined) return;
-  // A bootstrap replay can be stale relative to a manual check the user has
-  // already run, so it is never treated as an authoritative daily result.
-  set((prev) => nextStatusFromBackend(prev, last, false));
+  // The cached event keeps its `source`, so a replay applies the same freshness
+  // rule as a live event: a cached daily `noUpdate` clears a stale `available`
+  // even when the live daily event was missed (renderer reload / panel
+  // remount). A cached startup result stays conservative.
+  set((prev) => nextStatusFromBackend(prev, last, last.source === "daily"));
 }
 
 // Manual operations (Check now / Download / Install) must win over backend
