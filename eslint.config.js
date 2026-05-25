@@ -198,7 +198,6 @@ export default tseslint.config(
       "@typescript-eslint/strict-void-return": "off",
       "@typescript-eslint/no-redundant-type-constituents": "off",
       "@typescript-eslint/prefer-destructuring": "off",
-      "@typescript-eslint/no-unsafe-type-assertion": "off",
       "@typescript-eslint/no-unnecessary-condition": "off",
       "functional/no-throw-statements": "off",
       "no-negated-condition": "off",
@@ -223,9 +222,7 @@ export default tseslint.config(
       "functional/no-expression-statements": "off",
       "functional/no-return-void": "off",
       "functional/no-conditional-statements": "off",
-      "functional/no-let": "off",
       "functional/immutable-data": "off",
-      "@typescript-eslint/no-unsafe-type-assertion": "off",
     },
   },
   {
@@ -237,7 +234,6 @@ export default tseslint.config(
       "functional/no-class-inheritance": "off",
       "functional/no-this-expressions": "off",
       "functional/immutable-data": "off",
-      "functional/no-let": "off",
       "functional/no-conditional-statements": "off",
       "no-console": "off",
       "no-param-reassign": "off",
@@ -249,7 +245,6 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-call": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-return": "off",
-      "@typescript-eslint/no-unsafe-type-assertion": "off",
     },
   },
   {

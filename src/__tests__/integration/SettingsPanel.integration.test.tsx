@@ -1,6 +1,13 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Provider, createStore } from "jotai";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { i18n } from "@lingui/core";
 
 import { resetInvoke, setupInvoke } from "../helpers/invokeMock";
 import { setupListen } from "../helpers/eventBus";
@@ -37,6 +44,15 @@ async function mountSettings(
   });
   return { store, ...rendered };
 }
+
+beforeEach(() => {
+  window.localStorage.clear();
+  // Restore ja before each test mounts (nothing is rendered yet, so this can't
+  // trigger an out-of-act I18nProvider update). Locale-switch tests mutate the
+  // shared `i18n` singleton; this keeps the Japanese-label queries valid and
+  // prevents one test's en activation from leaking into the next.
+  i18n.activate("ja");
+});
 
 afterEach(() => {
   resetInvoke();
@@ -176,6 +192,38 @@ describe("SettingsPanel integration — reset", () => {
     expect(next.opacity).toBe(DEFAULT_OVERLAY_SETTINGS.opacity);
     expect(next.compact).toBe(DEFAULT_OVERLAY_SETTINGS.compact);
     expect(next.locked).toBe(DEFAULT_OVERLAY_SETTINGS.locked);
+  });
+});
+
+describe("SettingsPanel integration — locale select", () => {
+  it("persistsAndActivatesSelectedLocaleOnChange", async () => {
+    setupListen();
+    await mountSettings();
+    const select = screen.getByLabelText("表示言語") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "en" } });
+    // persistLocale is synchronous; activateLocale's dynamic import resolves
+    // asynchronously, so poll i18n.locale rather than relying on a fixed flush.
+    expect(window.localStorage.getItem("quotahud.locale")).toBe("en");
+    await waitFor(() => {
+      expect(i18n.locale).toBe("en");
+    });
+  });
+
+  it("supersedesThePreviousActivationOnRepeatedLocaleSwitch", async () => {
+    setupListen();
+    await mountSettings();
+    const select = screen.getByLabelText("表示言語") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "en" } });
+    await waitFor(() => {
+      expect(i18n.locale).toBe("en");
+    });
+    // Second switch aborts the prior (settled) controller before starting a new
+    // activation, then settles on ja.
+    fireEvent.change(select, { target: { value: "ja" } });
+    expect(window.localStorage.getItem("quotahud.locale")).toBe("ja");
+    await waitFor(() => {
+      expect(i18n.locale).toBe("ja");
+    });
   });
 });
 

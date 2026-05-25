@@ -16,43 +16,37 @@ export const overlaySettingsAtom = atom<OverlaySettings>(
   DEFAULT_OVERLAY_SETTINGS,
 );
 
-type Lifecycle = {
-  cancelled: boolean;
-  unlisten: (() => void) | undefined;
-};
-
 overlaySettingsAtom.onMount = (set) => {
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: undefined };
-  void bootstrapOverlaySync(set, lifecycle);
-  return () => {
-    lifecycle.cancelled = true;
-    if (lifecycle.unlisten !== undefined) lifecycle.unlisten();
-  };
+  const mount = new AbortController();
+  void bootstrapOverlaySync(set, mount.signal);
+  return () => mount.abort();
 };
 
 async function bootstrapOverlaySync(
   set: (next: OverlaySettings) => void,
-  lifecycle: Lifecycle,
+  signal: AbortSignal,
 ): Promise<void> {
   // Subscribe first so events emitted while we wait on `get_overlay_settings`
-  // aren't lost. Track whether a fresher event has already landed so the
-  // initial snapshot — which may already be stale — doesn't roll it back.
-  let receivedFreshEvent = false;
+  // aren't lost. A fresh event aborts this guard so the initial snapshot —
+  // which may already be stale — doesn't roll it back.
+  const freshEvent = new AbortController();
   const unlisten = await listen<{ settings: WireOverlaySettings }>(
     OVERLAY_SETTINGS_CHANGED_EVENT,
     (event) => {
-      receivedFreshEvent = true;
+      freshEvent.abort();
       set(normalizeOverlaySettings(event.payload.settings));
     },
   ).catch((err: unknown) => {
     console.warn("overlay settings event subscription failed", err);
     return undefined;
   });
-  if (lifecycle.cancelled) {
+  if (signal.aborted) {
     if (unlisten !== undefined) unlisten();
     return;
   }
-  lifecycle.unlisten = unlisten;
+  if (unlisten !== undefined) {
+    signal.addEventListener("abort", () => unlisten(), { once: true });
+  }
 
   const wire = await invoke<WireOverlaySettings>("get_overlay_settings").catch(
     (err: unknown) => {
@@ -60,12 +54,12 @@ async function bootstrapOverlaySync(
       return undefined;
     },
   );
-  if (lifecycle.cancelled) return;
+  if (signal.aborted) return;
   // A stubbed/empty IPC response can yield `undefined`; committing it would
   // crash any consumer that reads `settings.*`.
   const initial =
     wire === undefined ? undefined : normalizeOverlaySettings(wire);
-  if (initial !== undefined && !receivedFreshEvent) set(initial);
+  if (initial !== undefined && !freshEvent.signal.aborted) set(initial);
 }
 
 /**

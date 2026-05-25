@@ -6,8 +6,8 @@ export const SUPPORTED_LOCALES = ["ja", "en"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 export const DEFAULT_LOCALE: Locale = "en";
 
-function isSupported(value: string): value is Locale {
-  return (SUPPORTED_LOCALES as readonly string[]).includes(value);
+export function isSupported(value: string): value is Locale {
+  return SUPPORTED_LOCALES.some((supported) => supported === value);
 }
 
 export function detectLocale(): Locale {
@@ -22,18 +22,20 @@ export function persistLocale(locale: Locale): void {
   window.localStorage.setItem(STORAGE_KEY, locale);
 }
 
-// Monotonic counter so rapid locale toggles (ja → en → ja) only commit the
-// most recent request. Without this guard a late-resolving import could
-// overwrite a fresher activation and desync `i18n.locale` from localStorage.
-let activationToken = 0;
+type LocaleMessages = { messages: Record<string, string> };
 
-export async function activateLocale(locale: Locale): Promise<void> {
-  activationToken += 1;
-  const token = activationToken;
-  const mod = (await import(`../locales/${locale}/messages.ts`)) as {
-    messages: Record<string, string>;
-  };
-  if (token !== activationToken) return;
+// `signal` cancels a superseded activation: rapid locale toggles (ja → en → ja)
+// abort earlier requests so a late-resolving dynamic import can't overwrite a
+// fresher activation and desync `i18n.locale` from localStorage.
+export async function activateLocale({
+  locale,
+  signal,
+}: {
+  locale: Locale;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const mod: LocaleMessages = await import(`../locales/${locale}/messages.ts`);
+  if (signal?.aborted === true) return;
   i18n.load(locale, mod.messages);
   i18n.activate(locale);
 }

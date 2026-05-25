@@ -39,7 +39,7 @@ async function bootstrap(): Promise<void> {
 
   const [{ I18nProvider }, { activateLocale, detectLocale, i18n }] =
     await Promise.all([import("@lingui/react"), import("./lib/i18n")]);
-  await activateLocale(detectLocale());
+  await activateLocale({ locale: detectLocale() });
   root.render(
     <React.StrictMode>
       <Provider>

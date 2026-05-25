@@ -95,6 +95,7 @@ Before considering work complete:
   - JSX コンテンツ: `<Trans>テキスト</Trans>`（`@lingui/react/macro`）
   - 属性値（placeholder, aria-label, title 等）: `t` マクロ（`@lingui/react/macro` の `useLingui`）
   - 定数・ラベル定義: `msg` マクロ（`@lingui/core/macro`）
+- 例外: overlay ウィンドウのコンポーネント（`src/lib/components/Overlay.tsx` / `UsageRow.tsx` / `ErrorBadge.tsx`）は対象外。overlay 起動パスを i18n オーバーヘッドゼロに保つため Lingui ランタイムは settings ウィンドウだけで dynamic import しており（`src/main.tsx` 参照）、overlay は英語固定 UI とする。これらのファイルは `lingui.config.ts` の `include` にも含めない。
 - UI テキスト変更後の手順: `pnpm i18n:extract` で PO を更新 → `src/locales/en/messages.po` の未翻訳エントリ（`msgstr ""`）に翻訳を記入 → `pnpm i18n:compile` でコンパイル済みファイルを再生成。
 - `sourceLocale` は `ja`、対象ロケールは `ja` / `en`（`lingui.config.ts`）。
 
