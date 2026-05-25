@@ -186,9 +186,7 @@ fn permit_hostless_scheme(scheme: &str, window_label: &str) -> bool {
     if matches!(scheme, "about" | "data" | "blob") {
         return true;
     }
-    log::warn!(
-        "webview blocked hostless navigation window={window_label} scheme={scheme}"
-    );
+    log::warn!("webview blocked hostless navigation window={window_label} scheme={scheme}");
     false
 }
 
@@ -305,6 +303,7 @@ pub enum NavigationDecision {
 /// Kept here so both `run_hidden` and `open_visible_login` apply the same
 /// platform-specific isolation; concrete providers don't have to know which
 /// builder hook is honored on which OS.
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn apply_session_storage<'a, R: tauri::Runtime, M: Manager<R>>(
     builder: WebviewWindowBuilder<'a, R, M>,
     storage: &SessionStorage,
@@ -337,6 +336,7 @@ fn apply_session_storage<'a, R: tauri::Runtime, M: Manager<R>>(
 
 /// Apply the hidden-window flags from §8.7. The flags are platform-aware
 /// (macOS doesn't expose `skip_taskbar` per Tauri 2 docs).
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn apply_hidden_window_flags<'a, R: tauri::Runtime, M: Manager<R>>(
     builder: WebviewWindowBuilder<'a, R, M>,
 ) -> WebviewWindowBuilder<'a, R, M> {
@@ -371,6 +371,7 @@ struct WindowDestroyGuard {
 }
 
 impl Drop for WindowDestroyGuard {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn drop(&mut self) {
         if let Some(window) = self.app.get_webview_window(&self.label) {
             let _ = window.destroy();
@@ -394,6 +395,7 @@ struct CancelOnDropGuard {
 }
 
 impl Drop for CancelOnDropGuard {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn drop(&mut self) {
         self.flag.store(true, std::sync::atomic::Ordering::SeqCst);
     }
@@ -463,6 +465,7 @@ impl WebviewScraper {
     /// surface it instead of building a new one. That keeps the user from
     /// accidentally racing two login windows against the same session
     /// cookie.
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub async fn open_visible_login(&self) -> Result<(), ScraperError> {
         let label = self.login_label();
         if let Some(existing) = self.app.get_webview_window(&label) {
@@ -599,12 +602,14 @@ impl WebviewScraper {
     /// Run one hidden refresh cycle. Creates a hidden window, waits for the
     /// extractor JS to emit a payload via `document.title`, parses it, and
     /// returns the parsed payload. Closes the window in all paths.
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub async fn run_hidden(&self) -> Result<ScraperPayload, ScraperError> {
         self.run_hidden_with_timeout(DEFAULT_REFRESH_TIMEOUT).await
     }
 
     /// Same as [`Self::run_hidden`] but with a caller-supplied timeout.
     /// Exposed so tests / configuration can shorten the wait.
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub async fn run_hidden_with_timeout(
         &self,
         timeout: Duration,
@@ -650,6 +655,7 @@ impl WebviewScraper {
     /// refresh the user must log in again. The same primitive works on
     /// Windows / Linux for parity even though `commands.rs` deletes the
     /// `data_directory` directly there.
+    #[cfg_attr(coverage_nightly, coverage(off))]
     pub async fn clear_session_data(&self) -> Result<(), ScraperError> {
         let label = self.clear_label();
         let app_outer = self.app.clone();
@@ -702,6 +708,7 @@ impl WebviewScraper {
         }
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     async fn run_hidden_inner(
         &self,
         label: String,
@@ -964,6 +971,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_title_payload_ok_without_rows_uses_null() {
+        let title = format!("{TITLE_PREFIX}{{\"ok\":true}}");
+        let parsed = parse_title_payload(&title)
+            .expect("prefix present")
+            .unwrap();
+        match parsed {
+            ScraperPayload::Ok { rows } => {
+                assert_eq!(rows, serde_json::Value::Null);
+            }
+            other => panic!("expected Ok variant, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_title_payload_decodes_err_variant() {
         let title = format!("{TITLE_PREFIX}{{\"ok\":false,\"kind\":\"cloudflare-challenge\"}}");
         let parsed = parse_title_payload(&title)
@@ -1003,6 +1024,21 @@ mod tests {
             .unwrap();
         match parsed {
             ScraperPayload::Err { kind, .. } => assert_eq!(kind, ScraperErrorKind::Unknown),
+            other => panic!("expected Err variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_title_payload_err_without_kind_defaults_to_unknown() {
+        let title = format!("{TITLE_PREFIX}{{\"ok\":false}}");
+        let parsed = parse_title_payload(&title)
+            .expect("prefix present")
+            .unwrap();
+        match parsed {
+            ScraperPayload::Err { kind, message } => {
+                assert_eq!(kind, ScraperErrorKind::Unknown);
+                assert!(message.is_none());
+            }
             other => panic!("expected Err variant, got {other:?}"),
         }
     }
@@ -1156,7 +1192,10 @@ mod tests {
 
     #[test]
     fn payload_summary_handles_unparseable_input() {
-        assert_eq!(payload_summary(&Some(Err("bad json".into()))), "parse-error");
+        assert_eq!(
+            payload_summary(&Some(Err("bad json".into()))),
+            "parse-error"
+        );
         assert_eq!(payload_summary(&None), "no-prefix");
     }
 

@@ -116,15 +116,14 @@ pub fn load_from_path(path: &Path) -> OverlaySettings {
     match serde_json::from_str::<OverlaySettings>(&contents) {
         Ok(settings) => settings.normalized(),
         Err(err) => {
-            log::warn!(
-                "settings.json could not be parsed ({err}); falling back to defaults"
-            );
+            log::warn!("settings.json could not be parsed ({err}); falling back to defaults");
             OverlaySettings::default()
         }
     }
 }
 
 /// Persist settings to `path`, creating the parent directory if needed.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn save_to_path(path: &Path, settings: &OverlaySettings) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

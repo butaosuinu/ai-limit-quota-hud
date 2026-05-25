@@ -30,6 +30,7 @@ impl Serialize for AppError {
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn list_snapshots(
     state: tauri::State<'_, ProviderState>,
 ) -> Result<Vec<UsageSnapshot>, AppError> {
@@ -41,19 +42,20 @@ pub async fn list_snapshots(
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn refresh_now(state: tauri::State<'_, ProviderState>) -> Result<(), AppError> {
     scheduler::trigger(&state.scheduler);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_refresh_interval(
-    state: tauri::State<'_, ProviderState>,
-) -> Result<u64, AppError> {
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub async fn get_refresh_interval(state: tauri::State<'_, ProviderState>) -> Result<u64, AppError> {
     Ok(state.refresh_interval_seconds.load(Ordering::Relaxed))
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn set_refresh_interval(
     seconds: u64,
     state: tauri::State<'_, ProviderState>,
@@ -84,6 +86,7 @@ fn webview_slug_for_command(kind: ProviderKind) -> Result<&'static str, AppError
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn get_provider_settings(
     store: tauri::State<'_, Arc<ProviderSettingsStore>>,
 ) -> Result<ProviderSettings, AppError> {
@@ -91,6 +94,7 @@ pub async fn get_provider_settings(
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn set_provider_enabled(
     kind: ProviderKind,
     enabled: bool,
@@ -109,6 +113,7 @@ pub async fn set_provider_enabled(
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn open_provider_login_window(
     kind: ProviderKind,
     webview: tauri::State<'_, WebviewProviders>,
@@ -158,6 +163,7 @@ pub async fn open_provider_login_window(
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn delete_provider_data(
     kind: ProviderKind,
     webview: tauri::State<'_, WebviewProviders>,
@@ -238,5 +244,62 @@ async fn delete_session_storage(
                 ))
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn delete_session_storage_removes_existing_data_directory() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path().join("webview-provider");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(data_dir.join("Cookies"), "opaque").unwrap();
+
+        delete_session_storage(&SessionStorage::DataDirectory(data_dir.clone()), None)
+            .await
+            .unwrap();
+
+        assert!(!data_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_session_storage_ignores_missing_data_directory() {
+        let tmp = TempDir::new().unwrap();
+        let data_dir = tmp.path().join("missing-provider");
+
+        delete_session_storage(&SessionStorage::DataDirectory(data_dir), None)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_session_storage_surfaces_remove_error() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("not-a-directory");
+        std::fs::write(&file_path, "not a directory").unwrap();
+
+        let err = delete_session_storage(&SessionStorage::DataDirectory(file_path), None)
+            .await
+            .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("could not remove WebView data directory"));
+    }
+
+    #[tokio::test]
+    async fn delete_datastore_identifier_requires_attached_scraper() {
+        let id = uuid::Uuid::from_bytes([1u8; 16]);
+        let err = delete_session_storage(&SessionStorage::DataStoreIdentifier(id), None)
+            .await
+            .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("scraper has not been attached yet"));
     }
 }

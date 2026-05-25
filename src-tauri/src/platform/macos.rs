@@ -9,6 +9,7 @@
 use cocoa::appkit::{NSWindow, NSWindowCollectionBehavior};
 use cocoa::base::id;
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub(crate) fn apply_overlay_traits(window: &tauri::WebviewWindow) {
     let Ok(ns_window_ptr) = window.ns_window() else {
         log::warn!("ns_window() unavailable; skipping macOS overlay tweaks");

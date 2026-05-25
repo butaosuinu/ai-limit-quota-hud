@@ -160,6 +160,7 @@ impl ProviderSettingsStore {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

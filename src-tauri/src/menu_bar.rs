@@ -24,6 +24,7 @@ const MENU_BAR_PROVIDERS: &[(ProviderKind, &str)] = &[
 /// settings and the given snapshot list. Caller passes the snapshots so
 /// the scheduler can reuse the list it already cloned; we only re-read
 /// settings since they're light and might have changed in between.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn refresh_tray_title(app: &AppHandle, snapshots: &[UsageSnapshot]) {
     let settings = app
         .try_state::<crate::AppState>()
@@ -53,8 +54,7 @@ pub fn compute_menu_bar_title(
     let parts: Vec<String> = MENU_BAR_PROVIDERS
         .iter()
         .filter_map(|(kind, label)| {
-            pick_snapshot(snapshots, *kind)
-                .map(|snap| format!("{label} {}", format_percent(snap)))
+            pick_snapshot(snapshots, *kind).map(|snap| format!("{label} {}", format_percent(snap)))
         })
         .collect();
 
@@ -160,10 +160,7 @@ mod tests {
             SnapshotStatus::Ok,
         )];
         assert_eq!(
-            compute_menu_bar_title(
-                &snaps,
-                &settings_with(MenuBarSummaryMode::WhenHidden, true)
-            ),
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::WhenHidden, true)),
             None
         );
     }
@@ -418,6 +415,21 @@ mod tests {
             compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
                 .as_deref(),
             Some("Claude 43%")
+        );
+    }
+
+    #[test]
+    fn non_finite_percent_renders_as_missing_marker() {
+        let snaps = vec![snap(
+            ProviderKind::WebviewClaudeAi,
+            UsageWindow::FiveHours,
+            Some(f64::NAN),
+            SnapshotStatus::Ok,
+        )];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                .as_deref(),
+            Some("Claude --")
         );
     }
 

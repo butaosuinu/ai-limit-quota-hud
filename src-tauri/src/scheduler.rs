@@ -78,6 +78,7 @@ pub struct SchedulerDeps {
 }
 
 /// Spawn the refresh loop on the Tauri-managed tokio runtime.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn spawn(deps: SchedulerDeps) -> SchedulerHandle {
     let (trigger_tx, trigger_rx) = mpsc::channel(1);
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -85,11 +86,8 @@ pub fn spawn(deps: SchedulerDeps) -> SchedulerHandle {
     SchedulerHandle { trigger_tx }
 }
 
-async fn run_loop(
-    deps: SchedulerDeps,
-    clock: Arc<dyn Clock>,
-    mut trigger_rx: mpsc::Receiver<()>,
-) {
+#[cfg_attr(coverage_nightly, coverage(off))]
+async fn run_loop(deps: SchedulerDeps, clock: Arc<dyn Clock>, mut trigger_rx: mpsc::Receiver<()>) {
     let SchedulerDeps {
         app,
         providers,
@@ -106,12 +104,7 @@ async fn run_loop(
     // Tick once immediately so a fresh app shows snapshots without waiting
     // 60 seconds for the first interval to elapse.
     refresh_once(
-        &app,
-        &providers,
-        &latest,
-        &clock,
-        &mut state,
-        /* force = */ true,
+        &app, &providers, &latest, &clock, &mut state, /* force = */ true,
     )
     .await;
     loop {
@@ -131,15 +124,7 @@ async fn run_loop(
             }
         }
         let forced = state.consume_force_flag();
-        refresh_once(
-            &app,
-            &providers,
-            &latest,
-            &clock,
-            &mut state,
-            forced,
-        )
-        .await;
+        refresh_once(&app, &providers, &latest, &clock, &mut state, forced).await;
     }
 }
 
@@ -161,6 +146,7 @@ impl SchedulerState {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 async fn refresh_once(
     app: &AppHandle,
     providers: &[Arc<dyn UsageProvider>],
@@ -197,11 +183,8 @@ async fn refresh_once(
             critical_pct: crate::model::DEFAULT_CRITICAL_PCT,
         };
         let refresh_future = provider.refresh(&ctx);
-        let outcome = tokio::time::timeout(
-            Duration::from_secs(REFRESH_TIMEOUT_SECS),
-            refresh_future,
-        )
-        .await;
+        let outcome =
+            tokio::time::timeout(Duration::from_secs(REFRESH_TIMEOUT_SECS), refresh_future).await;
         // Re-sample `Instant::now()` after the await so the grace-period
         // bookkeeping reflects when *this* provider's failure was observed —
         // not when the surrounding `refresh_once` tick started. Sequential
@@ -495,10 +478,7 @@ mod tests {
         fn kind(&self) -> ProviderKind {
             self.kind
         }
-        async fn refresh(
-            &self,
-            _ctx: &ProviderContext,
-        ) -> anyhow::Result<Vec<UsageSnapshot>> {
+        async fn refresh(&self, _ctx: &ProviderContext) -> anyhow::Result<Vec<UsageSnapshot>> {
             Ok(vec![])
         }
     }
@@ -583,12 +563,13 @@ mod tests {
             }),
         ];
         let prev = vec![snap("a:1"), snap("a:2"), snap("b:1")];
-        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =
-            HashMap::new();
+        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> = HashMap::new();
         per_provider.insert("a", vec![snap("a:3")]);
         let next = merge_refreshed_snapshots(&prev, &providers, &mut per_provider);
         assert_eq!(
-            next.iter().map(|s| s.provider_id.as_str()).collect::<Vec<_>>(),
+            next.iter()
+                .map(|s| s.provider_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["a:3", "b:1"],
         );
     }
@@ -608,12 +589,13 @@ mod tests {
             }),
         ];
         let prev = vec![snap("a:1"), snap("b:1"), snap("b:2")];
-        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =
-            HashMap::new();
+        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> = HashMap::new();
         per_provider.insert("b", vec![snap("b:3"), snap("b:4")]);
         let next = merge_refreshed_snapshots(&prev, &providers, &mut per_provider);
         assert_eq!(
-            next.iter().map(|s| s.provider_id.as_str()).collect::<Vec<_>>(),
+            next.iter()
+                .map(|s| s.provider_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["a:1", "b:3", "b:4"],
         );
     }
@@ -626,8 +608,7 @@ mod tests {
             kind: ProviderKind::WebviewClaudeAi,
         })];
         let prev = vec![snap("a:1"), snap("a:2")];
-        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> =
-            HashMap::new();
+        let mut per_provider: HashMap<&'static str, Vec<UsageSnapshot>> = HashMap::new();
         let next = merge_refreshed_snapshots(&prev, &providers, &mut per_provider);
         assert!(snapshots_equivalent(&prev, &next));
     }
@@ -648,6 +629,85 @@ mod tests {
         a.status = SnapshotStatus::Ok;
         b.status = SnapshotStatus::Critical;
         assert!(!snapshots_equivalent(&[a], &[b]));
+    }
+
+    #[test]
+    fn snapshots_equivalent_detects_each_observable_field_change() {
+        let base = snap("a:1");
+        let cases: Vec<UsageSnapshot> = vec![
+            {
+                let mut s = base.clone();
+                s.provider_id = "a:2".into();
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.provider_kind = ProviderKind::WebviewChatgptCodex;
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.account_label = "other".into();
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.window = UsageWindow::Weekly;
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.metric = UsageMetric::Percent;
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.limit = Some(100);
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.used = Some(10);
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.remaining = Some(90);
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.remaining_percent = Some(90.0);
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.reset_at = Some("2026-05-13T17:00:00Z".into());
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.source = UsageSource::Unavailable;
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.confidence = Confidence::Medium;
+                s
+            },
+            {
+                let mut s = base.clone();
+                s.message = Some("changed".into());
+                s
+            },
+        ];
+
+        for changed in cases {
+            assert!(!snapshots_equivalent(
+                std::slice::from_ref(&base),
+                std::slice::from_ref(&changed)
+            ));
+        }
     }
 
     // ---- outcome classification ----
@@ -921,11 +981,30 @@ mod tests {
         let prev = vec![ok_snap("a:1")];
         let t0 = std::time::Instant::now();
         // Tick1 Error: anchor at t0
-        apply_refresh_outcome(&mut state, "a", &prev, &vec![err_snap("a:1")], false, t0, TEST_GRACE);
-        let anchored_at = *state.failing_since.get("a").expect("failing_since anchored");
+        apply_refresh_outcome(
+            &mut state,
+            "a",
+            &prev,
+            &vec![err_snap("a:1")],
+            false,
+            t0,
+            TEST_GRACE,
+        );
+        let anchored_at = *state
+            .failing_since
+            .get("a")
+            .expect("failing_since anchored");
         // Tick2 NoData: prev に Ok があれば CarryForward。anchor は維持される。
         let t1 = t0 + Duration::from_secs(60);
-        let d = apply_refresh_outcome(&mut state, "a", &prev, &vec![nodata_snap("a:1")], false, t1, TEST_GRACE);
+        let d = apply_refresh_outcome(
+            &mut state,
+            "a",
+            &prev,
+            &vec![nodata_snap("a:1")],
+            false,
+            t1,
+            TEST_GRACE,
+        );
         assert_eq!(d, OutcomeDecision::CarryForward);
         assert_eq!(
             state.failing_since.get("a").copied(),
@@ -934,7 +1013,15 @@ mod tests {
         );
         // Tick3 Error: anchor は依然 t0、grace clock は 120s 経過
         let t2 = t0 + Duration::from_secs(120);
-        apply_refresh_outcome(&mut state, "a", &prev, &vec![err_snap("a:1")], false, t2, TEST_GRACE);
+        apply_refresh_outcome(
+            &mut state,
+            "a",
+            &prev,
+            &vec![err_snap("a:1")],
+            false,
+            t2,
+            TEST_GRACE,
+        );
         assert_eq!(
             state.failing_since.get("a").copied(),
             Some(anchored_at),

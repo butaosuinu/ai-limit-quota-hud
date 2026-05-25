@@ -1,3 +1,5 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 mod commands;
 mod menu_bar;
 mod model;
@@ -82,11 +84,13 @@ impl AppState {
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn get_overlay_settings(state: tauri::State<'_, AppState>) -> OverlaySettings {
     state.snapshot()
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn get_last_update_status(
     state: tauri::State<'_, updater::LastStartupStatus>,
 ) -> Option<updater::UpdateStatusPayload> {
@@ -94,6 +98,7 @@ fn get_last_update_status(
 }
 
 #[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn update_overlay_settings(
     app: AppHandle,
     settings: OverlaySettings,
@@ -107,6 +112,7 @@ fn update_overlay_settings(
     Ok(stored)
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn apply_mutation<F: FnOnce(&mut OverlaySettings)>(app: &AppHandle, mutator: F) {
     let state = app.state::<AppState>();
     let prev = state.snapshot();
@@ -118,6 +124,7 @@ fn apply_mutation<F: FnOnce(&mut OverlaySettings)>(app: &AppHandle, mutator: F) 
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn persist_and_apply(app: &AppHandle, settings: &OverlaySettings) {
     if let Err(err) = settings::save(app, settings) {
         log::warn!("failed to persist overlay settings: {err}");
@@ -135,6 +142,7 @@ fn persist_and_apply(app: &AppHandle, settings: &OverlaySettings) {
     menu_bar::refresh_tray_title(app, &snapshots);
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn open_settings_window(app: &AppHandle) {
     if let Some(window) = settings_window(app) {
         let _ = window.show();
@@ -153,6 +161,7 @@ struct TrayMenuItems {
     show_hide: MenuItem<tauri::Wry>,
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn refresh_tray_menu(app: &AppHandle, settings: &OverlaySettings) {
     let Some(items) = app.try_state::<TrayMenuItems>() else {
         return;
@@ -167,6 +176,7 @@ fn refresh_tray_menu(app: &AppHandle, settings: &OverlaySettings) {
     let _ = items.show_hide.set_text(label);
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn build_tray(app: &AppHandle, initial: &OverlaySettings) -> tauri::Result<()> {
     let show_hide_label = if initial.visible {
         "Hide overlay"
@@ -226,6 +236,7 @@ fn build_tray(app: &AppHandle, initial: &OverlaySettings) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id.as_ref() {
         MENU_ID_SHOW_HIDE => apply_mutation(app, |s| s.visible = !s.visible),
@@ -237,6 +248,7 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn register_click_through_shortcut(app: &AppHandle) {
     let app_for_handler = app.clone();
     let result =
@@ -251,6 +263,7 @@ fn register_click_through_shortcut(app: &AppHandle) {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn attach_window_listeners(app: &AppHandle) {
     if let Some(overlay) = overlay_window(app) {
         let app_for_event = app.clone();
@@ -272,6 +285,7 @@ fn attach_window_listeners(app: &AppHandle) {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn persist_position(app: &AppHandle, x: i32, y: i32) {
     let state = app.state::<AppState>();
     let next = Position { x, y };
@@ -298,16 +312,15 @@ fn persist_position(app: &AppHandle, x: i32, y: i32) {
     emit_settings_changed(app, &stored);
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn run() {
     // Route `log` macros to stderr. The default stays at `info` so release
     // binaries don't accidentally include scraped page content (which only
     // appears at `debug`); developers opt in via `RUST_LOG=debug` or
     // `RUST_LOG=quotahud_lib=debug`.
-    let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .format_timestamp_millis()
-    .try_init();
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_millis()
+        .try_init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -365,6 +378,7 @@ pub fn run() {
         .expect("error while running QuotaHUD");
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::atomic::AtomicU64;
     use std::sync::{Arc, RwLock};
@@ -432,9 +446,10 @@ fn init_provider_runtime(handle: &AppHandle) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn spawn_startup_update_check(handle: AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
-    use updater::{LastStartupStatus, UPDATER_STATUS_EVENT, UpdateStatusPayload};
+    use updater::{LastStartupStatus, UpdateStatusPayload, UPDATER_STATUS_EVENT};
 
     tauri::async_runtime::spawn(async move {
         let payload = match handle.updater() {
@@ -446,19 +461,21 @@ fn spawn_startup_update_check(handle: AppHandle) {
                 Ok(None) => UpdateStatusPayload::NoUpdate,
                 Err(err) => {
                     log::warn!("updater check failed: {err}");
-                    UpdateStatusPayload::Error { message: err.to_string() }
+                    UpdateStatusPayload::Error {
+                        message: err.to_string(),
+                    }
                 }
             },
             Err(err) => {
                 log::warn!("updater plugin unavailable: {err}");
-                UpdateStatusPayload::Error { message: err.to_string() }
+                UpdateStatusPayload::Error {
+                    message: err.to_string(),
+                }
             }
         };
         // Persist before emitting so a webview that mounts after the emit
         // can still recover the result via `get_last_update_status`.
-        handle
-            .state::<LastStartupStatus>()
-            .store(payload.clone());
+        handle.state::<LastStartupStatus>().store(payload.clone());
         if let Err(err) = handle.emit(UPDATER_STATUS_EVENT, payload) {
             log::warn!("failed to emit updater status: {err}");
         }

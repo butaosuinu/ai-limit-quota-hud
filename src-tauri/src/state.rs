@@ -53,3 +53,52 @@ impl WebviewProviders {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+    use tokio::sync::mpsc;
+
+    use crate::provider_settings::ProviderSettingsStore;
+    use crate::providers::webview::claude_web::CLAUDE_WEB_PROVIDER_ID;
+    use crate::providers::webview::codex_web::CODEX_WEB_PROVIDER_ID;
+    use crate::providers::UsageProvider;
+
+    #[test]
+    fn provider_state_new_keeps_shared_handles() {
+        let latest = Arc::new(RwLock::new(Vec::new()));
+        let interval = Arc::new(AtomicU64::new(90));
+        let (tx, _rx) = mpsc::channel(1);
+        let state = ProviderState::new(
+            Arc::clone(&latest),
+            SchedulerHandle { trigger_tx: tx },
+            Arc::clone(&interval),
+        );
+
+        state.refresh_interval_seconds.store(120, Ordering::Relaxed);
+        assert_eq!(interval.load(Ordering::Relaxed), 120);
+        assert!(Arc::ptr_eq(&state.latest, &latest));
+    }
+
+    #[test]
+    fn webview_providers_new_keeps_provider_instances() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let settings = Arc::new(ProviderSettingsStore::load(tmp.path()).unwrap());
+        let claude = Arc::new(ClaudeWebProvider::new(
+            tmp.path().join("claude"),
+            Arc::clone(&settings),
+        ));
+        let codex = Arc::new(CodexWebProvider::new(
+            tmp.path().join("codex"),
+            Arc::clone(&settings),
+        ));
+
+        let providers = WebviewProviders::new(Arc::clone(&claude), Arc::clone(&codex));
+
+        assert_eq!(providers.claude_web.id(), CLAUDE_WEB_PROVIDER_ID);
+        assert_eq!(providers.codex_web.id(), CODEX_WEB_PROVIDER_ID);
+        assert!(Arc::ptr_eq(&providers.claude_web, &claude));
+        assert!(Arc::ptr_eq(&providers.codex_web, &codex));
+    }
+}
