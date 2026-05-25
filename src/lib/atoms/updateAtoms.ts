@@ -1,6 +1,6 @@
 import { msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
-import { atom } from "jotai";
+import { atom, type Getter, type Setter } from "jotai";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -8,7 +8,11 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 
 import { i18n } from "../i18n";
-import { UPDATER_STATUS_EVENT, type UpdateStatusPayload } from "../types";
+import {
+  UPDATER_STATUS_EVENT,
+  type UpdateStatusEvent,
+  type UpdateStatusPayload,
+} from "../types";
 
 /**
  * Tauri 2 auto-updater bridge.
@@ -30,7 +34,43 @@ export type UpdateStatus =
   | { kind: "ready" }
   | { kind: "error"; message: string };
 
-export const updateStatusAtom = atom<UpdateStatus>({ kind: "idle" });
+// `updateStatusAtom` is writable but backed by a private primitive. Direct sets
+// (manual check / download flow / tests) pass an `UpdateStatus` value or updater
+// and behave like a plain atom. Backend-event applications instead dispatch a
+// tagged `BackendStatusAction`, which routes through `applyBackendStatus` so it
+// can release a stale manual `Update` handle when a fresh result clears
+// `available` — a primitive atom's `onMount` setter can't reach
+// `pendingUpdateAtom`.
+const baseUpdateStatusAtom = atom<UpdateStatus>({ kind: "idle" });
+
+type BackendStatusAction = {
+  readonly backend: true;
+  payload: UpdateStatusPayload;
+  isDailyCheck: boolean;
+};
+type StatusWrite =
+  | UpdateStatus
+  | ((prev: UpdateStatus) => UpdateStatus)
+  | BackendStatusAction;
+
+function isBackendStatusAction(
+  write: StatusWrite,
+): write is BackendStatusAction {
+  return typeof write === "object" && write !== null && "backend" in write;
+}
+
+export const updateStatusAtom = atom(
+  (get) => get(baseUpdateStatusAtom),
+  (get: Getter, set: Setter, write: StatusWrite) => {
+    if (isBackendStatusAction(write)) {
+      applyBackendStatus(get, set, write);
+      return;
+    }
+    const next =
+      typeof write === "function" ? write(get(baseUpdateStatusAtom)) : write;
+    set(baseUpdateStatusAtom, next);
+  },
+);
 export const currentVersionAtom = atom<string | undefined>(undefined);
 
 type Lifecycle = {
@@ -38,8 +78,7 @@ type Lifecycle = {
   unlisten: (() => void) | undefined;
 };
 
-type StatusUpdater = UpdateStatus | ((prev: UpdateStatus) => UpdateStatus);
-type StatusSetter = (next: StatusUpdater) => void;
+type StatusSetter = (write: StatusWrite) => void;
 
 updateStatusAtom.onMount = (set: StatusSetter) => {
   const lifecycle: Lifecycle = { cancelled: false, unlisten: undefined };
@@ -54,10 +93,17 @@ async function subscribeToBackendStatus(
   set: StatusSetter,
   lifecycle: Lifecycle,
 ): Promise<void> {
-  const unlisten = await listen<UpdateStatusPayload>(
+  const unlisten = await listen<UpdateStatusEvent>(
     UPDATER_STATUS_EVENT,
     (event) => {
-      set((prev) => nextStatusFromBackend(prev, event.payload));
+      // Live events are the freshest backend knowledge. A `daily` check is
+      // authoritative (see `shouldIgnoreBackendUpdate`); a `startup` check is
+      // treated conservatively because it can race a manual "check now".
+      set({
+        backend: true,
+        payload: event.payload,
+        isDailyCheck: event.payload.source === "daily",
+      });
     },
   ).catch(() => undefined);
   if (unlisten === undefined) return;
@@ -73,53 +119,71 @@ async function subscribeToBackendStatus(
   // Rust returns `Option<UpdateStatusPayload>` (JSON null when absent); a
   // stubbed IPC can resolve undefined — coalesce both to undefined.
   const last =
-    (await invoke<UpdateStatusPayload | null>("get_last_update_status").catch(
+    (await invoke<UpdateStatusEvent | null>("get_last_update_status").catch(
       () => undefined,
     )) ?? undefined;
   if (lifecycle.cancelled || last === undefined) return;
-  set((prev) => nextStatusFromBackend(prev, last));
+  // The cached event keeps its `source`, so a replay applies the same freshness
+  // rule as a live event: a cached daily `noUpdate` clears a stale `available`
+  // even when the live daily event was missed (renderer reload / panel
+  // remount). A cached startup result stays conservative.
+  set({
+    backend: true,
+    payload: last,
+    isDailyCheck: last.source === "daily",
+  });
 }
 
-function shouldIgnoreBackendUpdate(
-  prev: UpdateStatus,
-  payload: UpdateStatusPayload,
-): boolean {
-  // Manual operations (Check now / Download / Install) must win over backend
-  // events. A late startup `noUpdate` arriving while the user is mid-check or
-  // mid-download must not yank the UI back to idle and re-enable buttons.
-  if (
+// Manual operations (Check now / Download / Install) must win over backend
+// events: a late `noUpdate` arriving while the user is mid-check or
+// mid-download must not yank the UI back to idle and re-enable buttons.
+function isManualOperationActive(prev: UpdateStatus): boolean {
+  return (
     prev.kind === "checking" ||
     prev.kind === "downloading" ||
     prev.kind === "ready"
-  ) {
-    return true;
-  }
-  // An authoritative `available` (set by a manual check or by a fresher
-  // backend snapshot) must not be downgraded by a stale `noUpdate` / `error`
-  // arriving from an older startup check or from `get_last_update_status`.
-  // A newer `available` payload still upgrades — handled in the case below.
-  //
-  // Similarly, a fresh manual `error` must not be silently cleared by a late
-  // `noUpdate`; the user needs to see the failure. Backend `available` and
-  // `error` payloads are still allowed to overwrite an existing error since
-  // those represent strictly newer information.
+  );
+}
+
+// An authoritative `available` (set by a manual check or a fresher backend
+// snapshot) must not be downgraded by a stale `noUpdate` / `error` arriving
+// from a concurrent startup check or from `get_last_update_status`; a newer
+// `available` still upgrades. Likewise a fresh manual `error` must not be
+// silently cleared by a late `noUpdate` — the user needs to see the failure.
+function downgradesAuthoritativeState(
+  prev: UpdateStatus,
+  payload: UpdateStatusPayload,
+): boolean {
   if (
     prev.kind === "available" &&
     (payload.status === "noUpdate" || payload.status === "error")
   ) {
     return true;
   }
-  if (prev.kind === "error" && payload.status === "noUpdate") {
-    return true;
-  }
-  return false;
+  return prev.kind === "error" && payload.status === "noUpdate";
+}
+
+function shouldIgnoreBackendUpdate(
+  prev: UpdateStatus,
+  payload: UpdateStatusPayload,
+  isDailyCheck: boolean,
+): boolean {
+  if (isManualOperationActive(prev)) return true;
+  // A daily check is the freshest backend knowledge: a definitive `noUpdate`
+  // (the release was withdrawn, or the user updated by other means) must clear
+  // a now-stale `available`/`error` instead of leaving it stuck on screen. A
+  // daily `error`, by contrast, is a transient failure (network blip) and is
+  // left to the conservative guard below so it cannot hide a known `available`.
+  if (isDailyCheck && payload.status === "noUpdate") return false;
+  return downgradesAuthoritativeState(prev, payload);
 }
 
 function nextStatusFromBackend(
   prev: UpdateStatus,
   payload: UpdateStatusPayload,
+  isDailyCheck: boolean,
 ): UpdateStatus {
-  if (shouldIgnoreBackendUpdate(prev, payload)) return prev;
+  if (shouldIgnoreBackendUpdate(prev, payload, isDailyCheck)) return prev;
   switch (payload.status) {
     case "noUpdate":
       return prev.kind === "idle" ? prev : { kind: "idle" };
@@ -196,6 +260,28 @@ async function closeUpdate(update: Update | undefined): Promise<void> {
   // the caller's state transition.
   if (typeof update.close !== "function") return;
   await update.close().catch(() => undefined);
+}
+
+/**
+ * Apply a backend-originated status (live event or bootstrap replay). When a
+ * fresh result clears a manual-check `available`, the `Update` resource that
+ * check stored in `pendingUpdateAtom` would otherwise leak, so it is closed and
+ * cleared as part of the transition. This is newly reachable because a daily
+ * `noUpdate` can move `available` → `idle`.
+ */
+function applyBackendStatus(
+  get: Getter,
+  set: Setter,
+  action: BackendStatusAction,
+): void {
+  const prev = get(baseUpdateStatusAtom);
+  const next = nextStatusFromBackend(prev, action.payload, action.isDailyCheck);
+  if (next === prev) return;
+  if (prev.kind === "available" && next.kind !== "available") {
+    void closeUpdate(get(pendingUpdateAtom));
+    set(pendingUpdateAtom, undefined);
+  }
+  set(baseUpdateStatusAtom, next);
 }
 
 /**
