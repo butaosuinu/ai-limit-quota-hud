@@ -18,7 +18,7 @@ type PendingFailure = { error: unknown };
  */
 export function setupListen(): EventBusController {
   const handlers = new Map<string, Handler[]>();
-  let pendingFailure: PendingFailure | null = null;
+  let pendingFailure: PendingFailure | undefined = undefined;
 
   const mocked = vi.mocked(listen);
   mocked.mockReset();
@@ -27,9 +27,9 @@ export function setupListen(): EventBusController {
   (
     mocked as unknown as { mockImplementation: (impl: unknown) => void }
   ).mockImplementation(async (eventName: string, cb: Handler) => {
-    if (pendingFailure !== null) {
+    if (pendingFailure !== undefined) {
       const { error } = pendingFailure;
-      pendingFailure = null;
+      pendingFailure = undefined;
       throw error;
     }
     const arr = handlers.get(eventName) ?? [];
@@ -56,7 +56,7 @@ export function setupListen(): EventBusController {
     },
     reset() {
       handlers.clear();
-      pendingFailure = null;
+      pendingFailure = undefined;
     },
   };
 }

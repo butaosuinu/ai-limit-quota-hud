@@ -27,23 +27,27 @@ function clampPercent(value: number): number {
 }
 
 function formatDetail(snapshot: UsageSnapshot): string {
-  if (snapshot.remainingPercent !== null) {
+  if (snapshot.remainingPercent !== undefined) {
     return `${Math.round(snapshot.remainingPercent).toString()}%`;
   }
-  if (snapshot.remaining !== null) {
+  if (snapshot.remaining !== undefined) {
     const unit = METRIC_SHORT[snapshot.metric];
     return unit === ""
       ? snapshot.remaining.toString()
       : `${snapshot.remaining.toString()} ${unit}`;
   }
-  if (snapshot.limit !== null && snapshot.used !== null && snapshot.limit > 0) {
+  if (
+    snapshot.limit !== undefined &&
+    snapshot.used !== undefined &&
+    snapshot.limit > 0
+  ) {
     const remaining = Math.max(0, snapshot.limit - snapshot.used);
     const percent = Math.round((remaining / snapshot.limit) * PERCENT_BASE);
     return `${percent.toString()}%`;
   }
   // No limit / remaining derivable — fall back to raw cumulative usage so
   // count-only estimates stay visible.
-  if (snapshot.used !== null) {
+  if (snapshot.used !== undefined) {
     const unit = METRIC_SHORT[snapshot.metric];
     return unit === ""
       ? snapshot.used.toString()
@@ -52,28 +56,32 @@ function formatDetail(snapshot: UsageSnapshot): string {
   return "—";
 }
 
-function barPercent(snapshot: UsageSnapshot): number | null {
+function barPercent(snapshot: UsageSnapshot): number | undefined {
   if (snapshot.status === "no-data" || snapshot.status === "error") {
-    return null;
+    return undefined;
   }
-  if (snapshot.remainingPercent !== null) {
+  if (snapshot.remainingPercent !== undefined) {
     return clampPercent(snapshot.remainingPercent);
   }
-  if (snapshot.limit !== null && snapshot.used !== null && snapshot.limit > 0) {
+  if (
+    snapshot.limit !== undefined &&
+    snapshot.used !== undefined &&
+    snapshot.limit > 0
+  ) {
     const remaining = Math.max(0, snapshot.limit - snapshot.used);
     return clampPercent((remaining / snapshot.limit) * PERCENT_BASE);
   }
-  return null;
+  return undefined;
 }
 
 const UsageBar = memo(function UsageBar({
   percent,
 }: {
-  percent: number | null;
+  percent: number | undefined;
 }) {
   return (
     <div className="overlay__bar" data-testid="usage-bar" aria-hidden="true">
-      {percent !== null && (
+      {percent !== undefined && (
         <div
           className="overlay__bar-fill"
           data-testid="usage-bar-fill"

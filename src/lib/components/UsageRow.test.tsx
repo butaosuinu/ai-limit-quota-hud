@@ -18,12 +18,12 @@ const baseSnapshot = (
   used: 10,
   remaining: 30,
   remainingPercent: 75,
-  resetAt: null,
+  resetAt: undefined,
   observedAt: "2026-05-13T12:00:00Z",
   source: "webview-scrape",
   confidence: "low",
   status: "ok",
-  message: null,
+  message: undefined,
   ...overrides,
 });
 
@@ -54,7 +54,7 @@ describe("UsageRow", () => {
   it("uses remaining + metric unit when percent is missing", () => {
     renderWithSnapshot(
       baseSnapshot({
-        remainingPercent: null,
+        remainingPercent: undefined,
         metric: "requests",
         remaining: 59,
       }),
@@ -65,9 +65,9 @@ describe("UsageRow", () => {
   it("falls back to raw used + unit when only used is set (webview snapshot fallback)", () => {
     renderWithSnapshot(
       baseSnapshot({
-        remainingPercent: null,
-        remaining: null,
-        limit: null,
+        remainingPercent: undefined,
+        remaining: undefined,
+        limit: undefined,
         used: 3,
         metric: "requests",
         source: "webview-scrape",
@@ -81,9 +81,9 @@ describe("UsageRow", () => {
   it("renders raw used count without a unit suffix for unknown metric", () => {
     renderWithSnapshot(
       baseSnapshot({
-        remainingPercent: null,
-        remaining: null,
-        limit: null,
+        remainingPercent: undefined,
+        remaining: undefined,
+        limit: undefined,
         used: 7,
         metric: "unknown",
         status: "no-data",
@@ -95,10 +95,10 @@ describe("UsageRow", () => {
   it("renders em dash when no usage data is available", () => {
     renderWithSnapshot(
       baseSnapshot({
-        remainingPercent: null,
-        remaining: null,
-        used: null,
-        limit: null,
+        remainingPercent: undefined,
+        remaining: undefined,
+        used: undefined,
+        limit: undefined,
         status: "no-data",
         message: "no data yet",
       }),
@@ -124,7 +124,7 @@ describe("UsageRow", () => {
     expect(screen.queryByText(/reset/)).toBeNull();
   });
 
-  it("renders the reset countdown placeholder when resetAt is null", () => {
+  it("renders the reset countdown placeholder when resetAt is undefined", () => {
     renderWithSnapshot(baseSnapshot());
     expect(screen.getByText(/reset --:--/u)).toBeTruthy();
   });
@@ -193,7 +193,7 @@ describe("UsageRow", () => {
   it("derives bar width from limit/used when remainingPercent is missing", () => {
     renderWithSnapshot(
       baseSnapshot({
-        remainingPercent: null,
+        remainingPercent: undefined,
         limit: 40,
         used: 10,
       }),
@@ -205,10 +205,10 @@ describe("UsageRow", () => {
   it("renders an empty track without a fill for no-data rows", () => {
     renderWithSnapshot(
       baseSnapshot({
-        remainingPercent: null,
-        remaining: null,
-        used: null,
-        limit: null,
+        remainingPercent: undefined,
+        remaining: undefined,
+        used: undefined,
+        limit: undefined,
         status: "no-data",
         message: "no data yet",
       }),

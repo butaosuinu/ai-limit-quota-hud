@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { ProviderKind, ProviderSettings, UsageSnapshot } from "./types";
+import { normalizeSnapshots, type WireUsageSnapshot } from "./wire";
 
 export const listSnapshots = async (): Promise<UsageSnapshot[]> =>
-  await invoke<UsageSnapshot[]>("list_snapshots");
+  normalizeSnapshots(await invoke<WireUsageSnapshot[]>("list_snapshots"));
 
 export const refreshNow = async (): Promise<unknown> =>
   await invoke<unknown>("refresh_now");

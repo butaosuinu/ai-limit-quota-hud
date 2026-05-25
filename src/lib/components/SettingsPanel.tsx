@@ -298,7 +298,7 @@ export function SettingsPanel() {
                 msg`overlay をドラッグするとここに座標が保存される`,
               )}
               accessory={
-                settings.position === null ? (
+                settings.position === undefined ? (
                   <span className="mono-value mono-value--empty">
                     <Trans>未保存</Trans>
                   </span>

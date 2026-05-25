@@ -21,12 +21,12 @@ const baseSnapshot = (
   used: 10,
   remaining: 30,
   remainingPercent: 75,
-  resetAt: null,
+  resetAt: undefined,
   observedAt: "2026-05-13T12:00:00Z",
   source: "webview-scrape",
   confidence: "low",
   status: "ok",
-  message: null,
+  message: undefined,
   ...overrides,
 });
 
@@ -93,8 +93,8 @@ describe("formatResetCountdown", () => {
   const pad = (n: number) => n.toString().padStart(2, "0");
   const localHm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-  it("returns --:-- when resetAt is null", () => {
-    expect(formatResetCountdown(null, now)).toBe("--:--");
+  it("returns --:-- when resetAt is undefined", () => {
+    expect(formatResetCountdown(undefined, now)).toBe("--:--");
   });
 
   it("returns --:-- when resetAt is unparseable", () => {

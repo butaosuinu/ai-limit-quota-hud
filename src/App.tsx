@@ -16,7 +16,7 @@ type Props = {
 export function App({ windowLabel }: Props) {
   if (windowLabel === "settings") {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={undefined}>
         <SettingsPanel />
       </Suspense>
     );

@@ -6,8 +6,8 @@ import {
   DEFAULT_OVERLAY_SETTINGS,
   OVERLAY_SETTINGS_CHANGED_EVENT,
   type OverlaySettings,
-  type SettingsChangedPayload,
 } from "../types";
+import { normalizeOverlaySettings, type WireOverlaySettings } from "../wire";
 
 export const MIN_OPACITY = 0.15;
 export const MAX_OPACITY = 1.0;
@@ -18,15 +18,15 @@ export const overlaySettingsAtom = atom<OverlaySettings>(
 
 type Lifecycle = {
   cancelled: boolean;
-  unlisten: (() => void) | null;
+  unlisten: (() => void) | undefined;
 };
 
 overlaySettingsAtom.onMount = (set) => {
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
+  const lifecycle: Lifecycle = { cancelled: false, unlisten: undefined };
   void bootstrapOverlaySync(set, lifecycle);
   return () => {
     lifecycle.cancelled = true;
-    if (lifecycle.unlisten !== null) lifecycle.unlisten();
+    if (lifecycle.unlisten !== undefined) lifecycle.unlisten();
   };
 };
 
@@ -38,32 +38,34 @@ async function bootstrapOverlaySync(
   // aren't lost. Track whether a fresher event has already landed so the
   // initial snapshot — which may already be stale — doesn't roll it back.
   let receivedFreshEvent = false;
-  const unlisten = await listen<SettingsChangedPayload>(
+  const unlisten = await listen<{ settings: WireOverlaySettings }>(
     OVERLAY_SETTINGS_CHANGED_EVENT,
     (event) => {
       receivedFreshEvent = true;
-      set(event.payload.settings);
+      set(normalizeOverlaySettings(event.payload.settings));
     },
   ).catch((err: unknown) => {
     console.warn("overlay settings event subscription failed", err);
-    return null;
+    return undefined;
   });
   if (lifecycle.cancelled) {
-    if (unlisten !== null) unlisten();
+    if (unlisten !== undefined) unlisten();
     return;
   }
   lifecycle.unlisten = unlisten;
 
-  const initial = await invoke<OverlaySettings>("get_overlay_settings").catch(
+  const wire = await invoke<WireOverlaySettings>("get_overlay_settings").catch(
     (err: unknown) => {
       console.warn("get_overlay_settings failed; staying on defaults", err);
-      return null;
+      return undefined;
     },
   );
   if (lifecycle.cancelled) return;
-  // Loose comparison: a stubbed/empty IPC response can yield `undefined`,
-  // and committing it would crash any consumer that reads `settings.*`.
-  if (initial != null && !receivedFreshEvent) set(initial);
+  // A stubbed/empty IPC response can yield `undefined`; committing it would
+  // crash any consumer that reads `settings.*`.
+  const initial =
+    wire === undefined ? undefined : normalizeOverlaySettings(wire);
+  if (initial !== undefined && !receivedFreshEvent) set(initial);
 }
 
 /**
@@ -72,7 +74,7 @@ async function bootstrapOverlaySync(
  * listener picks up to update the atom — so we only do the optimistic set.
  */
 export const updateOverlaySettingsAtom = atom(
-  null,
+  undefined,
   async (get, set, partial: Partial<OverlaySettings>) => {
     const current = get(overlaySettingsAtom);
     const next: OverlaySettings = {

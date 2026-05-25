@@ -30,7 +30,7 @@ import {
  */
 type ProviderSettingsState = {
   settings: ProviderSettings;
-  error: string | null;
+  error: string | undefined;
   generation: number;
 };
 
@@ -38,7 +38,7 @@ const INITIAL_GENERATION = 0;
 
 const stateAtom = atom<ProviderSettingsState>({
   settings: DEFAULT_PROVIDER_SETTINGS,
-  error: null,
+  error: undefined,
   generation: INITIAL_GENERATION,
 });
 
@@ -98,19 +98,20 @@ async function bootstrap(
     return;
   }
   // A stubbed IPC can resolve undefined; never overwrite defaults with it.
-  if (result == null) return;
+  const fetched: ProviderSettings | undefined = result;
+  if (fetched === undefined) return;
   setState((prev) => {
     // A user mutation happened during the fetch. Keep the fresher state and
     // discard the stale bootstrap payload.
     if (prev.generation !== INITIAL_GENERATION) return prev;
-    return { ...prev, settings: result };
+    return { ...prev, settings: fetched };
   });
 }
 
 /** Read-only view of the cached provider settings. */
 export const providerSettingsAtom = atom((get) => get(stateAtom).settings);
 
-/** Latest error from any bootstrap / write attempt, or `null` if clean. */
+/** Latest error from any bootstrap / write attempt, or `undefined` if clean. */
 export const providerSettingsErrorAtom = atom((get) => get(stateAtom).error);
 
 /** Derived helper for "is this WebView provider enabled in the cache?". */
@@ -128,7 +129,7 @@ export const isProviderEnabledAtom = atom(
  * failure (it never throws) and let the UI render `providerSettingsErrorAtom`.
  */
 export const setProviderEnabledAtom = atom(
-  null,
+  undefined,
   async (
     _get,
     set,
@@ -148,7 +149,7 @@ export const setProviderEnabledAtom = atom(
       settings: {
         enabled: { ...prev.settings.enabled, [payload.kind]: payload.enabled },
       },
-      error: null,
+      error: undefined,
       generation: prev.generation + 1,
     }));
   },
@@ -163,7 +164,7 @@ export const setProviderEnabledAtom = atom(
  * UI work doesn't need to be rewritten when the backend lands.
  */
 export const openProviderLoginAtom = atom(
-  null,
+  undefined,
   async (_get, set, kind: ProviderKind): Promise<void> => {
     const result = await openProviderLoginWindow(kind).catch(
       (err: unknown): Failure => failure(describeError(MSG.loginFailed, err)),
@@ -172,7 +173,7 @@ export const openProviderLoginAtom = atom(
       set(stateAtom, (prev) => ({ ...prev, error: result.message }));
       return;
     }
-    set(stateAtom, (prev) => ({ ...prev, error: null }));
+    set(stateAtom, (prev) => ({ ...prev, error: undefined }));
   },
 );
 
@@ -183,7 +184,7 @@ export const openProviderLoginAtom = atom(
  * Stubbed in the foundation PR, same as `openProviderLoginAtom`.
  */
 export const deleteProviderDataAtom = atom(
-  null,
+  undefined,
   async (_get, set, kind: ProviderKind): Promise<void> => {
     const result = await deleteProviderData(kind).catch(
       (err: unknown): Failure => failure(describeError(MSG.deleteFailed, err)),
@@ -192,6 +193,6 @@ export const deleteProviderDataAtom = atom(
       set(stateAtom, (prev) => ({ ...prev, error: result.message }));
       return;
     }
-    set(stateAtom, (prev) => ({ ...prev, error: null }));
+    set(stateAtom, (prev) => ({ ...prev, error: undefined }));
   },
 );

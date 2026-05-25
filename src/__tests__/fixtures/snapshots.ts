@@ -15,7 +15,7 @@ const BASE: UsageSnapshot = {
   source: "webview-scrape",
   confidence: "low",
   status: "ok",
-  message: null,
+  message: undefined,
 };
 
 export function makeSnapshot(

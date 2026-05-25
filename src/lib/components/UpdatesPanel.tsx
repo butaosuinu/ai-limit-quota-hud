@@ -210,7 +210,7 @@ function StatusRow({
       />
     );
   }
-  return null;
+  return undefined;
 }
 
 type Chip = { className: string; label: MessageDescriptor };

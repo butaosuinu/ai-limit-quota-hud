@@ -77,7 +77,7 @@ export function WebviewProvidersPanel() {
         </span>
       </div>
 
-      {error !== null && (
+      {error !== undefined && (
         <p
           className="provider-error"
           data-testid="webview-providers-error"

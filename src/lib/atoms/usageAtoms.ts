@@ -8,20 +8,21 @@ import {
   type SnapshotStatus,
   type UsageSnapshot,
 } from "../types";
+import { normalizeSnapshots, type WireUsageSnapshot } from "../wire";
 
 export const snapshotsAtom = atom<readonly UsageSnapshot[]>([]);
 
 type Lifecycle = {
   cancelled: boolean;
-  unlisten: (() => void) | null;
+  unlisten: (() => void) | undefined;
 };
 
 snapshotsAtom.onMount = (set) => {
-  const lifecycle: Lifecycle = { cancelled: false, unlisten: null };
+  const lifecycle: Lifecycle = { cancelled: false, unlisten: undefined };
   void bootstrapUsageSync(set, lifecycle);
   return () => {
     lifecycle.cancelled = true;
-    if (lifecycle.unlisten !== null) lifecycle.unlisten();
+    if (lifecycle.unlisten !== undefined) lifecycle.unlisten();
   };
 };
 
@@ -30,28 +31,28 @@ async function bootstrapUsageSync(
   lifecycle: Lifecycle,
 ): Promise<void> {
   let receivedFreshEvent = false;
-  const unlisten = await listen<readonly UsageSnapshot[]>(
+  const unlisten = await listen<readonly WireUsageSnapshot[]>(
     USAGE_UPDATED_EVENT,
     (event) => {
       receivedFreshEvent = true;
-      set(event.payload);
+      set(normalizeSnapshots(event.payload));
     },
   ).catch((err: unknown) => {
     console.warn("usage subscription failed", err);
-    return null;
+    return undefined;
   });
   if (lifecycle.cancelled) {
-    if (unlisten !== null) unlisten();
+    if (unlisten !== undefined) unlisten();
     return;
   }
   lifecycle.unlisten = unlisten;
 
   const initial = await listSnapshots().catch((err: unknown) => {
     console.warn("list_snapshots failed", err);
-    return null;
+    return undefined;
   });
   if (lifecycle.cancelled) return;
-  if (initial !== null && !receivedFreshEvent) set(initial);
+  if (initial !== undefined && !receivedFreshEvent) set(initial);
 }
 
 const STATUS_PRIORITY: Record<SnapshotStatus, number> = {
@@ -161,10 +162,10 @@ const NO_RESET_LABEL = "--:--";
  * replace it.
  */
 export function formatResetCountdown(
-  resetAt: string | null,
+  resetAt: string | undefined,
   now: number,
 ): string {
-  if (resetAt === null) return NO_RESET_LABEL;
+  if (resetAt === undefined) return NO_RESET_LABEL;
   const resetMs = new Date(resetAt).getTime();
   if (Number.isNaN(resetMs)) return NO_RESET_LABEL;
   const resetDate = new Date(resetMs);

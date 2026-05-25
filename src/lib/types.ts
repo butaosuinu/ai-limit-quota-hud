@@ -33,7 +33,7 @@ export type OverlaySettings = {
   corner: OverlayCorner;
   marginX: number;
   marginY: number;
-  position: Position | null;
+  position: Position | undefined;
   menuBarSummary: MenuBarSummaryMode;
   checkUpdatesOnStartup: boolean;
 };
@@ -75,16 +75,16 @@ export type UsageSnapshot = {
   accountLabel: string;
   window: UsageWindow;
   metric: UsageMetric;
-  limit: number | null;
-  used: number | null;
-  remaining: number | null;
-  remainingPercent: number | null;
-  resetAt: string | null;
+  limit: number | undefined;
+  used: number | undefined;
+  remaining: number | undefined;
+  remainingPercent: number | undefined;
+  resetAt: string | undefined;
   observedAt: string;
   source: UsageSource;
   confidence: Confidence;
   status: SnapshotStatus;
-  message: string | null;
+  message: string | undefined;
 };
 
 /** Per-provider opt-in / enable state (PROJECT_SPEC §8, §10.2). */
@@ -130,7 +130,7 @@ export const DEFAULT_OVERLAY_SETTINGS: OverlaySettings = {
   corner: "top-right",
   marginX: 24,
   marginY: 24,
-  position: null,
+  position: undefined,
   menuBarSummary: "off",
   checkUpdatesOnStartup: true,
 };

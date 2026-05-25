@@ -60,19 +60,21 @@ export function Overlay() {
   const groups = useAtomValue(groupedSnapshotsAtom);
   const rowCount = useAtomValue(snapshotsAtom).length;
   const [busy, setBusy] = useState(false);
-  const dragState = useRef<DragState | null>(null);
+  const dragState = useRef<DragState | undefined>(undefined);
   const activeDragId = useRef(0);
-  const documentDragListeners = useRef<DocumentDragListeners | null>(null);
+  const documentDragListeners = useRef<DocumentDragListeners | undefined>(
+    undefined,
+  );
   const dragProps = settings.locked ? {} : { "data-tauri-drag-region": "deep" };
   const className = `overlay${settings.compact ? " overlay--compact" : ""}`;
 
   useEffect(
     () => () => {
       const listeners = documentDragListeners.current;
-      if (listeners === null) return;
+      if (listeners === undefined) return;
       window.removeEventListener("mousemove", listeners.mouseMove);
       window.removeEventListener("mouseup", listeners.mouseUp);
-      documentDragListeners.current = null;
+      documentDragListeners.current = undefined;
     },
     [],
   );
@@ -102,9 +104,9 @@ export function Overlay() {
     ]).catch((err: unknown) => {
       // eslint-disable-next-line no-console -- best-effort observability when manual window drag setup fails.
       console.warn("overlay drag setup failed", err);
-      return null;
+      return undefined;
     });
-    if (result === null || activeDragId.current !== dragId) return;
+    if (result === undefined || activeDragId.current !== dragId) return;
     const [position, scaleFactor] = result;
     dragState.current = {
       scaleFactor,
@@ -117,7 +119,7 @@ export function Overlay() {
 
   const moveManualDrag = (screenX: number, screenY: number): void => {
     const state = dragState.current;
-    if (state === null) return;
+    if (state === undefined) return;
     const dx = Math.round((screenX - state.startMouseX) * state.scaleFactor);
     const dy = Math.round((screenY - state.startMouseY) * state.scaleFactor);
     getCurrentWebviewWindow()
@@ -132,15 +134,15 @@ export function Overlay() {
 
   const detachDocumentDragListeners = (): void => {
     const listeners = documentDragListeners.current;
-    if (listeners === null) return;
+    if (listeners === undefined) return;
     window.removeEventListener("mousemove", listeners.mouseMove);
     window.removeEventListener("mouseup", listeners.mouseUp);
-    documentDragListeners.current = null;
+    documentDragListeners.current = undefined;
   };
 
   const endManualDrag = (): void => {
     activeDragId.current += 1;
-    dragState.current = null;
+    dragState.current = undefined;
     detachDocumentDragListeners();
   };
 
