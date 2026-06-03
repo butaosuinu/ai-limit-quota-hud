@@ -1062,6 +1062,12 @@ fn target_url_with_generation(target_url: &str, generation: u64) -> Result<Url, 
         .map_err(|e| ScraperError::WindowCreate(format!("invalid target URL: {e}")))?;
     url.query_pairs_mut()
         .append_pair(HIDDEN_REFRESH_GENERATION_PARAM, &generation.to_string());
+    let marker = format!("{HIDDEN_REFRESH_GENERATION_PARAM}={generation}");
+    let fragment = match url.fragment() {
+        Some(existing) if !existing.is_empty() => format!("{existing}&{marker}"),
+        _ => marker,
+    };
+    url.set_fragment(Some(&fragment));
     Ok(url)
 }
 
@@ -1216,10 +1222,13 @@ mod tests {
     }
 
     #[test]
-    fn target_url_with_generation_sets_query_marker() {
+    fn target_url_with_generation_sets_query_and_fragment_markers() {
         let url = target_url_with_generation("https://example.com/settings/usage", 7)
             .expect("valid target URL");
-        assert_eq!(url.as_str(), "https://example.com/settings/usage?qhgen=7");
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/settings/usage?qhgen=7#qhgen=7"
+        );
     }
 
     #[test]
@@ -1229,7 +1238,7 @@ mod tests {
                 .expect("valid target URL");
         assert_eq!(
             url.as_str(),
-            "https://example.com/settings/usage?tab=limits&qhgen=7#section"
+            "https://example.com/settings/usage?tab=limits&qhgen=7#section&qhgen=7"
         );
     }
 

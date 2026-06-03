@@ -49,6 +49,15 @@ describe("claude.js — challenge / login detection", () => {
     });
     expect(payload).toMatchObject({ generation: 42 });
   });
+
+  it("preservesRefreshGenerationFromHashAfterLoginRedirect", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: "<p>login page</p>",
+      path: "/login#qhgen=42",
+      now: FIXED_NOW,
+    });
+    expect(payload).toMatchObject({ kind: "logged-out", generation: 42 });
+  });
 });
 
 describe("claude.js — extract rows", () => {
