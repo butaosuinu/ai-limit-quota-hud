@@ -173,11 +173,17 @@ pub async fn delete_provider_data(
         ProviderKind::WebviewClaudeAi => {
             let provider = Arc::clone(&webview.claude_web);
             let scraper = provider.attach_scraper_for_login();
+            if let Some(scraper) = scraper.as_ref() {
+                scraper.destroy_hidden_window();
+            }
             delete_session_storage(provider.session_storage(), scraper.as_ref()).await
         }
         ProviderKind::WebviewChatgptCodex => {
             let provider = Arc::clone(&webview.codex_web);
             let scraper = provider.attach_scraper_for_login();
+            if let Some(scraper) = scraper.as_ref() {
+                scraper.destroy_hidden_window();
+            }
             delete_session_storage(provider.session_storage(), scraper.as_ref()).await
         }
     };

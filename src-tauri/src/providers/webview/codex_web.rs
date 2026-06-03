@@ -46,8 +46,9 @@ pub const CODEX_TARGET_URL: &str = "https://chatgpt.com/codex/cloud/settings/ana
 pub const CODEX_LOGIN_URL: &str = "https://chatgpt.com/auth/login";
 pub const CODEX_ACCOUNT_LABEL: &str = "Codex";
 
-/// AGENTS.md floor (≥60 s). See `claude_web::MIN_REFRESH_INTERVAL_SECS`.
-pub const MIN_REFRESH_INTERVAL_SECS: u64 = 60;
+/// WebView providers are intentionally slow by default (PROJECT_SPEC §8).
+/// See `claude_web::MIN_REFRESH_INTERVAL_SECS`.
+pub const MIN_REFRESH_INTERVAL_SECS: u64 = 600;
 
 /// Static allowlist for chatgpt.com's Codex Cloud analytics page (§14). The
 /// page renders behind Cloudflare; first-party XHR and static-asset hosts
@@ -331,6 +332,9 @@ impl UsageProvider for CodexWebProvider {
         // Opt-in gate (§8.7). If the user has not flipped the toggle we
         // emit nothing — the overlay simply doesn't render a row.
         if !self.is_enabled() {
+            if let Some(scraper) = self.attach_scraper_for_login() {
+                scraper.destroy_hidden_window();
+            }
             return Ok(Vec::new());
         }
         // Grab a scraper handle without holding the lock across `await`.
@@ -365,6 +369,11 @@ mod tests {
 
     fn now_fixture() -> OffsetDateTime {
         datetime!(2026-05-16 12:00:00 UTC)
+    }
+
+    #[test]
+    fn min_refresh_interval_matches_webview_budget() {
+        assert_eq!(MIN_REFRESH_INTERVAL_SECS, 600);
     }
 
     #[test]

@@ -14,12 +14,14 @@
 //! - `ScraperConfig` is provider-supplied data: the slug, the target URL,
 //!   the extractor JS source, and the static allowlist of provider-owned
 //!   supporting hosts that the page is permitted to fetch from.
-//! - `WebviewScraper::run_hidden` builds a hidden `WebviewWindow`, hops to
-//!   the Tauri main thread to construct it (Wry requires main-thread
-//!   construction on macOS), injects the extractor as an initialization
-//!   script, and waits on a `tokio::sync::oneshot` channel that is signaled
-//!   from the `on_document_title_changed` callback. The window is destroyed
-//!   in all paths so a refresh tick never leaks a window.
+//! - `WebviewScraper::run_hidden` builds (or reuses) one hidden
+//!   `WebviewWindow` per provider, hops to the Tauri main thread for first
+//!   construction (Wry requires main-thread construction on macOS), injects
+//!   the extractor as an initialization script, and waits on a
+//!   `tokio::sync::oneshot` channel that is signaled from the
+//!   `on_document_title_changed` callback. After each refresh the window is
+//!   parked on `about:blank` so the vendor SPA heap is not kept alive between
+//!   scheduled refreshes.
 //! - `WebviewScraper::open_visible_login` is the visible-login equivalent;
 //!   no extractor JS is injected and no title polling happens. The caller
 //!   (a Tauri command) just returns once the window exists.
@@ -29,6 +31,7 @@
 //! a Tauri runtime.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,10 +50,11 @@ pub const TITLE_PREFIX: &str = "QHJSON:";
 /// extractor JS emits a payload). Set to 25 s — the scheduler wraps each
 /// refresh in its own 30 s outer timeout (`REFRESH_TIMEOUT_SECS`), and
 /// keeping the inner budget strictly smaller ensures the scraper's own
-/// `Timeout` error path (which destroys the hidden window via
-/// `WindowDestroyGuard`) wins over the outer "provider refresh timed out"
+/// `Timeout` error path wins over the outer "provider refresh timed out"
 /// snapshot.
 pub const DEFAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(25);
+const HIDDEN_IDLE_URL: &str = "about:blank";
+const HIDDEN_WINDOW_TITLE: &str = "QuotaHUD scraper";
 
 /// Provider-supplied configuration consumed by [`WebviewScraper`]. Kept as a
 /// plain data struct (rather than a trait) so the same scraper code path is
@@ -355,16 +359,7 @@ fn apply_hidden_window_flags<'a, R: tauri::Runtime, M: Manager<R>>(
     b
 }
 
-/// RAII guard that destroys the named hidden window on drop.
-///
-/// The previous shape — running the refresh, then unconditionally calling
-/// `window.destroy()` after the `.await` — only worked when the local
-/// `tokio::time::timeout` fired. The scheduler wraps each `provider.refresh()`
-/// in its own outer 30 s `tokio::time::timeout`; when that one fires first,
-/// our future is dropped mid-await and the post-await cleanup is never
-/// reached, leaking the hidden window. A `Drop` impl runs on every
-/// termination path (success, timeout, cancellation, panic), so the window
-/// is always torn down even when the future is cancelled by the caller.
+/// RAII guard that destroys a transient helper window on drop.
 struct WindowDestroyGuard {
     app: AppHandle,
     label: String,
@@ -379,25 +374,33 @@ impl Drop for WindowDestroyGuard {
     }
 }
 
-/// Cancellation flag set on `Drop`. Paired with the `run_on_main_thread`
-/// closure inside [`WebviewScraper::run_hidden_inner`] so a queued window
-/// build can detect that the awaiting future has already been cancelled.
+/// Per-refresh cleanup for the reused hidden window.
 ///
-/// Why we need both this *and* [`WindowDestroyGuard`]: the destroy-guard
-/// only handles windows that *already exist* when the future is dropped.
-/// `run_on_main_thread` queues a closure that may not have run yet when
-/// cancellation happens; if it later runs without checking this flag, it
-/// builds an orphan window that no one is left to clean up. The closure
-/// inspects this flag before and after `builder.build()` and either skips
-/// the build entirely or destroys the freshly-built window inline.
-struct CancelOnDropGuard {
-    flag: Arc<std::sync::atomic::AtomicBool>,
+/// The window itself intentionally stays alive, but the active oneshot sender
+/// must be cleared on every exit path so a late title event cannot resolve a
+/// stale refresh. Navigating back to `about:blank` releases the vendor SPA's
+/// DOM/JS heap between scheduled refreshes while avoiding repeated WebView
+/// process creation.
+struct HiddenRefreshGuard {
+    app: AppHandle,
+    label: String,
+    result_slot: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+    cancelled: Arc<AtomicBool>,
 }
 
-impl Drop for CancelOnDropGuard {
+impl Drop for HiddenRefreshGuard {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn drop(&mut self) {
-        self.flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cancelled.store(true, Ordering::SeqCst);
+        if let Ok(mut slot) = self.result_slot.lock() {
+            *slot = None;
+        }
+        if let Some(window) = self.app.get_webview_window(&self.label) {
+            let _ = window.set_title(HIDDEN_WINDOW_TITLE);
+            if let Ok(url) = Url::parse(HIDDEN_IDLE_URL) {
+                let _ = window.navigate(url);
+            }
+        }
     }
 }
 
@@ -425,9 +428,15 @@ pub struct WebviewScraper {
     app: AppHandle,
     config: ScraperConfig,
     storage: SessionStorage,
-    /// Counter used to mint unique window labels per call so a previous
-    /// refresh that is still tearing down doesn't collide with the next.
-    counter: Arc<std::sync::atomic::AtomicU64>,
+    /// Counter used to mint unique one-shot clear-window labels.
+    counter: Arc<AtomicU64>,
+    /// Result channel for the currently-running hidden refresh. The hidden
+    /// WebView window is reused across refreshes, so its title callback must
+    /// look up the active sender dynamically instead of capturing a sender
+    /// from the first build.
+    hidden_result_slot: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+    /// Navigation tracker shared by the reused hidden window callback.
+    hidden_tracker: Arc<Mutex<LoginRedirectTracker>>,
 }
 
 impl WebviewScraper {
@@ -436,7 +445,9 @@ impl WebviewScraper {
             app,
             config,
             storage,
-            counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            counter: Arc::new(AtomicU64::new(0)),
+            hidden_result_slot: Arc::new(Mutex::new(None)),
+            hidden_tracker: Arc::new(Mutex::new(LoginRedirectTracker::new())),
         }
     }
 
@@ -599,9 +610,9 @@ impl WebviewScraper {
         }
     }
 
-    /// Run one hidden refresh cycle. Creates a hidden window, waits for the
-    /// extractor JS to emit a payload via `document.title`, parses it, and
-    /// returns the parsed payload. Closes the window in all paths.
+    /// Run one hidden refresh cycle. Creates or reuses the provider's hidden
+    /// window, waits for the extractor JS to emit a payload via
+    /// `document.title`, parses it, and parks the window on `about:blank`.
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub async fn run_hidden(&self) -> Result<ScraperPayload, ScraperError> {
         self.run_hidden_with_timeout(DEFAULT_REFRESH_TIMEOUT).await
@@ -615,33 +626,48 @@ impl WebviewScraper {
         timeout: Duration,
     ) -> Result<ScraperPayload, ScraperError> {
         let label = self.hidden_label();
-        // Two-tier cleanup so the hidden window is reliably torn down on
-        // every termination path:
-        // - `WindowDestroyGuard` destroys an *already-built* window when
-        //   the future is dropped (e.g. scheduler's outer timeout firing).
-        // - `CancelOnDropGuard` signals the queued `run_on_main_thread`
-        //   closure so a build that hasn't run yet either skips entirely
-        //   or destroys itself inline immediately after `builder.build()`.
-        // The second guard is essential because `run_on_main_thread` is
-        // asynchronous against the awaiting future: under load the main
-        // thread can pick up the closure *after* the future has been
-        // cancelled, at which point the destroy-guard is already gone.
-        let _window_guard = WindowDestroyGuard {
+        let (tx, rx) = oneshot::channel::<String>();
+        {
+            let mut slot = self
+                .hidden_result_slot
+                .lock()
+                .expect("hidden scraper result slot mutex poisoned");
+            if slot.is_some() {
+                return Err(ScraperError::WindowCreate(
+                    "hidden scraper refresh already running".into(),
+                ));
+            }
+            *slot = Some(tx);
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let _run_guard = HiddenRefreshGuard {
             app: self.app.clone(),
             label: label.clone(),
-        };
-        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let _cancel_guard = CancelOnDropGuard {
-            flag: Arc::clone(&cancelled),
+            result_slot: Arc::clone(&self.hidden_result_slot),
+            cancelled: Arc::clone(&cancelled),
         };
         let result = tokio::time::timeout(
             timeout,
-            self.run_hidden_inner(label, Arc::clone(&cancelled)),
+            self.run_hidden_inner(label, rx, Arc::clone(&cancelled)),
         )
         .await;
         match result {
             Ok(inner) => inner,
             Err(_) => Err(ScraperError::Timeout(timeout)),
+        }
+    }
+
+    /// Destroy the reused hidden refresh window and clear any in-flight title
+    /// sender. Called when a provider is disabled or its session data is
+    /// deleted so a long-lived app does not keep an idle WebView profile in
+    /// memory.
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    pub fn destroy_hidden_window(&self) {
+        if let Ok(mut slot) = self.hidden_result_slot.lock() {
+            *slot = None;
+        }
+        if let Some(window) = self.app.get_webview_window(&self.hidden_label()) {
+            let _ = window.destroy();
         }
     }
 
@@ -712,12 +738,9 @@ impl WebviewScraper {
     async fn run_hidden_inner(
         &self,
         label: String,
-        cancelled: Arc<std::sync::atomic::AtomicBool>,
+        rx: oneshot::Receiver<String>,
+        cancelled: Arc<AtomicBool>,
     ) -> Result<ScraperPayload, ScraperError> {
-        let (tx, rx) = oneshot::channel::<String>();
-        // Wrap the sender in a mutex so the title callback (Fn, not FnMut)
-        // can take it once and ignore subsequent fires.
-        let tx_slot: Arc<Mutex<Option<oneshot::Sender<String>>>> = Arc::new(Mutex::new(Some(tx)));
         let app = self.app.clone();
         let storage = self.storage.clone();
         let target_url = self.config.target_url;
@@ -725,17 +748,70 @@ impl WebviewScraper {
         let allowlist = self.config.host_allowlist;
         let target_host = host_of(target_url).unwrap_or_default();
         let label_clone = label.clone();
-        let tx_slot_clone = Arc::clone(&tx_slot);
+        let tx_slot_clone = Arc::clone(&self.hidden_result_slot);
 
-        // The login tracker is shared between the navigation callback and the
-        // (rare) cleanup path. For a hidden refresh we expect zero IDP hops
-        // — if the session is still valid the only navigation is to the
-        // target origin. If it isn't, we'd see a `/login` redirect, which
-        // the extractor JS reports as `logged-out`.
-        let tracker: Arc<Mutex<LoginRedirectTracker>> =
-            Arc::new(Mutex::new(LoginRedirectTracker::new()));
-        let tracker_nav = Arc::clone(&tracker);
+        {
+            let mut guard = self
+                .hidden_tracker
+                .lock()
+                .expect("hidden navigation tracker mutex poisoned");
+            guard.reset();
+        }
 
+        let url = Url::parse(target_url)
+            .map_err(|e| ScraperError::WindowCreate(format!("invalid target URL: {e}")))?;
+
+        if let Some(window) = app.get_webview_window(&label) {
+            window
+                .set_title(HIDDEN_WINDOW_TITLE)
+                .map_err(|e| ScraperError::WindowCreate(e.to_string()))?;
+            window
+                .navigate(url)
+                .map_err(|e| ScraperError::WindowCreate(e.to_string()))?;
+        } else {
+            self.build_hidden_window(
+                label_clone,
+                url,
+                storage,
+                extractor_js,
+                allowlist,
+                target_host.clone(),
+                tx_slot_clone,
+                Arc::clone(&cancelled),
+            )
+            .await?;
+        }
+
+        let title = rx
+            .await
+            .map_err(|_| ScraperError::Eval("extractor never wrote to document.title".into()))?;
+        if let Some(window) = self.app.get_webview_window(&label) {
+            let _ = window.set_title(HIDDEN_WINDOW_TITLE);
+        }
+        match parse_title_payload(&title) {
+            Some(Ok(payload)) => Ok(payload),
+            Some(Err(e)) => Err(ScraperError::Parse(e)),
+            None => Err(ScraperError::Parse(format!(
+                "title did not carry {TITLE_PREFIX} prefix: {title}",
+            ))),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    async fn build_hidden_window(
+        &self,
+        label_clone: String,
+        url: Url,
+        storage: SessionStorage,
+        extractor_js: &'static str,
+        allowlist: &'static ProviderHostAllowlist,
+        target_host: String,
+        tx_slot_clone: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<(), ScraperError> {
+        let app = self.app.clone();
+        let tracker_nav = Arc::clone(&self.hidden_tracker);
         let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
         let app_for_main = app.clone();
         let cancelled_for_main = Arc::clone(&cancelled);
@@ -744,21 +820,14 @@ impl WebviewScraper {
             // The awaiting future may have been dropped between queuing
             // this closure and the main thread actually picking it up.
             // Bail before building so we don't orphan a hidden window.
-            if cancelled_for_main.load(std::sync::atomic::Ordering::SeqCst) {
+            if cancelled_for_main.load(Ordering::SeqCst) {
                 let _ = build_tx.send(Err(
                     "scrape was cancelled before main-thread dispatch".into()
                 ));
                 return;
             }
-            let url = match Url::parse(target_url) {
-                Ok(u) => u,
-                Err(e) => {
-                    let _ = build_tx.send(Err(format!("invalid target URL: {e}")));
-                    return;
-                }
-            };
             let builder = WebviewWindowBuilder::new(&app, &label_clone, WebviewUrl::External(url))
-                .title("QuotaHUD scraper");
+                .title(HIDDEN_WINDOW_TITLE);
             let builder = apply_hidden_window_flags(builder);
             let builder = apply_session_storage(builder, &storage);
             let builder = builder.initialization_script(extractor_js);
@@ -856,9 +925,9 @@ impl WebviewScraper {
                     // Build succeeded; before returning success, check
                     // whether the awaiting future was cancelled while we
                     // were on the main thread. If so, destroy the window
-                    // inline so the `WindowDestroyGuard` (which has
-                    // already fired its `Drop`) doesn't get bypassed.
-                    if cancelled_for_main.load(std::sync::atomic::Ordering::SeqCst) {
+                    // inline so a queued first build cannot leave an orphan
+                    // hidden WebView behind.
+                    if cancelled_for_main.load(Ordering::SeqCst) {
                         let _ = window.destroy();
                         let _ = build_tx
                             .send(Err("scrape was cancelled during main-thread build".into()));
@@ -885,35 +954,11 @@ impl WebviewScraper {
                 ))
             }
         }
-        // Wait for the title channel. The `tokio::time::timeout` around
-        // `run_hidden_inner` enforces the upper bound.
-        let title = match rx.await {
-            Ok(t) => t,
-            Err(_) => {
-                return Err(ScraperError::Eval(
-                    "extractor never wrote to document.title".into(),
-                ))
-            }
-        };
-        // Best-effort title reset so a stale value isn't picked up by the
-        // next title change.
-        if let Some(window) = self.app.get_webview_window(&label) {
-            let _ = window.set_title("QuotaHUD scraper");
-        }
-        match parse_title_payload(&title) {
-            Some(Ok(payload)) => Ok(payload),
-            Some(Err(e)) => Err(ScraperError::Parse(e)),
-            None => Err(ScraperError::Parse(format!(
-                "title did not carry {TITLE_PREFIX} prefix: {title}",
-            ))),
-        }
+        Ok(())
     }
 
     fn hidden_label(&self) -> String {
-        let n = self
-            .counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        format!("{}-hidden-{n}", self.config.slug)
+        format!("{}-hidden", self.config.slug)
     }
 
     fn login_label(&self) -> String {
@@ -921,9 +966,7 @@ impl WebviewScraper {
     }
 
     fn clear_label(&self) -> String {
-        let n = self
-            .counter
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let n = self.counter.fetch_add(1, Ordering::SeqCst);
         format!("{}-clear-{n}", self.config.slug)
     }
 
