@@ -31,8 +31,8 @@ export const CODEX_JS = resolve(
 );
 
 export type Payload =
-  | { ok: true; rows: Array<Record<string, unknown>> }
-  | { ok: false; kind: string; message?: string };
+  | { ok: true; rows: Array<Record<string, unknown>>; generation?: number }
+  | { ok: false; kind: string; message?: string; generation?: number };
 
 // jsdom 25 omits HTMLElement.innerText (https://github.com/jsdom/jsdom/issues/1245);
 // the extractors read body.innerText directly to detect Cloudflare / login

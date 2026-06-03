@@ -157,7 +157,7 @@ impl CodexWebProvider {
 
     fn snapshots_from_payload(payload: ScraperPayload, now: &OffsetDateTime) -> Vec<UsageSnapshot> {
         match payload {
-            ScraperPayload::Ok { rows } => {
+            ScraperPayload::Ok { rows, .. } => {
                 let parsed: Vec<ExtractedRow> = match serde_json::from_value(rows) {
                     Ok(rows) => rows,
                     Err(e) => {
@@ -184,7 +184,7 @@ impl CodexWebProvider {
                     .map(|row| snapshot_from_row(row, now))
                     .collect()
             }
-            ScraperPayload::Err { kind, message } => {
+            ScraperPayload::Err { kind, message, .. } => {
                 vec![snapshot_from_payload_error(kind, message, now)]
             }
         }
@@ -538,6 +538,7 @@ mod tests {
         let snaps = CodexWebProvider::snapshots_from_payload(
             ScraperPayload::Ok {
                 rows: serde_json::json!([]),
+                generation: None,
             },
             &now_fixture(),
         );
@@ -553,6 +554,7 @@ mod tests {
         let snaps = CodexWebProvider::snapshots_from_payload(
             ScraperPayload::Ok {
                 rows: serde_json::json!({"oops": true}),
+                generation: None,
             },
             &now_fixture(),
         );
@@ -578,6 +580,7 @@ mod tests {
                         "resetLabel": "in 3 days"
                     }
                 ]),
+                generation: None,
             },
             &now_fixture(),
         );

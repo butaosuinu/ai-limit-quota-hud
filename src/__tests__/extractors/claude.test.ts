@@ -40,6 +40,15 @@ describe("claude.js — challenge / login detection", () => {
     });
     expect(payload).toMatchObject({ kind: "logged-out" });
   });
+
+  it("includesRefreshGenerationFromQuery", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: "<div>Verify you are human by completing the action below.</div>",
+      path: "/settings/usage?qhgen=42",
+      now: FIXED_NOW,
+    });
+    expect(payload).toMatchObject({ generation: 42 });
+  });
 });
 
 describe("claude.js — extract rows", () => {

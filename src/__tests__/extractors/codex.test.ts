@@ -74,6 +74,15 @@ describe("codex.js — challenge / login detection", () => {
     });
     expect(payload).toMatchObject({ kind: "logged-out" });
   });
+
+  it("includesRefreshGenerationFromQuery", async () => {
+    const payload = await runExtractor(CODEX_JS, {
+      html: "<div>Verify you are human</div>",
+      path: "/codex/cloud/settings/analytics?qhgen=42",
+      now: FIXED_NOW,
+    });
+    expect(payload).toMatchObject({ generation: 42 });
+  });
 });
 
 describe("codex.js — extract rows", () => {

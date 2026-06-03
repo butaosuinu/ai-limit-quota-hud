@@ -30,13 +30,34 @@
 
   var PREFIX = "QHJSON:";
 
-  function emit(payload) {
+  function readRefreshGeneration() {
     try {
+      var marker =
+        String((location && location.search) || "") +
+        "&" +
+        String((location && location.hash) || "");
+      var match = marker.match(/[?#&]qhgen=(\d+)/);
+      if (!match) return null;
+      var generation = parseInt(match[1], 10);
+      if (!isFinite(generation)) return null;
+      return generation;
+    } catch (e) {
+      return null;
+    }
+  }
+  var REFRESH_GENERATION = readRefreshGeneration();
+
+  function emit(payload) {
+    var generation = REFRESH_GENERATION;
+    try {
+      if (generation !== null) payload.generation = generation;
       document.title = PREFIX + JSON.stringify(payload);
     } catch (e) {
       // Last-ditch fallback: emit a minimal error payload that doesn't
       // depend on JSON.stringify of the original payload.
-      document.title = PREFIX + '{"ok":false,"kind":"emit-failed"}';
+      var suffix = generation === null ? "" : ',"generation":' + generation;
+      document.title =
+        PREFIX + '{"ok":false,"kind":"emit-failed"' + suffix + "}";
     }
   }
 

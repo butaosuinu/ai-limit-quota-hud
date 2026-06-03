@@ -55,6 +55,7 @@ pub const TITLE_PREFIX: &str = "QHJSON:";
 pub const DEFAULT_REFRESH_TIMEOUT: Duration = Duration::from_secs(25);
 const HIDDEN_IDLE_URL: &str = "about:blank";
 const HIDDEN_WINDOW_TITLE: &str = "QuotaHUD scraper";
+const HIDDEN_REFRESH_GENERATION_PARAM: &str = "qhgen";
 
 /// Provider-supplied configuration consumed by [`WebviewScraper`]. Kept as a
 /// plain data struct (rather than a trait) so the same scraper code path is
@@ -92,6 +93,8 @@ struct RawScraperPayload {
     kind: Option<ScraperErrorKind>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    generation: Option<u64>,
 }
 
 /// Decoded shape of the JSON payload the extractor JS writes into
@@ -102,11 +105,15 @@ struct RawScraperPayload {
 pub enum ScraperPayload {
     /// `{ "ok": true, "rows": [...] }`. The provider module interprets the
     /// row JSON.
-    Ok { rows: serde_json::Value },
+    Ok {
+        rows: serde_json::Value,
+        generation: Option<u64>,
+    },
     /// `{ "ok": false, "kind": "...", "message"?: "..." }`.
     Err {
         kind: ScraperErrorKind,
         message: Option<String>,
+        generation: Option<u64>,
     },
 }
 
@@ -115,12 +122,20 @@ impl ScraperPayload {
         if raw.ok {
             Ok(Self::Ok {
                 rows: raw.rows.unwrap_or(serde_json::Value::Null),
+                generation: raw.generation,
             })
         } else {
             Ok(Self::Err {
                 kind: raw.kind.unwrap_or(ScraperErrorKind::Unknown),
                 message: raw.message,
+                generation: raw.generation,
             })
+        }
+    }
+
+    fn generation(&self) -> Option<u64> {
+        match self {
+            Self::Ok { generation, .. } | Self::Err { generation, .. } => *generation,
         }
     }
 }
@@ -171,7 +186,7 @@ pub enum ScraperError {
 /// reaches the log stream when the operator opts in at `debug`.
 fn payload_summary(parsed: &Option<Result<ScraperPayload, String>>) -> String {
     match parsed {
-        Some(Ok(ScraperPayload::Ok { rows })) => {
+        Some(Ok(ScraperPayload::Ok { rows, .. })) => {
             let n = rows.as_array().map(|a| a.len()).unwrap_or(0);
             format!("ok rows={n}")
         }
@@ -384,7 +399,8 @@ impl Drop for WindowDestroyGuard {
 struct HiddenRefreshGuard {
     app: AppHandle,
     label: String,
-    result_slot: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+    generation: u64,
+    result_slot: Arc<Mutex<Option<HiddenResultSlot>>>,
     cancelled: Arc<AtomicBool>,
 }
 
@@ -393,7 +409,12 @@ impl Drop for HiddenRefreshGuard {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::SeqCst);
         if let Ok(mut slot) = self.result_slot.lock() {
-            *slot = None;
+            if slot
+                .as_ref()
+                .is_some_and(|active| active.generation == self.generation)
+            {
+                *slot = None;
+            }
         }
         if let Some(window) = self.app.get_webview_window(&self.label) {
             let _ = window.set_title(HIDDEN_WINDOW_TITLE);
@@ -402,6 +423,11 @@ impl Drop for HiddenRefreshGuard {
             }
         }
     }
+}
+
+struct HiddenResultSlot {
+    generation: u64,
+    sender: oneshot::Sender<String>,
 }
 
 /// Path of a hidden refresh window's data directory, if any. Returned so
@@ -434,7 +460,15 @@ pub struct WebviewScraper {
     /// WebView window is reused across refreshes, so its title callback must
     /// look up the active sender dynamically instead of capturing a sender
     /// from the first build.
-    hidden_result_slot: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+    hidden_result_slot: Arc<Mutex<Option<HiddenResultSlot>>>,
+    /// Monotonic generation assigned to every hidden refresh. Extractors echo
+    /// it back so late title events from an old page cannot satisfy a newer
+    /// refresh.
+    hidden_generation: Arc<AtomicU64>,
+    /// Incremented whenever the hidden window is explicitly destroyed. Queued
+    /// first-build closures compare against this epoch before constructing a
+    /// WebView.
+    hidden_destroy_epoch: Arc<AtomicU64>,
     /// Navigation tracker shared by the reused hidden window callback.
     hidden_tracker: Arc<Mutex<LoginRedirectTracker>>,
 }
@@ -447,6 +481,8 @@ impl WebviewScraper {
             storage,
             counter: Arc::new(AtomicU64::new(0)),
             hidden_result_slot: Arc::new(Mutex::new(None)),
+            hidden_generation: Arc::new(AtomicU64::new(0)),
+            hidden_destroy_epoch: Arc::new(AtomicU64::new(0)),
             hidden_tracker: Arc::new(Mutex::new(LoginRedirectTracker::new())),
         }
     }
@@ -626,6 +662,11 @@ impl WebviewScraper {
         timeout: Duration,
     ) -> Result<ScraperPayload, ScraperError> {
         let label = self.hidden_label();
+        let generation = self
+            .hidden_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1);
+        let destroy_epoch = self.hidden_destroy_epoch.load(Ordering::SeqCst);
         let (tx, rx) = oneshot::channel::<String>();
         {
             let mut slot = self
@@ -637,18 +678,22 @@ impl WebviewScraper {
                     "hidden scraper refresh already running".into(),
                 ));
             }
-            *slot = Some(tx);
+            *slot = Some(HiddenResultSlot {
+                generation,
+                sender: tx,
+            });
         }
         let cancelled = Arc::new(AtomicBool::new(false));
         let _run_guard = HiddenRefreshGuard {
             app: self.app.clone(),
             label: label.clone(),
+            generation,
             result_slot: Arc::clone(&self.hidden_result_slot),
             cancelled: Arc::clone(&cancelled),
         };
         let result = tokio::time::timeout(
             timeout,
-            self.run_hidden_inner(label, rx, Arc::clone(&cancelled)),
+            self.run_hidden_inner(label, rx, generation, destroy_epoch, Arc::clone(&cancelled)),
         )
         .await;
         match result {
@@ -663,6 +708,7 @@ impl WebviewScraper {
     /// memory.
     #[cfg_attr(coverage_nightly, coverage(off))]
     pub fn destroy_hidden_window(&self) {
+        self.hidden_destroy_epoch.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut slot) = self.hidden_result_slot.lock() {
             *slot = None;
         }
@@ -739,6 +785,8 @@ impl WebviewScraper {
         &self,
         label: String,
         rx: oneshot::Receiver<String>,
+        generation: u64,
+        expected_destroy_epoch: u64,
         cancelled: Arc<AtomicBool>,
     ) -> Result<ScraperPayload, ScraperError> {
         let app = self.app.clone();
@@ -758,8 +806,7 @@ impl WebviewScraper {
             guard.reset();
         }
 
-        let url = Url::parse(target_url)
-            .map_err(|e| ScraperError::WindowCreate(format!("invalid target URL: {e}")))?;
+        let url = target_url_with_generation(target_url, generation)?;
 
         if let Some(window) = app.get_webview_window(&label) {
             window
@@ -777,6 +824,8 @@ impl WebviewScraper {
                 allowlist,
                 target_host.clone(),
                 tx_slot_clone,
+                expected_destroy_epoch,
+                Arc::clone(&self.hidden_destroy_epoch),
                 Arc::clone(&cancelled),
             )
             .await?;
@@ -807,7 +856,9 @@ impl WebviewScraper {
         extractor_js: &'static str,
         allowlist: &'static ProviderHostAllowlist,
         target_host: String,
-        tx_slot_clone: Arc<Mutex<Option<oneshot::Sender<String>>>>,
+        tx_slot_clone: Arc<Mutex<Option<HiddenResultSlot>>>,
+        expected_destroy_epoch: u64,
+        destroy_epoch: Arc<AtomicU64>,
         cancelled: Arc<AtomicBool>,
     ) -> Result<(), ScraperError> {
         let app = self.app.clone();
@@ -815,12 +866,15 @@ impl WebviewScraper {
         let (build_tx, build_rx) = oneshot::channel::<Result<(), String>>();
         let app_for_main = app.clone();
         let cancelled_for_main = Arc::clone(&cancelled);
+        let destroy_epoch_for_main = Arc::clone(&destroy_epoch);
         let result = app.run_on_main_thread(move || {
             let app = app_for_main;
             // The awaiting future may have been dropped between queuing
             // this closure and the main thread actually picking it up.
             // Bail before building so we don't orphan a hidden window.
-            if cancelled_for_main.load(Ordering::SeqCst) {
+            if cancelled_for_main.load(Ordering::SeqCst)
+                || destroy_epoch_for_main.load(Ordering::SeqCst) != expected_destroy_epoch
+            {
                 let _ = build_tx.send(Err(
                     "scrape was cancelled before main-thread dispatch".into()
                 ));
@@ -885,8 +939,27 @@ impl WebviewScraper {
                         return;
                     }
                     let parsed = parse_title_payload(&title);
+                    let title_generation = parsed
+                        .as_ref()
+                        .and_then(|result| result.as_ref().ok())
+                        .and_then(ScraperPayload::generation);
+                    let mut slot = tx_slot
+                        .lock()
+                        .expect("scraper title oneshot mutex poisoned");
+                    let active_generation = match slot.as_ref() {
+                        Some(active) => active.generation,
+                        None => return,
+                    };
+                    if title_generation != Some(active_generation) {
+                        if log::log_enabled!(log::Level::Debug) {
+                            log::debug!(
+                                "ignored stale extractor title window={title_label} active_generation={active_generation} title_generation={title_generation:?}"
+                            );
+                        }
+                        return;
+                    }
                     let is_transient_no_rows = matches!(
-                        parsed,
+                        &parsed,
                         Some(Ok(ScraperPayload::Err {
                             kind: ScraperErrorKind::NoRows,
                             ..
@@ -912,11 +985,8 @@ impl WebviewScraper {
                             payload_summary(&parsed)
                         );
                     }
-                    let mut slot = tx_slot
-                        .lock()
-                        .expect("scraper title oneshot mutex poisoned");
-                    if let Some(sender) = slot.take() {
-                        let _ = sender.send(title);
+                    if let Some(active) = slot.take() {
+                        let _ = active.sender.send(title);
                     }
                 }
             });
@@ -927,7 +997,9 @@ impl WebviewScraper {
                     // were on the main thread. If so, destroy the window
                     // inline so a queued first build cannot leave an orphan
                     // hidden WebView behind.
-                    if cancelled_for_main.load(Ordering::SeqCst) {
+                    if cancelled_for_main.load(Ordering::SeqCst)
+                        || destroy_epoch_for_main.load(Ordering::SeqCst) != expected_destroy_epoch
+                    {
                         let _ = window.destroy();
                         let _ = build_tx
                             .send(Err("scrape was cancelled during main-thread build".into()));
@@ -985,6 +1057,14 @@ fn host_of(url_str: &str) -> Option<String> {
         .and_then(|u| u.host_str().map(|s| s.to_ascii_lowercase()))
 }
 
+fn target_url_with_generation(target_url: &str, generation: u64) -> Result<Url, ScraperError> {
+    let mut url = Url::parse(target_url)
+        .map_err(|e| ScraperError::WindowCreate(format!("invalid target URL: {e}")))?;
+    url.query_pairs_mut()
+        .append_pair(HIDDEN_REFRESH_GENERATION_PARAM, &generation.to_string());
+    Ok(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1006,8 +1086,9 @@ mod tests {
             .expect("prefix present")
             .unwrap();
         match parsed {
-            ScraperPayload::Ok { rows } => {
+            ScraperPayload::Ok { rows, generation } => {
                 assert_eq!(rows, serde_json::json!([1, 2, 3]));
+                assert_eq!(generation, None);
             }
             other => panic!("expected Ok variant, got {other:?}"),
         }
@@ -1020,9 +1101,22 @@ mod tests {
             .expect("prefix present")
             .unwrap();
         match parsed {
-            ScraperPayload::Ok { rows } => {
+            ScraperPayload::Ok { rows, generation } => {
                 assert_eq!(rows, serde_json::Value::Null);
+                assert_eq!(generation, None);
             }
+            other => panic!("expected Ok variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_title_payload_decodes_ok_generation() {
+        let title = format!("{TITLE_PREFIX}{{\"ok\":true,\"rows\":[],\"generation\":42}}");
+        let parsed = parse_title_payload(&title)
+            .expect("prefix present")
+            .unwrap();
+        match parsed {
+            ScraperPayload::Ok { generation, .. } => assert_eq!(generation, Some(42)),
             other => panic!("expected Ok variant, got {other:?}"),
         }
     }
@@ -1034,9 +1128,14 @@ mod tests {
             .expect("prefix present")
             .unwrap();
         match parsed {
-            ScraperPayload::Err { kind, message } => {
+            ScraperPayload::Err {
+                kind,
+                message,
+                generation,
+            } => {
                 assert_eq!(kind, ScraperErrorKind::CloudflareChallenge);
                 assert!(message.is_none());
+                assert_eq!(generation, None);
             }
             other => panic!("expected Err variant, got {other:?}"),
         }
@@ -1051,10 +1150,28 @@ mod tests {
             .expect("prefix present")
             .unwrap();
         match parsed {
-            ScraperPayload::Err { kind, message } => {
+            ScraperPayload::Err {
+                kind,
+                message,
+                generation,
+            } => {
                 assert_eq!(kind, ScraperErrorKind::NoRows);
                 assert_eq!(message.as_deref(), Some("hydrating"));
+                assert_eq!(generation, None);
             }
+            other => panic!("expected Err variant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_title_payload_decodes_err_generation() {
+        let title =
+            format!("{TITLE_PREFIX}{{\"ok\":false,\"kind\":\"logged-out\",\"generation\":99}}");
+        let parsed = parse_title_payload(&title)
+            .expect("prefix present")
+            .unwrap();
+        match parsed {
+            ScraperPayload::Err { generation, .. } => assert_eq!(generation, Some(99)),
             other => panic!("expected Err variant, got {other:?}"),
         }
     }
@@ -1078,9 +1195,14 @@ mod tests {
             .expect("prefix present")
             .unwrap();
         match parsed {
-            ScraperPayload::Err { kind, message } => {
+            ScraperPayload::Err {
+                kind,
+                message,
+                generation,
+            } => {
                 assert_eq!(kind, ScraperErrorKind::Unknown);
                 assert!(message.is_none());
+                assert_eq!(generation, None);
             }
             other => panic!("expected Err variant, got {other:?}"),
         }
@@ -1091,6 +1213,24 @@ mod tests {
         let title = format!("{TITLE_PREFIX}{{not json");
         let parsed = parse_title_payload(&title).expect("prefix present");
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn target_url_with_generation_sets_query_marker() {
+        let url = target_url_with_generation("https://example.com/settings/usage", 7)
+            .expect("valid target URL");
+        assert_eq!(url.as_str(), "https://example.com/settings/usage?qhgen=7");
+    }
+
+    #[test]
+    fn target_url_with_generation_preserves_existing_query_and_fragment() {
+        let url =
+            target_url_with_generation("https://example.com/settings/usage?tab=limits#section", 7)
+                .expect("valid target URL");
+        assert_eq!(
+            url.as_str(),
+            "https://example.com/settings/usage?tab=limits&qhgen=7#section"
+        );
     }
 
     #[test]
