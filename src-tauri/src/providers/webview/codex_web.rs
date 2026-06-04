@@ -46,9 +46,9 @@ pub const CODEX_TARGET_URL: &str = "https://chatgpt.com/codex/cloud/settings/ana
 pub const CODEX_LOGIN_URL: &str = "https://chatgpt.com/auth/login";
 pub const CODEX_ACCOUNT_LABEL: &str = "Codex";
 
-/// WebView providers are intentionally slow by default (PROJECT_SPEC §8).
+/// WebView providers follow the project-wide refresh floor (PROJECT_SPEC §8).
 /// See `claude_web::MIN_REFRESH_INTERVAL_SECS`.
-pub const MIN_REFRESH_INTERVAL_SECS: u64 = 600;
+pub const MIN_REFRESH_INTERVAL_SECS: u64 = 60;
 
 /// Static allowlist for chatgpt.com's Codex Cloud analytics page (§14). The
 /// page renders behind Cloudflare; first-party XHR and static-asset hosts
@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn min_refresh_interval_matches_webview_budget() {
-        assert_eq!(MIN_REFRESH_INTERVAL_SECS, 600);
+        assert_eq!(MIN_REFRESH_INTERVAL_SECS, 60);
     }
 
     #[test]

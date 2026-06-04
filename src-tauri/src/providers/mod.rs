@@ -17,8 +17,7 @@ use crate::provider_settings::ProviderSettingsStore;
 pub mod webview;
 
 /// 60 seconds is the floor specified by AGENTS.md — every provider must
-/// respect this unless it has a strong reason to be slower. WebView providers
-/// raise this to a 300s floor / 600s default per spec §8.
+/// respect this unless it has a strong reason to be slower.
 pub const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 60;
 
 #[async_trait]
