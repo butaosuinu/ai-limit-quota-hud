@@ -1,6 +1,6 @@
 [package]
 name = "quotahud"
-version = "0.0.6"
+version = "0.0.7"
 description = "QuotaHUD — AI quota overlay"
 edition = "2021"
 rust-version = "1.77"
