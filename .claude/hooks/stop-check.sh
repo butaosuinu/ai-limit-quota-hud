@@ -7,12 +7,23 @@ if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*tr
   exit 0
 fi
 
-if [ -z "${CLAUDE_PROJECT_DIR:-}" ]; then
-  echo "Stop hook: CLAUDE_PROJECT_DIR is not set" >&2
-  exit 2
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$PROJECT_DIR" ]; then
+  PROJECT_DIR="$(printf '%s' "$INPUT" | node -e "
+let d='';
+process.stdin.on('data', c => d += c);
+process.stdin.on('end', () => {
+  try {
+    const cwd = JSON.parse(d).cwd;
+    if (typeof cwd === 'string') console.log(cwd);
+  } catch {}
+});
+" 2>/dev/null)"
 fi
-cd "$CLAUDE_PROJECT_DIR" || {
-  echo "Stop hook: failed to cd to CLAUDE_PROJECT_DIR=$CLAUDE_PROJECT_DIR" >&2
+PROJECT_DIR="${PROJECT_DIR:-$PWD}"
+
+cd "$PROJECT_DIR" || {
+  echo "Stop hook: failed to cd to project dir=$PROJECT_DIR" >&2
   exit 2
 }
 
