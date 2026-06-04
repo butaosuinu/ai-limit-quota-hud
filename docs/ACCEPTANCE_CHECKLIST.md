@@ -100,8 +100,8 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
       `README.md` (data-source caveat table) and the Settings window's
       WebView providers panel rather than on every overlay row, so the
       overlay stays glanceable. Per-row badges are intentionally omitted.
-- [x] The configured `min_refresh_interval` is **at least 300 seconds** for
-      WebView providers (default 600 seconds).
+- [x] The configured `min_refresh_interval` is **at least 60 seconds** for
+      WebView providers (default 60 seconds).
 - [x] The internal Tauri IPC (`__TAURI__`) is not reachable from the external
       origin loaded in the WebView. _(Result channel uses
       `document.title` + the `QHJSON:` prefix; no `__TAURI__` plumbing is

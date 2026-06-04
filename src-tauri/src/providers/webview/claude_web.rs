@@ -44,11 +44,9 @@ pub const CLAUDE_TARGET_URL: &str = "https://claude.ai/settings/usage";
 pub const CLAUDE_LOGIN_URL: &str = "https://claude.ai/login";
 pub const CLAUDE_ACCOUNT_LABEL: &str = "Claude";
 
-/// WebView providers are intentionally slow by default (PROJECT_SPEC §8):
-/// each refresh loads a vendor-owned page and runs low-confidence DOM
-/// scraping, so the scheduler must not hit claude.ai on the generic 60 s
-/// provider cadence.
-pub const MIN_REFRESH_INTERVAL_SECS: u64 = 600;
+/// WebView providers follow the project-wide 60 s refresh floor
+/// (PROJECT_SPEC §8).
+pub const MIN_REFRESH_INTERVAL_SECS: u64 = 60;
 
 /// Static allowlist for claude.ai's web app (§14). The page renders behind
 /// Cloudflare; first-party XHR and static-asset hosts belong to Anthropic.
@@ -369,7 +367,7 @@ mod tests {
 
     #[test]
     fn min_refresh_interval_matches_webview_budget() {
-        assert_eq!(MIN_REFRESH_INTERVAL_SECS, 600);
+        assert_eq!(MIN_REFRESH_INTERVAL_SECS, 60);
     }
 
     #[test]

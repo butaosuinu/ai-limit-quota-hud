@@ -424,9 +424,8 @@ Hard rules:
   external web app is not a stable interface. Results must always render as
   `confidence: low` and be marked clearly in the UI tooltip.
 - **Refresh budget.** The default `min_refresh_interval` for a WebView
-  provider is **600 seconds**, with a configured floor of 300 seconds.
-  Hitting external sites more aggressively risks rate limiting or
-  anti-abuse challenges.
+  provider is **60 seconds**, with a configured floor of 60 seconds. Avoid
+  polling faster than this unless a future provider has a documented reason.
 - **Failure modes are statuses, not crashes.** A Cloudflare challenge,
   redirect to `/login`, or a layout change that makes the extractor return
   `null` must surface as `SnapshotStatus::Error` or `SnapshotStatus::NoData`
@@ -629,7 +628,7 @@ Rules:
 
 - Default refresh interval: 60 seconds or slower.
 - Each provider can set a minimum refresh interval. WebView providers
-  default to 600 seconds with a hard floor of 300 seconds (see §8).
+  default to 60 seconds with a hard floor of 60 seconds (see §8).
 - Failed provider refresh should not block other providers.
 - Use exponential backoff for repeated failures.
 - Avoid refreshing hidden/disabled providers.
@@ -800,9 +799,9 @@ Acceptance:
 - Add a Settings UI section to enable/disable each WebView provider,
   trigger login, and delete provider data.
 - Use a configurable `min_refresh_interval` for WebView providers with a
-  default of 600 seconds and an enforced floor of 300 seconds. Reject
-  configurations below 300s at the settings boundary; permit any value in
-  the 300–3600s range.
+  default of 60 seconds and an enforced floor of 60 seconds. Reject
+  configurations below 60s at the settings boundary; permit any value in
+  the 60–3600s range.
 
 Acceptance:
 

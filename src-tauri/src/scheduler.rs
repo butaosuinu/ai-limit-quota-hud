@@ -1,7 +1,6 @@
 //! Per-provider refresh loop with exponential backoff.
 //!
-//! - Each provider has a minimum interval (defaults to 60s per AGENTS.md;
-//!   WebView providers raise that to a 300s floor / 600s default per spec §8).
+//! - Each provider has a minimum interval (defaults to 60s per AGENTS.md).
 //! - Repeated failures (Error or NoData) that surface to the UI double the
 //!   effective interval, capped at 10 minutes (`BACKOFF_CAP_SECS`).
 //! - A success resets the backoff for that provider.

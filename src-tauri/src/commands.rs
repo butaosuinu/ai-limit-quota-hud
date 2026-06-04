@@ -104,10 +104,9 @@ pub async fn set_provider_enabled(
     let slug = webview_slug_for_command(kind)?;
     store.set_enabled(slug, enabled)?;
     // Wake the scheduler so a toggle (enable or disable) takes effect on
-    // the next tick instead of waiting out the provider's
-    // `min_refresh_interval` (600s for WebView providers). Without this,
-    // disabling could leave stale authenticated rows visible for ~10 min,
-    // and enabling could similarly delay the first snapshot.
+    // the next tick instead of waiting out the provider's throttle. Without
+    // this, disabling could leave stale authenticated rows visible, and
+    // enabling could similarly delay the first snapshot.
     scheduler::trigger(&state.scheduler);
     Ok(())
 }
@@ -130,7 +129,7 @@ pub async fn open_provider_login_window(
             // before the user has actually authenticated). Triggering at
             // open-time would force a refresh that captures the still-
             // logged-out state, update `last_run`, and then make the user
-            // wait out the 600 s interval for the post-login snapshot.
+            // wait out the interval for the post-login snapshot.
             let scraper = provider.attach_scraper_for_login().ok_or_else(|| {
                 AppError::Internal(
                     "WebView runtime not initialized; cannot open login window".into(),
@@ -188,12 +187,11 @@ pub async fn delete_provider_data(
         }
     };
     // Wake the scheduler so the next refresh emits the post-delete (logged-
-    // out) snapshot immediately. Without this, `min_refresh_interval = 600s`
-    // would leave the stale authenticated rows visible for up to ~10 min
-    // after the user clicked "Delete provider data", contradicting the
-    // "delete + re-login required" UX. Trigger only on success so a failed
-    // delete doesn't waste a refresh slot showing the still-authenticated
-    // state.
+    // out) snapshot immediately. Without this, provider throttling would
+    // leave stale authenticated rows visible after the user clicked
+    // "Delete provider data", contradicting the "delete + re-login
+    // required" UX. Trigger only on success so a failed delete doesn't
+    // waste a refresh slot showing the still-authenticated state.
     if outcome.is_ok() {
         scheduler::trigger(&state.scheduler);
     }
