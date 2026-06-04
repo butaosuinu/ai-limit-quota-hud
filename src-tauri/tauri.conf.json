@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "productName": "QuotaHUD",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "identifier": "dev.quotahud.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
