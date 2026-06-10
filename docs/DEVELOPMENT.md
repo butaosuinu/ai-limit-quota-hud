@@ -26,6 +26,21 @@ pnpm test            # vitest
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+## Platform notes
+
+### macOS: overlay window needs `acceptFirstMouse: true`
+
+The overlay window is created with `focus: false` and stays inactive while the
+user works in other apps. On macOS, WKWebView's `acceptsFirstMouse:` defaults
+to `NO`, so the first mousedown on an inactive window is consumed by AppKit
+and never reaches the webview — every click-and-drag gesture on the HUD dies
+before the drag handlers (`data-tauri-drag-region` / manual drag in
+`Overlay.tsx`) can fire. `acceptFirstMouse: true` on the overlay window in
+`tauri.conf.json` is therefore required for dragging to work; removing it
+re-introduces the "HUD cannot be dragged" bug that the manual-drag fallback in
+PR #56 was originally working around. The option only has an effect on macOS
+(wry implements it for wkwebview only), so Windows/Linux are unaffected.
+
 ## CI
 
 CI runs `typecheck`, `lint`, `test`, and `cargo test` as four independent jobs
