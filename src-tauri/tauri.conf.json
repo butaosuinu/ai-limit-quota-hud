@@ -25,7 +25,8 @@
         "visible": false,
         "visibleOnAllWorkspaces": true,
         "shadow": false,
-        "focus": false
+        "focus": false,
+        "acceptFirstMouse": true
       },
       {
         "label": "settings",
