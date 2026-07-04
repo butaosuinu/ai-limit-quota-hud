@@ -168,7 +168,21 @@
   }
 
   function readNodeText(node) {
-    return ((node && (node.innerText || node.textContent)) || "").trim();
+    if (!node) return "";
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.nodeValue || "").trim();
+    }
+    var children = node.childNodes || [];
+    var parts = [];
+    for (var i = 0; i < children.length; i++) {
+      var text = readNodeText(children[i]);
+      if (text.length > 0) parts.push(text);
+    }
+    if (parts.length > 0) {
+      return parts.join(" ").replace(/\s+/g, " ").trim();
+    }
+    if (typeof node.innerText === "string") return node.innerText.trim();
+    return ((node && node.textContent) || "").trim();
   }
 
   function previousSiblingTexts(node, maxCount) {
@@ -178,6 +192,17 @@
       var text = readNodeText(sibling);
       if (text.length > 0) out.unshift(text);
       sibling = sibling.previousSibling;
+    }
+    return out;
+  }
+
+  function nextSiblingTexts(node, maxCount) {
+    var out = [];
+    var sibling = node.nextSibling;
+    while (sibling && out.length < maxCount) {
+      var text = readNodeText(sibling);
+      if (text.length > 0) out.push(text);
+      sibling = sibling.nextSibling;
     }
     return out;
   }
@@ -218,10 +243,8 @@
   }
 
   function hasStrongRateLimitContext(context) {
-    var lower = context.toLowerCase();
     return (
-      lower.indexOf("rate limit") !== -1 ||
-      lower.indexOf("limit") !== -1 ||
+      /\brate[\s-]+limits?\b|\blimits?\b/i.test(context) ||
       context.indexOf("制限") !== -1 ||
       context.indexOf("上限") !== -1
     );
@@ -303,7 +326,13 @@
     var m = context.match(/Resets?\s+(?:in|at|on)?\s*([^|]+?)(?:\s*\||$)/i);
     if (m) {
       var label = m[1].trim();
-      if (label.length > 0 && label.length <= 80) return label;
+      if (
+        label.length > 0 &&
+        label.length <= 80 &&
+        !/^(?:in|at|on)$/i.test(label)
+      ) {
+        return label;
+      }
     }
     // Japanese absolute weekly form: "8:00 (日)にリセット" — a clock time plus
     // a parenthesised weekday. claude.ai renders the weekly window this way
@@ -326,6 +355,33 @@
       }
     }
     return null;
+  }
+
+  function resetSiblingContextFor(node, ownText) {
+    var parts = previousSiblingTexts(node, 2);
+    parts.push(ownText);
+    parts = parts.concat(nextSiblingTexts(node, 2));
+    var text = parts.join(" ").trim();
+    if (text === ownText || text.length >= 600) return "";
+    return text;
+  }
+
+  function resetLabelCandidatesFor(node, text) {
+    var candidates = [];
+    if (node) {
+      var ownText = readNodeText(node);
+      var siblingText = resetSiblingContextFor(node, ownText);
+      if (siblingText.length > 0) candidates.push(siblingText);
+      if (ownText.length > 0 && ownText.length < 600) candidates.push(ownText);
+      if (node.parentNode) {
+        var parentText = readNodeText(node.parentNode);
+        if (parentText.length > 0 && parentText.length < 600) {
+          candidates.push(parentText);
+        }
+      }
+    }
+    candidates.push(text);
+    return candidates;
   }
 
   function mentionsResetHint(text) {
@@ -352,12 +408,14 @@
     while ((node = walker.nextNode())) {
       var text = (node.nodeValue || "").trim();
       if (text.length === 0) continue;
-      var label = pickResetLabel(text);
       var ctxNode = node.parentNode;
-      if (!label && mentionsResetHint(text) && ctxNode) {
-        label = pickResetLabel(
-          (ctxNode.innerText || ctxNode.textContent || "").trim(),
-        );
+      var label = null;
+      var resetCandidates = resetLabelCandidatesFor(ctxNode, text);
+      for (var ri = 0; ri < resetCandidates.length; ri++) {
+        var resetText = resetCandidates[ri];
+        if (!mentionsResetHint(resetText)) continue;
+        label = pickResetLabel(resetText);
+        if (label) break;
       }
       if (!label) continue;
       var depth = 0;

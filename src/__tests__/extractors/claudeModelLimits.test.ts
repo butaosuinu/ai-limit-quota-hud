@@ -28,6 +28,14 @@ describe("claude.js - model rate limit rows", () => {
     expect(payload).toMatchObject({ kind: "no-rows-final" });
   });
 
+  it("doesNotTreatUnlimitedAsLimitAnchor", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: "<aside><h2>Fable unlimited 99%</h2></aside>",
+      now: FIXED_NOW,
+    });
+    expect(payload).toMatchObject({ kind: "no-rows-final" });
+  });
+
   it("classifiesModelRowsFromSharedRateLimitTable", async () => {
     const payload = await runExtractor(CLAUDE_JS, {
       html:
@@ -148,6 +156,27 @@ describe("claude.js - model reset labels", () => {
     expect(opus?.resetAt).toBe(
       new Date(FIXED_NOW.getTime() + 2 * 24 * 3600 * 1000).toISOString(),
     );
+    expect(fable).toMatchObject({
+      windowKind: "weekly-fable",
+      resetLabel: "6 hours",
+    });
+    expect(fable?.resetAt).toBe(
+      new Date(FIXED_NOW.getTime() + 6 * 3600 * 1000).toISOString(),
+    );
+  });
+
+  it("derivesModelResetLabelsSplitAcrossInlineSiblings", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html:
+        "<section><h2>Rate limit</h2><table><tbody>" +
+        "<tr><th>Fable</th><td>18%</td><td>" +
+        "<span>Resets in</span><span>6 hours</span></td></tr>" +
+        "</tbody></table></section>",
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const rows = payload?.ok ? payload.rows : [];
+    const fable = rows.find((row) => row.windowKind === "weekly-fable");
     expect(fable).toMatchObject({
       windowKind: "weekly-fable",
       resetLabel: "6 hours",
