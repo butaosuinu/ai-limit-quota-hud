@@ -109,6 +109,7 @@
     }
     var node;
     while ((node = walker.nextNode())) {
+      if (isNodeHiddenInTree(node)) continue;
       var text = (node.nodeValue || "").trim();
       if (text.length === 0) continue;
       // Match "<digits>%" or "<digits>.<digits>%" with optional surrounding
@@ -182,6 +183,15 @@
       }
     } catch (e) {
       return false;
+    }
+    return false;
+  }
+
+  function isNodeHiddenInTree(node) {
+    var cursor = node;
+    while (cursor) {
+      if (isElementHidden(cursor)) return true;
+      cursor = cursor.parentNode;
     }
     return false;
   }
@@ -405,14 +415,21 @@
     var candidates = [];
     if (node) {
       var ownText = readNodeText(node);
-      var siblingText = resetSiblingContextFor(node, ownText);
-      if (siblingText.length > 0) candidates.push(siblingText);
       if (ownText.length > 0 && ownText.length < 600) candidates.push(ownText);
+      var parentText = "";
       if (node.parentNode) {
-        var parentText = readNodeText(node.parentNode);
-        if (parentText.length > 0 && parentText.length < 600) {
+        parentText = readNodeText(node.parentNode);
+        if (
+          parentText.length > 0 &&
+          parentText.length < 600 &&
+          parentText !== ownText
+        ) {
           candidates.push(parentText);
         }
+      }
+      if (mentionsResetHint(ownText) || mentionsResetHint(parentText)) {
+        var siblingText = resetSiblingContextFor(node, ownText);
+        if (siblingText.length > 0) candidates.push(siblingText);
       }
     }
     candidates.push(text);
@@ -441,6 +458,7 @@
     }
     var node;
     while ((node = walker.nextNode())) {
+      if (isNodeHiddenInTree(node)) continue;
       var text = (node.nodeValue || "").trim();
       if (text.length === 0) continue;
       var ctxNode = node.parentNode;

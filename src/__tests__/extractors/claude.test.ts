@@ -227,6 +227,47 @@ describe("claude.js — reset label parsing", () => {
     expect(row?.resetAt).toBe(expected);
   });
 
+  it("prefersOwnResetLabelOverPreviousCardReset", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <section>
+          <div>5-hour session usage 30% · Resets in 3 hours</div>
+          <div>Weekly usage 45% · Resets in 2 days</div>
+        </section>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const rows = payload?.ok ? payload.rows : [];
+    const weekly = rows.find((row) => row.windowKind === "weekly");
+    expect(weekly).toMatchObject({
+      resetLabel: "2 days",
+    });
+    expect(weekly?.resetAt).toBe(
+      new Date(FIXED_NOW.getTime() + 2 * 24 * 3600 * 1000).toISOString(),
+    );
+  });
+
+  it("ignoresHiddenResetLabels", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <section>
+          <div>Weekly usage</div>
+          <div>45%</div>
+          <span hidden>Resets in 30 days</span>
+        </section>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const row = payload?.ok ? payload.rows[0] : undefined;
+    expect(row).toMatchObject({
+      windowKind: "weekly",
+      resetAt: null,
+      resetLabel: null,
+    });
+  });
+
   it("derivesResetAtFromJapaneseWeekdayTime", async () => {
     // claude.ai's weekly window shows an absolute "HH:MM (曜日)にリセット"
     // label, unlike the 5h window's relative "N時間後" form.
