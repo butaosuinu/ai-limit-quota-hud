@@ -69,7 +69,7 @@ overlay の状態 (不透明度、位置、各トグル) は OS 標準のアプ�
 
 QuotaHUD は各ベンダーの利用状況ページを埋め込み WebView で直接読み取ります。これらは **デフォルトで無効** で、**Settings → WebView プロバイダ** で明示的にトグルするまで一切のネットワーク通信は発生しません。
 
-- **Claude (web)** — `claude.ai/settings/usage` を読み取り (Pro / Max プラン)。本ビルドで実装済み。
+- **Claude (web)** — `claude.ai/settings/usage` を読み取り (Pro / Max プラン)。ページ上に Opus/Fable などのモデル別行が表示される場合はそれも含めます。本ビルドで実装済み。
 - **ChatGPT Codex (web)** — `chatgpt.com` の Codex analytics を読み取り。UI トグルはありますが、バックエンドは別途着地予定 ([issue #31](https://github.com/butaosuinu/ai-limit-quota-hud/issues/31)) で、現状では Tauri コマンドがエラーを返します。
 
 プロバイダを有効化すると、初回はベンダー自身のログインウィンドウが開き (QuotaHUD は独自のログインフォームを描画しません)、その後は非表示の WebView で更新されます。セッション cookie は OS ネイティブの WebView cookie store に保存され、**プロバイダデータを削除** ボタンで強制的に再ログイン状態にします。QuotaHUD はキーストローク、パスワード、個別 cookie 値を読み取りません。更新間隔やセッション分離のルールは [`docs/PROJECT_SPEC.md` §8](docs/PROJECT_SPEC.md#8-provider-architecture--opt-in-webview-providers) を参照。

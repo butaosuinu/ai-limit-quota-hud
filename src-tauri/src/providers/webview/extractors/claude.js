@@ -11,10 +11,11 @@
 //   document.title = "QHJSON:" + JSON.stringify(payload)
 //
 // Where `payload` is:
-//   { ok: false, kind: "cloudflare-challenge" | "logged-out" | "no-rows", message?: string }
+//   { ok: false, kind: "cloudflare-challenge" | "logged-out" | "no-rows" | "no-rows-final", message?: string }
 //   { ok: true, rows: [{ windowKind, percentUsed, resetAt, resetLabel, raw }] }
 //
-// `windowKind` is one of "five-hours" | "weekly" | "weekly-opus" | "unknown".
+// `windowKind` is one of "five-hours" | "weekly" | "weekly-opus" |
+// "weekly-fable" | "unknown".
 // `percentUsed` is 0-100 (number).
 // `resetAt` is an ISO-8601 string when we can derive it from the visible
 // reset label, otherwise null.
@@ -121,22 +122,42 @@
       // don't bring in the entire document.
       var ctxNode = node.parentNode;
       var ctxLines = [];
+      var nearestContext = "";
       var depth = 0;
       while (ctxNode && depth < 6) {
         var ctxText = (ctxNode.innerText || ctxNode.textContent || "").trim();
         if (ctxText && ctxText.length < 600) {
           ctxLines.push(ctxText);
+          if (
+            nearestContext.length === 0 &&
+            classifyWindow(ctxText) !== "unknown"
+          ) {
+            nearestContext = ctxText;
+          }
         }
         ctxNode = ctxNode.parentNode;
         depth += 1;
       }
-      samples.push({ pct: pct, context: ctxLines.join(" | ") });
+      samples.push({
+        pct: pct,
+        context:
+          nearestContext.length > 0 ? nearestContext : ctxLines.join(" | "),
+      });
     }
     return samples;
   }
 
   function classifyWindow(context) {
     var lower = context.toLowerCase();
+    var isFable = lower.indexOf("fable") !== -1;
+    var isOpus = lower.indexOf("opus") !== -1;
+    var isRateLimit =
+      lower.indexOf("rate limit") !== -1 ||
+      lower.indexOf("limit") !== -1 ||
+      lower.indexOf("usage") !== -1 ||
+      context.indexOf("制限") !== -1 ||
+      context.indexOf("上限") !== -1 ||
+      context.indexOf("使用") !== -1;
     var isWeekly =
       lower.indexOf("week") !== -1 ||
       context.indexOf("週間") !== -1 ||
@@ -154,7 +175,10 @@
     // when only Opus happens to be present in the joined context would
     // mislabel a 5h sample. Drop the sample and retry instead.
     if (isWeekly && isSession) return "unknown";
-    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
+    if (isSession && (isFable || isOpus)) return "unknown";
+    if (isFable && isOpus) return "unknown";
+    if (isFable && (isWeekly || isRateLimit)) return "weekly-fable";
+    if (isOpus && (isWeekly || isRateLimit)) return "weekly-opus";
     if (isSession) return "five-hours";
     if (isWeekly) return "weekly";
     return "unknown";
@@ -190,6 +214,67 @@
       if (jpLabel.length > 0 && jpLabel.length <= 40) {
         return jpLabel + "後";
       }
+    }
+    return null;
+  }
+
+  function mentionsResetHint(text) {
+    return (
+      /resets?|renews?|refreshes?/i.test(text) ||
+      text.indexOf("リセット") !== -1 ||
+      text.indexOf("更新") !== -1
+    );
+  }
+
+  function collectResetSamples() {
+    var samples = [];
+    var walker;
+    try {
+      walker = document.createTreeWalker(
+        document.body || document.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null,
+      );
+    } catch (e) {
+      return samples;
+    }
+    var node;
+    while ((node = walker.nextNode())) {
+      var text = (node.nodeValue || "").trim();
+      if (text.length === 0) continue;
+      var label = pickResetLabel(text);
+      var ctxNode = node.parentNode;
+      if (!label && mentionsResetHint(text) && ctxNode) {
+        label = pickResetLabel(
+          (ctxNode.innerText || ctxNode.textContent || "").trim(),
+        );
+      }
+      if (!label) continue;
+      var depth = 0;
+      while (ctxNode && depth < 5) {
+        var ctxText = (ctxNode.innerText || ctxNode.textContent || "").trim();
+        if (ctxText && ctxText.length < 600) {
+          var kind = classifyWindow(ctxText);
+          if (kind !== "unknown") {
+            samples.push({
+              windowKind: kind,
+              label: label,
+              context: ctxText.slice(0, 200),
+            });
+            break;
+          }
+        }
+        ctxNode = ctxNode.parentNode;
+        depth += 1;
+      }
+    }
+    return samples;
+  }
+
+  function pickResetLabelForWindow(resetSamples, windowKind) {
+    for (var i = 0; i < resetSamples.length; i++) {
+      var sample = resetSamples[i];
+      if (sample.windowKind === windowKind) return sample.label;
     }
     return null;
   }
@@ -335,6 +420,7 @@
       return;
     }
     var rows = [];
+    var resetSamples = collectResetSamples();
     for (var i = 0; i < samples.length; i++) {
       var s = samples[i];
       var kind = classifyWindow(s.context);
@@ -344,7 +430,7 @@
       // showed up as `unknown` rows in the wild). The Rust side then
       // treats an empty rows array as `no-rows` and retries.
       if (kind === "unknown") continue;
-      var label = pickResetLabel(s.context);
+      var label = pickResetLabelForWindow(resetSamples, kind);
       rows.push({
         windowKind: kind,
         percentUsed: s.pct,

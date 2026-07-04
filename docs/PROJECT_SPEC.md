@@ -361,7 +361,9 @@ For Claude (Pro/Max) on `claude.ai` and ChatGPT (Plus/Pro/Codex agent) on
 **opt-in** WebView-backed provider. The provider loads each vendor's own
 usage settings page inside QuotaHUD's built-in Tauri 2 WebView and extracts
 the visible usage figures with a small JavaScript helper, so that no Python
-or external runtime is required.
+or external runtime is required. Claude's provider should surface visible
+model-specific usage rows, such as Opus or Fable, as additional Claude rows
+when `claude.ai/settings/usage` exposes them.
 
 Hard rules:
 

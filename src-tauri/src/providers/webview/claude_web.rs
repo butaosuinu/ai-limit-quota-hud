@@ -196,7 +196,7 @@ impl ClaudeWebProvider {
 fn classify_window(window_kind: Option<&str>) -> UsageWindow {
     match window_kind {
         Some("five-hours") => UsageWindow::FiveHours,
-        Some("weekly") | Some("weekly-opus") => UsageWindow::Weekly,
+        Some("weekly") | Some("weekly-opus") | Some("weekly-fable") => UsageWindow::Weekly,
         _ => UsageWindow::Unknown,
     }
 }
@@ -204,6 +204,7 @@ fn classify_window(window_kind: Option<&str>) -> UsageWindow {
 fn account_label_for_window(window_kind: Option<&str>) -> String {
     match window_kind {
         Some("weekly-opus") => format!("{CLAUDE_ACCOUNT_LABEL} Opus wk"),
+        Some("weekly-fable") => format!("{CLAUDE_ACCOUNT_LABEL} Fable"),
         Some("weekly") => format!("{CLAUDE_ACCOUNT_LABEL} weekly"),
         Some("five-hours") => format!("{CLAUDE_ACCOUNT_LABEL} 5h"),
         _ => CLAUDE_ACCOUNT_LABEL.to_string(),
@@ -375,6 +376,7 @@ mod tests {
         assert_eq!(classify_window(Some("five-hours")), UsageWindow::FiveHours);
         assert_eq!(classify_window(Some("weekly")), UsageWindow::Weekly);
         assert_eq!(classify_window(Some("weekly-opus")), UsageWindow::Weekly);
+        assert_eq!(classify_window(Some("weekly-fable")), UsageWindow::Weekly);
         assert_eq!(classify_window(Some("unknown")), UsageWindow::Unknown);
         assert_eq!(classify_window(None), UsageWindow::Unknown);
     }
@@ -386,6 +388,10 @@ mod tests {
         assert_eq!(
             account_label_for_window(Some("weekly-opus")),
             "Claude Opus wk"
+        );
+        assert_eq!(
+            account_label_for_window(Some("weekly-fable")),
+            "Claude Fable"
         );
         assert_eq!(account_label_for_window(None), "Claude");
     }
@@ -423,6 +429,25 @@ mod tests {
         // 5% remaining → Critical.
         assert_eq!(snap.remaining_percent, Some(5.0));
         assert_eq!(snap.status, SnapshotStatus::Critical);
+    }
+
+    #[test]
+    fn snapshot_from_row_surfaces_fable_weekly_snapshot() {
+        let row = ExtractedRow {
+            window_kind: Some("weekly-fable".into()),
+            percent_used: Some(64.0),
+            reset_at: Some("2026-05-18T08:00:00Z".into()),
+            reset_label: Some("8:00 (月)".into()),
+        };
+        let snap = snapshot_from_row(row, &now_fixture());
+        assert_eq!(snap.provider_id, "webview-claude-ai:weekly-fable");
+        assert_eq!(snap.account_label, "Claude Fable");
+        assert_eq!(snap.window, UsageWindow::Weekly);
+        assert_eq!(snap.source, UsageSource::WebviewScrape);
+        assert_eq!(snap.confidence, Confidence::Low);
+        assert_eq!(snap.remaining_percent, Some(36.0));
+        assert_eq!(snap.status, SnapshotStatus::Ok);
+        assert_eq!(snap.reset_at.as_deref(), Some("2026-05-18T08:00:00Z"));
     }
 
     #[test]
