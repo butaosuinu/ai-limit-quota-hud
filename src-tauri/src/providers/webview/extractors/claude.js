@@ -123,11 +123,27 @@
       var ctxNode = node.parentNode;
       var ctxLines = [];
       var nearestContext = "";
+      var singleModelContext = "";
+      var modelQuotaAnchor = "";
       var depth = 0;
       while (ctxNode && depth < 6) {
         var ctxText = (ctxNode.innerText || ctxNode.textContent || "").trim();
         if (ctxText && ctxText.length < 600) {
           ctxLines.push(ctxText);
+          if (
+            singleModelContext.length === 0 &&
+            hasExactlyOneModel(ctxText) &&
+            !hasSessionContext(ctxText)
+          ) {
+            singleModelContext = ctxText;
+          }
+          if (
+            singleModelContext.length > 0 &&
+            modelQuotaAnchor.length === 0 &&
+            !hasSessionContext(ctxText)
+          ) {
+            modelQuotaAnchor = modelQuotaAnchorFor(ctxText);
+          }
           if (
             nearestContext.length === 0 &&
             classifyWindow(ctxText) !== "unknown"
@@ -141,33 +157,72 @@
       samples.push({
         pct: pct,
         context:
-          nearestContext.length > 0 ? nearestContext : ctxLines.join(" | "),
+          nearestContext.length > 0
+            ? nearestContext
+            : singleModelContext.length > 0 && modelQuotaAnchor.length > 0
+              ? singleModelContext + " " + modelQuotaAnchor
+              : ctxLines.join(" | "),
       });
     }
     return samples;
   }
 
-  function classifyWindow(context) {
+  function hasFableContext(context) {
+    return context.toLowerCase().indexOf("fable") !== -1;
+  }
+
+  function hasOpusContext(context) {
+    return context.toLowerCase().indexOf("opus") !== -1;
+  }
+
+  function hasExactlyOneModel(context) {
+    var isFable = hasFableContext(context);
+    var isOpus = hasOpusContext(context);
+    return (isFable && !isOpus) || (isOpus && !isFable);
+  }
+
+  function hasStrongRateLimitContext(context) {
     var lower = context.toLowerCase();
-    var isFable = lower.indexOf("fable") !== -1;
-    var isOpus = lower.indexOf("opus") !== -1;
-    var isRateLimit =
+    return (
       lower.indexOf("rate limit") !== -1 ||
       lower.indexOf("limit") !== -1 ||
-      lower.indexOf("usage") !== -1 ||
       context.indexOf("制限") !== -1 ||
-      context.indexOf("上限") !== -1 ||
-      context.indexOf("使用") !== -1;
-    var isWeekly =
+      context.indexOf("上限") !== -1
+    );
+  }
+
+  function hasWeeklyContext(context) {
+    var lower = context.toLowerCase();
+    return (
       lower.indexOf("week") !== -1 ||
       context.indexOf("週間") !== -1 ||
-      context.indexOf("毎週") !== -1;
-    var isSession =
+      context.indexOf("毎週") !== -1
+    );
+  }
+
+  function hasSessionContext(context) {
+    var lower = context.toLowerCase();
+    return (
       lower.indexOf("5-hour") !== -1 ||
       lower.indexOf("5 hour") !== -1 ||
       lower.indexOf("five-hour") !== -1 ||
       lower.indexOf("session") !== -1 ||
-      context.indexOf("セッション") !== -1;
+      context.indexOf("セッション") !== -1
+    );
+  }
+
+  function modelQuotaAnchorFor(context) {
+    if (hasStrongRateLimitContext(context)) return "rate limit";
+    if (hasWeeklyContext(context)) return "weekly";
+    return "";
+  }
+
+  function classifyWindow(context) {
+    var isFable = hasFableContext(context);
+    var isOpus = hasOpusContext(context);
+    var isRateLimit = hasStrongRateLimitContext(context);
+    var isWeekly = hasWeeklyContext(context);
+    var isSession = hasSessionContext(context);
     // Ambiguity comes first — when the ancestor walk captures both cards
     // (5h + weekly siblings sharing a parent, including the Opus weekly
     // variant) classification is unsafe in every direction: returning

@@ -141,6 +141,49 @@ describe("claude.js — extract rows", () => {
     });
   });
 
+  it("ignoresGenericFableUsageTextWithoutQuotaAnchor", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <aside>
+          <h2>Fable usage 99%</h2>
+        </aside>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload).toMatchObject({ kind: "no-rows-final" });
+  });
+
+  it("classifiesModelRowsFromSharedRateLimitTable", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `
+        <section>
+          <h2>Rate limit</h2>
+          <table>
+            <tbody>
+              <tr><th>Opus</th><td>10%</td></tr>
+              <tr><th>Fable</th><td>18%</td></tr>
+            </tbody>
+          </table>
+        </section>
+      `,
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          windowKind: "weekly-opus",
+          percentUsed: 10,
+        }),
+        expect.objectContaining({
+          windowKind: "weekly-fable",
+          percentUsed: 18,
+        }),
+      ]),
+    );
+  });
+
   it("dropsAmbiguousSharedSessionAndFableContext", async () => {
     const payload = await runExtractor(CLAUDE_JS, {
       html: `
