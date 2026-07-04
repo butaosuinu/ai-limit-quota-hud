@@ -136,13 +136,7 @@
             isLocalSingleModelContext(ctxText)
           ) {
             singleModelContext = ctxText;
-          }
-          if (
-            singleModelContext.length > 0 &&
-            modelQuotaAnchor.length === 0 &&
-            !hasSessionContext(ctxText)
-          ) {
-            modelQuotaAnchor = modelQuotaAnchorFor(ctxText);
+            modelQuotaAnchor = scopedModelQuotaAnchorFor(ctxNode);
           }
           if (
             nearestContext.length === 0 &&
@@ -161,14 +155,40 @@
             ? nearestContext
             : singleModelContext.length > 0 && modelQuotaAnchor.length > 0
               ? singleModelContext + " " + modelQuotaAnchor
-              : ctxLines.join(" | "),
+              : singleModelContext.length > 0
+                ? singleModelContext
+                : ctxLines.join(" | "),
       });
     }
     return samples;
   }
 
+  function isElementHidden(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (node.hidden) return true;
+    if (node.getAttribute && node.getAttribute("aria-hidden") === "true") {
+      return true;
+    }
+    var inlineStyle = node.getAttribute ? node.getAttribute("style") || "" : "";
+    if (/display\s*:\s*none/i.test(inlineStyle)) return true;
+    if (/visibility\s*:\s*hidden/i.test(inlineStyle)) return true;
+    try {
+      var style = window.getComputedStyle
+        ? window.getComputedStyle(node)
+        : null;
+      if (style) {
+        if (style.display === "none") return true;
+        if (style.visibility === "hidden") return true;
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  }
+
   function readNodeText(node) {
     if (!node) return "";
+    if (isElementHidden(node)) return "";
     if (node.nodeType === Node.TEXT_NODE) {
       return (node.nodeValue || "").trim();
     }
@@ -270,9 +290,24 @@
     );
   }
 
-  function modelQuotaAnchorFor(context) {
-    if (hasStrongRateLimitContext(context)) return "rate limit";
-    if (hasWeeklyContext(context)) return "weekly";
+  function scopedModelQuotaAnchorFor(node) {
+    var cursor = node;
+    var depth = 0;
+    while (cursor && depth < 5) {
+      var siblings = previousSiblingTexts(cursor, 3);
+      for (var i = siblings.length - 1; i >= 0; i--) {
+        var text = siblings[i];
+        if (
+          hasStrongRateLimitContext(text) &&
+          !hasSessionContext(text) &&
+          percentValueCount(text) === 0
+        ) {
+          return "rate limit";
+        }
+      }
+      cursor = cursor.parentNode;
+      depth += 1;
+    }
     return "";
   }
 
@@ -431,13 +466,7 @@
             isLocalSingleModelContext(ctxText)
           ) {
             singleModelContext = ctxText;
-          }
-          if (
-            singleModelContext.length > 0 &&
-            modelQuotaAnchor.length === 0 &&
-            !hasSessionContext(ctxText)
-          ) {
-            modelQuotaAnchor = modelQuotaAnchorFor(ctxText);
+            modelQuotaAnchor = scopedModelQuotaAnchorFor(ctxNode);
           }
           var kind = classifyWindow(ctxText);
           if (kind !== "unknown" && isUsableDirectWindowContext(ctxText)) {

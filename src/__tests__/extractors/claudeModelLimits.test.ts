@@ -81,6 +81,31 @@ describe("claude.js - model rate limit rows", () => {
     );
   });
 
+  it("doesNotCombineModelTextWithNeighboringWeeklyAnchor", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html:
+        "<section><aside><h2>Fable 99%</h2></aside>" +
+        "<div><h2>Weekly usage</h2><p>12%</p></div></section>",
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ windowKind: "weekly", percentUsed: 12 });
+  });
+
+  it("doesNotReadHiddenModelLabelsIntoVisibleQuotaContext", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html:
+        "<section><span hidden>Fable rate limit</span>" +
+        "<div>Weekly usage</div><div>12%</div></section>",
+      now: FIXED_NOW,
+    });
+    expect(payload?.ok).toBe(true);
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows[0]).toMatchObject({ windowKind: "weekly", percentUsed: 12 });
+  });
+
   it("dropsAmbiguousSharedSessionAndFableContext", async () => {
     const payload = await runExtractor(CLAUDE_JS, {
       html:
