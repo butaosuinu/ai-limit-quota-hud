@@ -127,13 +127,13 @@
       var modelQuotaAnchor = "";
       var depth = 0;
       while (ctxNode && depth < 6) {
-        var ctxText = (ctxNode.innerText || ctxNode.textContent || "").trim();
-        if (ctxText && ctxText.length < 600) {
-          ctxLines.push(ctxText);
+        var candidates = contextCandidatesFor(ctxNode, depth);
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var ctxText = candidates[ci];
+          if (ci === 0) ctxLines.push(ctxText);
           if (
             singleModelContext.length === 0 &&
-            hasExactlyOneModel(ctxText) &&
-            !hasSessionContext(ctxText)
+            isLocalSingleModelContext(ctxText)
           ) {
             singleModelContext = ctxText;
           }
@@ -146,7 +146,7 @@
           }
           if (
             nearestContext.length === 0 &&
-            classifyWindow(ctxText) !== "unknown"
+            isUsableDirectWindowContext(ctxText)
           ) {
             nearestContext = ctxText;
           }
@@ -165,6 +165,42 @@
       });
     }
     return samples;
+  }
+
+  function readNodeText(node) {
+    return ((node && (node.innerText || node.textContent)) || "").trim();
+  }
+
+  function previousSiblingTexts(node, maxCount) {
+    var out = [];
+    var sibling = node.previousSibling;
+    while (sibling && out.length < maxCount) {
+      var text = readNodeText(sibling);
+      if (text.length > 0) out.unshift(text);
+      sibling = sibling.previousSibling;
+    }
+    return out;
+  }
+
+  function localContextFor(node, ownText) {
+    var parts = previousSiblingTexts(node, 2);
+    parts.push(ownText);
+    var text = parts.join(" ").trim();
+    if (text === ownText || text.length >= 600) return "";
+    return text;
+  }
+
+  function contextCandidatesFor(node, depth) {
+    var ownText = readNodeText(node);
+    if (ownText.length === 0 || ownText.length >= 600) return [];
+    var localText = depth <= 1 ? localContextFor(node, ownText) : "";
+    if (localText.length === 0) return [ownText];
+    return [localText, ownText];
+  }
+
+  function percentValueCount(context) {
+    var matches = context.match(/\d{1,3}(?:\.\d+)?\s*%/g);
+    return matches ? matches.length : 0;
   }
 
   function hasFableContext(context) {
@@ -215,6 +251,25 @@
     if (hasStrongRateLimitContext(context)) return "rate limit";
     if (hasWeeklyContext(context)) return "weekly";
     return "";
+  }
+
+  function isModelWindowKind(kind) {
+    return kind === "weekly-fable" || kind === "weekly-opus";
+  }
+
+  function isLocalSingleModelContext(context) {
+    return (
+      hasExactlyOneModel(context) &&
+      !hasSessionContext(context) &&
+      percentValueCount(context) <= 1
+    );
+  }
+
+  function isUsableDirectWindowContext(context) {
+    var kind = classifyWindow(context);
+    if (kind === "unknown") return false;
+    if (!isModelWindowKind(kind)) return true;
+    return isLocalSingleModelContext(context);
   }
 
   function classifyWindow(context) {
@@ -306,21 +361,55 @@
       }
       if (!label) continue;
       var depth = 0;
+      var resolved = false;
+      var singleModelContext = "";
+      var modelQuotaAnchor = "";
       while (ctxNode && depth < 5) {
-        var ctxText = (ctxNode.innerText || ctxNode.textContent || "").trim();
-        if (ctxText && ctxText.length < 600) {
+        var candidates = contextCandidatesFor(ctxNode, depth);
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var ctxText = candidates[ci];
+          if (
+            singleModelContext.length === 0 &&
+            isLocalSingleModelContext(ctxText)
+          ) {
+            singleModelContext = ctxText;
+          }
+          if (
+            singleModelContext.length > 0 &&
+            modelQuotaAnchor.length === 0 &&
+            !hasSessionContext(ctxText)
+          ) {
+            modelQuotaAnchor = modelQuotaAnchorFor(ctxText);
+          }
           var kind = classifyWindow(ctxText);
-          if (kind !== "unknown") {
+          if (kind !== "unknown" && isUsableDirectWindowContext(ctxText)) {
             samples.push({
               windowKind: kind,
               label: label,
               context: ctxText.slice(0, 200),
             });
+            resolved = true;
             break;
           }
         }
+        if (resolved) break;
         ctxNode = ctxNode.parentNode;
         depth += 1;
+      }
+      if (
+        !resolved &&
+        singleModelContext.length > 0 &&
+        modelQuotaAnchor.length > 0
+      ) {
+        var syntheticContext = singleModelContext + " " + modelQuotaAnchor;
+        var syntheticKind = classifyWindow(syntheticContext);
+        if (syntheticKind !== "unknown") {
+          samples.push({
+            windowKind: syntheticKind,
+            label: label,
+            context: syntheticContext.slice(0, 200),
+          });
+        }
       }
     }
     return samples;
