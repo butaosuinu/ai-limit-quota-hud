@@ -69,7 +69,7 @@ Overlay state (opacity, position, toggles) is persisted as JSON under the platfo
 
 QuotaHUD reads each vendor's own usage page directly in an embedded WebView. These providers are **disabled by default** — nothing navigates out to the network until you toggle them on in **Settings → WebView プロバイダ**.
 
-- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans). Implemented in this build.
+- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans), including visible model-specific rows such as Opus/Fable when the page exposes them. Implemented in this build.
 - **ChatGPT Codex (web)** — reads `chatgpt.com` Codex analytics. The UI toggle is present, but the backend lands separately ([issue #31](https://github.com/butaosuinu/ai-limit-quota-hud/issues/31)) and the command returns an error today.
 
 Enabling a provider opens the vendor's own login window on first use (QuotaHUD never renders its own login form), then refreshes via a hidden WebView. Session cookies stay in the OS-native WebView cookie store; a **Delete provider data** button forces re-login. QuotaHUD never reads keystrokes, passwords, or individual cookie values. For the refresh-interval and isolation rules see [`docs/PROJECT_SPEC.md` §8](docs/PROJECT_SPEC.md#8-provider-architecture--opt-in-webview-providers).

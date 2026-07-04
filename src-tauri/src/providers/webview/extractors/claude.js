@@ -11,10 +11,11 @@
 //   document.title = "QHJSON:" + JSON.stringify(payload)
 //
 // Where `payload` is:
-//   { ok: false, kind: "cloudflare-challenge" | "logged-out" | "no-rows", message?: string }
+//   { ok: false, kind: "cloudflare-challenge" | "logged-out" | "no-rows" | "no-rows-final", message?: string }
 //   { ok: true, rows: [{ windowKind, percentUsed, resetAt, resetLabel, raw }] }
 //
-// `windowKind` is one of "five-hours" | "weekly" | "weekly-opus" | "unknown".
+// `windowKind` is one of "five-hours" | "weekly" | "weekly-opus" |
+// "weekly-fable" | "unknown".
 // `percentUsed` is 0-100 (number).
 // `resetAt` is an ISO-8601 string when we can derive it from the visible
 // reset label, otherwise null.
@@ -108,6 +109,7 @@
     }
     var node;
     while ((node = walker.nextNode())) {
+      if (isNodeHiddenInTree(node)) continue;
       var text = (node.nodeValue || "").trim();
       if (text.length === 0) continue;
       // Match "<digits>%" or "<digits>.<digits>%" with optional surrounding
@@ -121,32 +123,229 @@
       // don't bring in the entire document.
       var ctxNode = node.parentNode;
       var ctxLines = [];
+      var nearestContext = "";
+      var singleModelContext = "";
+      var modelQuotaAnchor = "";
       var depth = 0;
       while (ctxNode && depth < 6) {
-        var ctxText = (ctxNode.innerText || ctxNode.textContent || "").trim();
-        if (ctxText && ctxText.length < 600) {
-          ctxLines.push(ctxText);
+        var candidates = contextCandidatesFor(ctxNode, depth);
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var ctxText = candidates[ci];
+          if (ci === 0) ctxLines.push(ctxText);
+          if (
+            singleModelContext.length === 0 &&
+            isLocalSingleModelContext(ctxText)
+          ) {
+            singleModelContext = ctxText;
+            modelQuotaAnchor = scopedModelQuotaAnchorFor(ctxNode);
+          }
+          if (
+            nearestContext.length === 0 &&
+            isUsableDirectWindowContext(ctxText)
+          ) {
+            nearestContext = ctxText;
+          }
         }
         ctxNode = ctxNode.parentNode;
         depth += 1;
       }
-      samples.push({ pct: pct, context: ctxLines.join(" | ") });
+      samples.push({
+        pct: pct,
+        context:
+          nearestContext.length > 0
+            ? nearestContext
+            : singleModelContext.length > 0 && modelQuotaAnchor.length > 0
+              ? singleModelContext + " " + modelQuotaAnchor
+              : singleModelContext.length > 0
+                ? singleModelContext
+                : ctxLines.join(" | "),
+      });
     }
     return samples;
   }
 
-  function classifyWindow(context) {
+  function isElementHidden(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (node.hidden) return true;
+    if (node.getAttribute && node.getAttribute("aria-hidden") === "true") {
+      return true;
+    }
+    var inlineStyle = node.getAttribute ? node.getAttribute("style") || "" : "";
+    if (/display\s*:\s*none/i.test(inlineStyle)) return true;
+    if (/visibility\s*:\s*hidden/i.test(inlineStyle)) return true;
+    try {
+      var style = window.getComputedStyle
+        ? window.getComputedStyle(node)
+        : null;
+      if (style) {
+        if (style.display === "none") return true;
+        if (style.visibility === "hidden") return true;
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  }
+
+  function isNodeHiddenInTree(node) {
+    var cursor = node;
+    while (cursor) {
+      if (isElementHidden(cursor)) return true;
+      cursor = cursor.parentNode;
+    }
+    return false;
+  }
+
+  function readNodeText(node) {
+    if (!node) return "";
+    if (isElementHidden(node)) return "";
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.nodeValue || "").trim();
+    }
+    var children = node.childNodes || [];
+    var parts = [];
+    for (var i = 0; i < children.length; i++) {
+      var text = readNodeText(children[i]);
+      if (text.length > 0) parts.push(text);
+    }
+    if (parts.length > 0) {
+      return parts.join(" ").replace(/\s+/g, " ").trim();
+    }
+    if (typeof node.innerText === "string") return node.innerText.trim();
+    return ((node && node.textContent) || "").trim();
+  }
+
+  function previousSiblingTexts(node, maxCount) {
+    var out = [];
+    var sibling = node.previousSibling;
+    while (sibling && out.length < maxCount) {
+      var text = readNodeText(sibling);
+      if (text.length > 0) out.unshift(text);
+      sibling = sibling.previousSibling;
+    }
+    return out;
+  }
+
+  function nextSiblingTexts(node, maxCount) {
+    var out = [];
+    var sibling = node.nextSibling;
+    while (sibling && out.length < maxCount) {
+      var text = readNodeText(sibling);
+      if (text.length > 0) out.push(text);
+      sibling = sibling.nextSibling;
+    }
+    return out;
+  }
+
+  function localContextFor(node, ownText) {
+    var parts = previousSiblingTexts(node, 2);
+    parts.push(ownText);
+    var text = parts.join(" ").trim();
+    if (text === ownText || text.length >= 600) return "";
+    return text;
+  }
+
+  function contextCandidatesFor(node, depth) {
+    var ownText = readNodeText(node);
+    if (ownText.length === 0 || ownText.length >= 600) return [];
+    var localText = depth <= 1 ? localContextFor(node, ownText) : "";
+    if (localText.length === 0) return [ownText];
+    return [localText, ownText];
+  }
+
+  function percentValueCount(context) {
+    var matches = context.match(/\d{1,3}(?:\.\d+)?\s*%/g);
+    return matches ? matches.length : 0;
+  }
+
+  function hasFableContext(context) {
+    return context.toLowerCase().indexOf("fable") !== -1;
+  }
+
+  function hasOpusContext(context) {
+    return context.toLowerCase().indexOf("opus") !== -1;
+  }
+
+  function hasExactlyOneModel(context) {
+    var isFable = hasFableContext(context);
+    var isOpus = hasOpusContext(context);
+    return (isFable && !isOpus) || (isOpus && !isFable);
+  }
+
+  function hasStrongRateLimitContext(context) {
+    return (
+      /\brate[\s-]+limits?\b|\blimits?\b/i.test(context) ||
+      context.indexOf("制限") !== -1 ||
+      context.indexOf("上限") !== -1
+    );
+  }
+
+  function hasWeeklyContext(context) {
     var lower = context.toLowerCase();
-    var isWeekly =
+    return (
       lower.indexOf("week") !== -1 ||
       context.indexOf("週間") !== -1 ||
-      context.indexOf("毎週") !== -1;
-    var isSession =
+      context.indexOf("毎週") !== -1
+    );
+  }
+
+  function hasSessionContext(context) {
+    var lower = context.toLowerCase();
+    return (
       lower.indexOf("5-hour") !== -1 ||
       lower.indexOf("5 hour") !== -1 ||
       lower.indexOf("five-hour") !== -1 ||
       lower.indexOf("session") !== -1 ||
-      context.indexOf("セッション") !== -1;
+      context.indexOf("セッション") !== -1
+    );
+  }
+
+  function scopedModelQuotaAnchorFor(node) {
+    var cursor = node;
+    var depth = 0;
+    while (cursor && depth < 5) {
+      var siblings = previousSiblingTexts(cursor, 3);
+      for (var i = siblings.length - 1; i >= 0; i--) {
+        var text = siblings[i];
+        if (
+          hasStrongRateLimitContext(text) &&
+          !hasSessionContext(text) &&
+          percentValueCount(text) === 0
+        ) {
+          return "rate limit";
+        }
+      }
+      cursor = cursor.parentNode;
+      depth += 1;
+    }
+    return "";
+  }
+
+  function isModelWindowKind(kind) {
+    return kind === "weekly-fable" || kind === "weekly-opus";
+  }
+
+  function isLocalSingleModelContext(context) {
+    return (
+      hasExactlyOneModel(context) &&
+      !hasSessionContext(context) &&
+      percentValueCount(context) <= 1
+    );
+  }
+
+  function isUsableDirectWindowContext(context) {
+    var kind = classifyWindow(context);
+    if (kind === "unknown") return false;
+    if (!isModelWindowKind(kind)) return true;
+    return isLocalSingleModelContext(context);
+  }
+
+  function classifyWindow(context) {
+    var isFable = hasFableContext(context);
+    var isOpus = hasOpusContext(context);
+    var isRateLimit = hasStrongRateLimitContext(context);
+    var isWeekly = hasWeeklyContext(context);
+    var isSession = hasSessionContext(context);
     // Ambiguity comes first — when the ancestor walk captures both cards
     // (5h + weekly siblings sharing a parent, including the Opus weekly
     // variant) classification is unsafe in every direction: returning
@@ -154,7 +353,10 @@
     // when only Opus happens to be present in the joined context would
     // mislabel a 5h sample. Drop the sample and retry instead.
     if (isWeekly && isSession) return "unknown";
-    if (isWeekly && lower.indexOf("opus") !== -1) return "weekly-opus";
+    if (isSession && (isFable || isOpus)) return "unknown";
+    if (isFable && isOpus) return "unknown";
+    if (isFable && (isWeekly || isRateLimit)) return "weekly-fable";
+    if (isOpus && (isWeekly || isRateLimit)) return "weekly-opus";
     if (isSession) return "five-hours";
     if (isWeekly) return "weekly";
     return "unknown";
@@ -169,7 +371,13 @@
     var m = context.match(/Resets?\s+(?:in|at|on)?\s*([^|]+?)(?:\s*\||$)/i);
     if (m) {
       var label = m[1].trim();
-      if (label.length > 0 && label.length <= 80) return label;
+      if (
+        label.length > 0 &&
+        label.length <= 80 &&
+        !/^(?:in|at|on)$/i.test(label)
+      ) {
+        return label;
+      }
     }
     // Japanese absolute weekly form: "8:00 (日)にリセット" — a clock time plus
     // a parenthesised weekday. claude.ai renders the weekly window this way
@@ -190,6 +398,132 @@
       if (jpLabel.length > 0 && jpLabel.length <= 40) {
         return jpLabel + "後";
       }
+    }
+    return null;
+  }
+
+  function resetSiblingContextFor(node, ownText) {
+    var parts = previousSiblingTexts(node, 2);
+    parts.push(ownText);
+    parts = parts.concat(nextSiblingTexts(node, 2));
+    var text = parts.join(" ").trim();
+    if (text === ownText || text.length >= 600) return "";
+    return text;
+  }
+
+  function resetLabelCandidatesFor(node, text) {
+    var candidates = [];
+    if (node) {
+      var ownText = readNodeText(node);
+      if (ownText.length > 0 && ownText.length < 600) candidates.push(ownText);
+      var parentText = "";
+      if (node.parentNode) {
+        parentText = readNodeText(node.parentNode);
+        if (
+          parentText.length > 0 &&
+          parentText.length < 600 &&
+          parentText !== ownText
+        ) {
+          candidates.push(parentText);
+        }
+      }
+      if (mentionsResetHint(ownText) || mentionsResetHint(parentText)) {
+        var siblingText = resetSiblingContextFor(node, ownText);
+        if (siblingText.length > 0) candidates.push(siblingText);
+      }
+    }
+    candidates.push(text);
+    return candidates;
+  }
+
+  function mentionsResetHint(text) {
+    return (
+      /resets?|renews?|refreshes?/i.test(text) ||
+      text.indexOf("リセット") !== -1 ||
+      text.indexOf("更新") !== -1
+    );
+  }
+
+  function collectResetSamples() {
+    var samples = [];
+    var walker;
+    try {
+      walker = document.createTreeWalker(
+        document.body || document.documentElement,
+        NodeFilter.SHOW_TEXT,
+        null,
+      );
+    } catch (e) {
+      return samples;
+    }
+    var node;
+    while ((node = walker.nextNode())) {
+      if (isNodeHiddenInTree(node)) continue;
+      var text = (node.nodeValue || "").trim();
+      if (text.length === 0) continue;
+      var ctxNode = node.parentNode;
+      var label = null;
+      var resetCandidates = resetLabelCandidatesFor(ctxNode, text);
+      for (var ri = 0; ri < resetCandidates.length; ri++) {
+        var resetText = resetCandidates[ri];
+        if (!mentionsResetHint(resetText)) continue;
+        label = pickResetLabel(resetText);
+        if (label) break;
+      }
+      if (!label) continue;
+      var depth = 0;
+      var resolved = false;
+      var singleModelContext = "";
+      var modelQuotaAnchor = "";
+      while (ctxNode && depth < 5) {
+        var candidates = contextCandidatesFor(ctxNode, depth);
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var ctxText = candidates[ci];
+          if (
+            singleModelContext.length === 0 &&
+            isLocalSingleModelContext(ctxText)
+          ) {
+            singleModelContext = ctxText;
+            modelQuotaAnchor = scopedModelQuotaAnchorFor(ctxNode);
+          }
+          var kind = classifyWindow(ctxText);
+          if (kind !== "unknown" && isUsableDirectWindowContext(ctxText)) {
+            samples.push({
+              windowKind: kind,
+              label: label,
+              context: ctxText.slice(0, 200),
+            });
+            resolved = true;
+            break;
+          }
+        }
+        if (resolved) break;
+        ctxNode = ctxNode.parentNode;
+        depth += 1;
+      }
+      if (
+        !resolved &&
+        singleModelContext.length > 0 &&
+        modelQuotaAnchor.length > 0
+      ) {
+        var syntheticContext = singleModelContext + " " + modelQuotaAnchor;
+        var syntheticKind = classifyWindow(syntheticContext);
+        if (syntheticKind !== "unknown") {
+          samples.push({
+            windowKind: syntheticKind,
+            label: label,
+            context: syntheticContext.slice(0, 200),
+          });
+        }
+      }
+    }
+    return samples;
+  }
+
+  function pickResetLabelForWindow(resetSamples, windowKind) {
+    for (var i = 0; i < resetSamples.length; i++) {
+      var sample = resetSamples[i];
+      if (sample.windowKind === windowKind) return sample.label;
     }
     return null;
   }
@@ -335,6 +669,7 @@
       return;
     }
     var rows = [];
+    var resetSamples = collectResetSamples();
     for (var i = 0; i < samples.length; i++) {
       var s = samples[i];
       var kind = classifyWindow(s.context);
@@ -344,7 +679,7 @@
       // showed up as `unknown` rows in the wild). The Rust side then
       // treats an empty rows array as `no-rows` and retries.
       if (kind === "unknown") continue;
-      var label = pickResetLabel(s.context);
+      var label = pickResetLabelForWindow(resetSamples, kind);
       rows.push({
         windowKind: kind,
         percentUsed: s.pct,
