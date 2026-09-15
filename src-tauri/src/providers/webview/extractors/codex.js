@@ -314,6 +314,17 @@
     return /up\s+to|maximum|at\s+most|最大|まで利用|節約/i.test(text);
   }
 
+  function hasBreakdownHeading(node, sampleNode) {
+    var child = node.firstElementChild;
+    while (child && !child.contains(sampleNode)) {
+      var text = readVisibleText(child);
+      if (percentCount(text) > 0) break;
+      if (isBreakdown(text)) return true;
+      child = child.nextElementSibling;
+    }
+    return false;
+  }
+
   function collectPercentSamples() {
     var samples = [];
     var walker = document.createTreeWalker(
@@ -345,9 +356,10 @@
         var own = readVisibleText(cursor);
         var heading = cursor.previousElementSibling;
         if (
-          heading &&
-          percentCount(readVisibleText(heading)) === 0 &&
-          isBreakdown(readVisibleText(heading))
+          hasBreakdownHeading(cursor, node) ||
+          (heading &&
+            percentCount(readVisibleText(heading)) === 0 &&
+            isBreakdown(readVisibleText(heading)))
         ) {
           sample = null;
           break;

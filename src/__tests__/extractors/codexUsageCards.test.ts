@@ -64,6 +64,60 @@ describe("codex.js — independent usage cards", () => {
     });
   });
 
+  it.each(
+    [
+      {
+        locale: "English",
+        fiveHours: "5-hour limit",
+        weekly: "Weekly limit",
+        remaining: "remaining",
+      },
+      {
+        locale: "Japanese",
+        fiveHours: "5時間使用制限",
+        weekly: "週間利用上限",
+        remaining: "残り",
+      },
+    ].flatMap((labels) =>
+      [false, true].map((reverse) => ({ ...labels, reverse })),
+    ),
+  )(
+    "excludesBothModelWindows $locale reverse=$reverse",
+    async ({ fiveHours, weekly, remaining, reverse }) => {
+      const modelFiveHours = `<div><h3>${fiveHours}</h3><p>90% ${remaining}</p></div>`;
+      const modelWeekly = `<div><h3>${weekly}</h3><p>100% ${remaining}</p></div>`;
+      const modelCards = reverse
+        ? modelWeekly + modelFiveHours
+        : modelFiveHours + modelWeekly;
+      const payload = await runExtractor(CODEX_JS, {
+        html: `<main><section><h2>GPT-5.3-Codex-Spark</h2>${modelCards}</section>
+        <section><h2>${weekly}</h2><p>80% ${remaining}</p></section></main>`,
+        now: FIXED_NOW,
+      });
+      expect(payload).toMatchObject({
+        ok: true,
+        rows: [{ windowKind: "weekly", percentUsed: 20 }],
+      });
+    },
+  );
+
+  it.each(["div", "section"])(
+    "keepsGeneralQuotaWhenModelAndGeneralCardsShareA%sAncestor",
+    async (tag) => {
+      const payload = await runExtractor(CODEX_JS, {
+        html: `<main><${tag}><section><h2>GPT-5.3-Codex-Spark</h2>
+        <div><h3>5-hour limit</h3><p>90% remaining</p></div>
+        <div><h3>Weekly limit</h3><p>100% remaining</p></div></section>
+        <section><h2>Weekly limit</h2><p>80% remaining</p></section></${tag}></main>`,
+        now: FIXED_NOW,
+      });
+      expect(payload).toMatchObject({
+        ok: true,
+        rows: [{ windowKind: "weekly", percentUsed: 20 }],
+      });
+    },
+  );
+
   it("readsResetOutsideTheHeaderAndValueWrapper", async () => {
     const payload = await runExtractor(CODEX_JS, {
       html: `<section><div><h2>Weekly limit</h2><p>80% remaining</p></div>
