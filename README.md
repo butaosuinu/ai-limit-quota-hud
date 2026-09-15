@@ -12,7 +12,7 @@ A small cross-platform desktop overlay that surfaces remaining AI subscription-u
 | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | ![Transparent overlay HUD showing remaining Claude and Codex usage as horizontal gauges](docs/images/overlay.png) | ![Settings window with Raycast-style list rows for overlay options and WebView providers](docs/images/settings.png) |
 
-QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Each opted-in provider becomes a single row with a horizontal remaining-usage gauge and a `reset at …` timestamp, so you can glance at it during a long coding session without context-switching to the vendor's web UI. The Settings window — a regular focusable window — hosts overlay tuning (opacity, click-through, lock, position) and the WebView provider login flow.
+QuotaHUD parks a transparent, always-on-top HUD in the corner of your screen. Each detected usage window gets a row with a horizontal remaining-usage gauge and a `reset at …` timestamp, so you can glance at it during a long coding session without context-switching to the vendor's web UI. The Settings window — a regular focusable window — hosts overlay tuning (opacity, click-through, lock, position) and the WebView provider login flow.
 
 ## Heads up: every value is an estimate
 
@@ -69,8 +69,8 @@ Overlay state (opacity, position, toggles) is persisted as JSON under the platfo
 
 QuotaHUD reads each vendor's own usage page directly in an embedded WebView. These providers are **disabled by default** — nothing navigates out to the network until you toggle them on in **Settings → WebView プロバイダ**.
 
-- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans), including visible model-specific rows such as Opus/Fable when the page exposes them. Implemented in this build.
-- **ChatGPT Codex (web)** — reads `chatgpt.com` Codex analytics. The UI toggle is present, but the backend lands separately ([issue #31](https://github.com/butaosuinu/ai-limit-quota-hud/issues/31)) and the command returns an error today.
+- **Claude (web)** — reads `claude.ai/settings/usage` (Pro / Max plans), including visible model-specific rows such as Opus/Fable. All-model weekly and Fable values are read independently from their own usage cards. Explanatory percentages, such as Fable's share of the weekly allowance, are not usage readings and do not rescale the displayed values.
+- **ChatGPT Codex (web)** — reads `chatgpt.com/codex/settings/usage`. A weekly-only page is supported. A general five-hour row appears only when that usage card is present; it disappears when absent and returns if the provider restores it. Model-specific breakdowns are not reported as general quota.
 
 Enabling a provider opens the vendor's own login window on first use (QuotaHUD never renders its own login form), then refreshes via a hidden WebView. Session cookies stay in the OS-native WebView cookie store; a **Delete provider data** button forces re-login. QuotaHUD never reads keystrokes, passwords, or individual cookie values. For the refresh-interval and isolation rules see [`docs/PROJECT_SPEC.md` §8](docs/PROJECT_SPEC.md#8-provider-architecture--opt-in-webview-providers).
 
@@ -78,6 +78,7 @@ Enabling a provider opens the vendor's own login window on first use (QuotaHUD n
 
 - **Cloudflare challenges interrupt refresh.** When claude.ai serves a "Verify you are human" interstitial we surface an error rather than trying to bypass it. Open claude.ai in a normal browser to clear the challenge, then trigger a refresh.
 - **Login session expiry.** If the cookie store has aged out, the next refresh shows "session expired". Use **Settings → WebView プロバイダ → ログイン** to re-authenticate.
+- **Layout and reset labels can change.** A missing or unrecognized reset time displays `--:--` while preserving a valid remaining percentage. Unreadable usage values surface an error instead of an assumed 100% remaining.
 
 ## OS-specific overlay limitations
 

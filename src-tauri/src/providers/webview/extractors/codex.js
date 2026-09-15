@@ -1,7 +1,7 @@
 // Codex (chatgpt.com) usage page extractor.
 //
 // This script runs inside an isolated WebView pointed at
-// https://chatgpt.com/codex/cloud/settings/analytics. It must not assume any
+// https://chatgpt.com/codex/settings/usage. It must not assume any
 // specific class / data-* attribute on the page — chatgpt.com's DOM is not a
 // stable interface, so we read whatever visible text exists, pattern-match
 // defensively, and surface the result via `document.title` (the Rust side
@@ -57,7 +57,7 @@
     /5\s*h\s*session/i,
     /5-?hour\s*session/i,
     /session\s+limit/i,
-    /5\s*hour/i,
+    /5[\s-]*hour/i,
     /5時間.*使用制限/,
     /5時間.*制限/,
     /5時間/,
@@ -163,7 +163,7 @@
     // If the label already looks like an ISO-8601 timestamp, surface it
     // verbatim — the Rust side stores the string and the UI renders it.
     var iso = label.match(
-      /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?/,
+      /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})/,
     );
     if (iso) return iso[0];
     // chatgpt.com's Codex Analytics card uses two locale-formatted absolute
@@ -182,7 +182,15 @@
         parseInt(ymdhm[4], 10),
         parseInt(ymdhm[5], 10),
       );
-      if (!isNaN(ymd.getTime())) return ymd.toISOString();
+      if (
+        ymd.getFullYear() === Number(ymdhm[1]) &&
+        ymd.getMonth() === Number(ymdhm[2]) - 1 &&
+        ymd.getDate() === Number(ymdhm[3]) &&
+        ymd.getHours() === Number(ymdhm[4]) &&
+        ymd.getMinutes() === Number(ymdhm[5])
+      )
+        return ymd.toISOString();
+      return null;
     }
     var hm = label.match(/^\s*(\d{1,2}):(\d{2})\s*$/);
     if (hm) {
@@ -206,6 +214,21 @@
         return dt.toISOString();
       }
     }
+    var jpPattern = /(\d+)\s*(週間?|日|時間|分|秒)/g;
+    var jpMs = 0;
+    var jp;
+    while ((jp = jpPattern.exec(label)) !== null) {
+      var multiplier = {
+        週: 604800000,
+        週間: 604800000,
+        日: 86400000,
+        時間: 3600000,
+        分: 60000,
+        秒: 1000,
+      }[jp[2]];
+      jpMs += Number(jp[1]) * multiplier;
+    }
+    if (jpMs > 0) return new Date(Date.now() + jpMs).toISOString();
     // Walk every duration component in the label and sum them. This handles
     // both the long form (`3 hours`, `12 minutes`, `2 days`) and the compact
     // form chatgpt.com tends to render (`in 3h 12m`, `2d 4h`, `45m`). Using
@@ -262,47 +285,100 @@
     }
   }
 
-  // Walk every visible percent text node and gather a few ancestors' worth
-  // of text as context for label classification. We don't need a single
-  // container that holds both label and percent — a label keyword anywhere
-  // in the climbed text is enough.
+  function isHidden(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (node.hidden || node.getAttribute("aria-hidden") === "true") return true;
+    var style = window.getComputedStyle(node);
+    return style.display === "none" || style.visibility === "hidden";
+  }
+
+  function readVisibleText(node) {
+    if (!node || isHidden(node)) return "";
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+    var parts = [];
+    for (var i = 0; i < node.childNodes.length; i += 1) {
+      parts.push(readVisibleText(node.childNodes[i]));
+    }
+    return parts.join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  function percentCount(text) {
+    return (text.match(/\d+(?:\.\d+)?\s*%/g) || []).length;
+  }
+
+  function isBreakdown(text) {
+    return /\bgpt[\s-]?\d|\bspark\b|code\s*review|コードレビュー/i.test(text);
+  }
+
+  function isExplanation(text) {
+    return /up\s+to|maximum|at\s+most|最大|まで利用|節約/i.test(text);
+  }
+
   function collectPercentSamples() {
     var samples = [];
-    var walker;
-    try {
-      walker = document.createTreeWalker(
-        document.body || document.documentElement,
-        NodeFilter.SHOW_TEXT,
-        null,
-      );
-    } catch (e) {
-      return samples;
-    }
+    var walker = document.createTreeWalker(
+      document.body || document.documentElement,
+      NodeFilter.SHOW_TEXT,
+      null,
+    );
     var node;
     while ((node = walker.nextNode())) {
-      var nodeText = (node.nodeValue || "").trim();
-      if (nodeText.length === 0) continue;
-      var pm = nodeText.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
-      if (!pm) continue;
-      var pct = parseFloat(pm[1]);
+      var text = (node.nodeValue || "").trim();
+      var match = text.match(/(^|[^\d.+−-])(\d+(?:\.\d+)?)\s*%/);
+      if (!match || isExplanation(text)) continue;
+      var pct = parseFloat(match[2]);
       if (!isFinite(pct) || pct < 0 || pct > 100) continue;
-      // Climbing past depth=3 starts capturing both 5時間 and 週あたり
-      // cards in the same context, collapsing classifyContext to "unknown"
-      // — reset-time text is recovered later by `findResetForWindow`.
-      // `textContent` (not `innerText`) keeps this cheap by avoiding
-      // layout reflow inside the polling loop.
-      var ctxNode = node.parentNode;
-      var ctxLines = [];
-      var depth = 0;
-      while (ctxNode && depth < 3) {
-        var ctxText = (ctxNode.textContent || "").trim();
-        if (ctxText && ctxText.length < 400) {
-          ctxLines.push(ctxText);
+      var cursor = node.parentElement;
+      var hidden = false;
+      while (cursor) {
+        if (isHidden(cursor)) {
+          hidden = true;
+          break;
         }
-        ctxNode = ctxNode.parentNode;
-        depth += 1;
+        cursor = cursor.parentElement;
       }
-      samples.push({ pct: pct, context: ctxLines.join(" | ") });
+      if (hidden) continue;
+      cursor = node.parentElement;
+      var sample = null;
+      for (var depth = 0; cursor && depth < 6; depth += 1) {
+        if (cursor.matches("body,html,main")) break;
+        var own = readVisibleText(cursor);
+        var heading = cursor.previousElementSibling;
+        if (
+          heading &&
+          percentCount(readVisibleText(heading)) === 0 &&
+          isBreakdown(readVisibleText(heading))
+        ) {
+          sample = null;
+          break;
+        }
+        if (percentCount(own) !== 1 || own.length > 600) break;
+        if (isBreakdown(own) || isExplanation(own)) {
+          sample = null;
+          break;
+        }
+        var cards = cursor.querySelectorAll("section,article,tr");
+        var crossesCard = false;
+        for (var c = 0; c < cards.length; c += 1) {
+          if (!cards[c].contains(node) && readVisibleText(cards[c]))
+            crossesCard = true;
+        }
+        if (crossesCard) break;
+        var context = own;
+        var previous = cursor.previousElementSibling;
+        if (classifyContext(context) === "unknown" && previous) {
+          var label = readVisibleText(previous);
+          if (percentCount(label) === 0 && !pickResetLabel(label)) {
+            context = label + " " + own;
+          }
+        }
+        if (isBreakdown(context) || isExplanation(context)) break;
+        if (classifyContext(context) !== "unknown") {
+          sample = { pct: pct, context: context, node: cursor };
+        }
+        cursor = cursor.parentElement;
+      }
+      if (sample) samples.push(sample);
     }
     return samples;
   }
@@ -335,9 +411,13 @@
 
   function flipIfRemaining(pct, context) {
     var saysRemaining =
-      /remaining|left/i.test(context) || /残り|残量/.test(context);
+      /%\s*(?:remaining|left|残り|残量)|(?:remaining|left|残り|残量)\s*\d+(?:\.\d+)?\s*%/i.test(
+        context,
+      );
     var saysUsed =
-      /used|consumed/i.test(context) || /使用済|消費/.test(context);
+      /%\s*(?:used|consumed|使用済|消費)|(?:used|consumed|使用済み?|消費)\s*\d+(?:\.\d+)?\s*%/i.test(
+        context,
+      );
     if (saysRemaining && !saysUsed) {
       var inverted = 100 - pct;
       if (inverted >= 0 && inverted <= 100) return inverted;
@@ -345,54 +425,32 @@
     return pct;
   }
 
-  // Locate the reset label belonging to a specific usage card by anchoring
-  // on its header text and scanning a short region forward. The percent and
-  // the reset text live in sibling subtrees whose only common ancestor is
-  // the analytics section — at that scope `classifyContext` would see both
-  // 5時間 and 週あたり cards at once and return "unknown" for every sample,
-  // so this lookup deliberately runs at the page level instead of expanding
-  // `collectPercentSamples`'s ancestor walk.
-  function findResetForWindow(bodyTxt, windowKind) {
-    if (!bodyTxt) return null;
-    // Anchors covering both locales chatgpt.com is known to render.
-    // Japanese first because that's the default on Pro accounts; ASCII
-    // anchors fold via `bodyLower` so they match regardless of casing.
-    var anchors =
-      windowKind === "weekly"
-        ? ["週間利用上限", "週あたり", "weekly", "per week"]
-        : ["5時間", "5h session", "5-hour session", "session limit", "5 hour"];
-    var bodyLower = bodyTxt.toLowerCase();
-    // Japanese リセット first via a single alternation so the FIRST one in
-    // a region wins. A two-pass "prefer YYYY/MM/DD" version skipped past a
-    // closer 5h HH:MM and grabbed the weekly card's longer stamp instead.
-    var JP =
-      /リセット[：:]\s*(\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2})/;
-    var EN = /(?:resets?|renews?|refreshes?)\s+(?:in|at|on)?\s*([^.\n|]+)/i;
-    for (var ai = 0; ai < anchors.length; ai += 1) {
-      var anchor = anchors[ai];
-      var anchorIsAscii = anchor.charCodeAt(0) < 128;
-      var searchIn = anchorIsAscii ? bodyLower : bodyTxt;
-      // Iterate every occurrence — per-model breakdown rows (e.g.
-      // "GPT-5.3-Codex-Spark 5時間") can precede the main usage card, and
-      // their region never contains a リセット, so the first indexOf would
-      // otherwise return null and hide the real reset label sitting later
-      // in the document.
-      var pos = 0;
-      while (pos < searchIn.length) {
-        var idx = searchIn.indexOf(anchor, pos);
-        if (idx === -1) break;
-        // 240 chars covers "<label> NN% 残り リセット：…" plus the long
-        // YYYY/MM/DD HH:MM stamp without drifting into the next card.
-        var region = bodyTxt.slice(idx, idx + 240);
-        var jp = region.match(JP);
-        if (jp) return jp[1].replace(/\s+/g, " ").trim();
-        var en = region.match(EN);
-        if (en) {
-          var enLabel = en[1].replace(/\s+/g, " ").trim();
-          if (enLabel.length > 0 && enLabel.length <= 80) return enLabel;
-        }
-        pos = idx + anchor.length;
-      }
+  function pickResetLabel(text) {
+    var jpRelative = text.match(
+      /((?:\d+\s*(?:週間?|日|時間|分|秒)\s*)+)後に?リセット/,
+    );
+    if (jpRelative) return jpRelative[1].trim();
+    var jp = text.match(/リセット[：:]\s*(.+)$/);
+    if (jp) return jp[1].trim();
+    var en = text.match(
+      /(?:resets?|renews?|refreshes?)\s+(?:in|at|on)?\s*([^\n|]+)/i,
+    );
+    return en ? en[1].trim() : null;
+  }
+
+  function findResetForSample(sample, kind) {
+    var label = pickResetLabel(readVisibleText(sample.node));
+    if (label) return label;
+    var sibling = sample.node.nextElementSibling;
+    while (sibling) {
+      if (sibling.matches("h1,h2,h3,h4,h5,h6,section,article,tr")) break;
+      var text = readVisibleText(sibling);
+      if (percentCount(text) > 0 || isBreakdown(text)) break;
+      var siblingKind = classifyContext(text);
+      if (siblingKind !== "unknown" && siblingKind !== kind) break;
+      label = pickResetLabel(text);
+      if (label) return label;
+      sibling = sibling.nextElementSibling;
     }
     return null;
   }
@@ -409,7 +467,6 @@
     }
     var samples = collectPercentSamples();
     var perWindow = {};
-    var bestIsMain = {};
     var classCounts = { five: 0, weekly: 0, unknown: 0 };
     for (var i = 0; i < samples.length; i += 1) {
       var s = samples[i];
@@ -418,31 +475,16 @@
       else if (kind === "weekly") classCounts.weekly += 1;
       else classCounts.unknown += 1;
       if (kind === "unknown") continue;
-      // Per-model breakdown rows ("GPT-5.3-Codex-Spark 5時間の…0%") also
-      // classify as five-hours; prefer a sample whose context names the
-      // high-level "使用制限" / "limit" header so we don't surface a
-      // per-model 0%.
-      var isMain =
-        /使用制限|limit/i.test(s.context) || /per\s+week/i.test(s.context);
-      if (perWindow[kind] && (!isMain || bestIsMain[kind])) continue;
+      if (perWindow[kind]) continue;
+      var label = findResetForSample(s, kind);
       perWindow[kind] = {
         windowKind: kind,
         percentUsed: flipIfRemaining(s.pct, s.context),
-        resetAt: null,
-        resetLabel: null,
+        resetAt: deriveResetAt(label),
+        resetLabel: label,
         raw: s.context.slice(0, 200),
       };
-      bestIsMain[kind] = isMain;
     }
-    ["five-hours", "weekly"].forEach(function (kind) {
-      var row = perWindow[kind];
-      if (!row) return;
-      var label = findResetForWindow(text, kind);
-      if (label) {
-        row.resetLabel = label;
-        row.resetAt = deriveResetAt(label);
-      }
-    });
     var rows = [];
     if (perWindow["five-hours"]) rows.push(perWindow["five-hours"]);
     if (perWindow["weekly"]) rows.push(perWindow["weekly"]);

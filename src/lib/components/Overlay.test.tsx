@@ -1,10 +1,23 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 
+import { setupListen } from "../../__tests__/helpers/eventBus";
+import { flush } from "../../__tests__/helpers/flush";
 import { overlaySettingsAtom } from "../atoms/overlayAtoms";
 import { snapshotsAtom } from "../atoms/usageAtoms";
-import { DEFAULT_OVERLAY_SETTINGS, type UsageSnapshot } from "../types";
+import {
+  DEFAULT_OVERLAY_SETTINGS,
+  USAGE_UPDATED_EVENT,
+  type UsageSnapshot,
+} from "../types";
 import { Overlay } from "./Overlay";
 
 const refreshNowMock = vi.fn<() => Promise<unknown>>();
@@ -117,6 +130,103 @@ describe("Overlay", () => {
     expect(
       screen.queryByTestId("overlay-group-webview-chatgpt-codex"),
     ).toBeNull();
+  });
+
+  it("updates optional Codex windows while keeping Claude weekly and Fable values independent", async () => {
+    const bus = setupListen();
+    const claudeWeekly = baseSnapshot({
+      providerId: "webview-claude-ai:weekly",
+      accountLabel: "Claude weekly",
+      window: "weekly",
+      metric: "percent",
+      remainingPercent: 54,
+    });
+    const claudeFable = baseSnapshot({
+      providerId: "webview-claude-ai:weekly-fable",
+      accountLabel: "Claude Fable",
+      window: "weekly",
+      metric: "percent",
+      remainingPercent: 17,
+      status: "warning",
+    });
+    const codexWeekly = baseSnapshot({
+      providerId: "webview-chatgpt-codex:weekly",
+      providerKind: "webview-chatgpt-codex",
+      accountLabel: "Codex weekly",
+      window: "weekly",
+      metric: "percent",
+      remainingPercent: 80,
+    });
+    const codexFiveHours = baseSnapshot({
+      providerId: "webview-chatgpt-codex:five-hours",
+      providerKind: "webview-chatgpt-codex",
+      accountLabel: "Codex 5h",
+      metric: "percent",
+      remainingPercent: 70,
+    });
+    const weeklyRows = [claudeWeekly, claudeFable, codexWeekly];
+    renderOverlay();
+    await act(async () => {
+      await flush();
+      bus.emit(USAGE_UPDATED_EVENT, [...weeklyRows, codexFiveHours]);
+    });
+    expect(screen.getByText("Codex 5h")).toBeTruthy();
+    expect(screen.getByText(/4 provider rows/u)).toBeTruthy();
+
+    refreshNowMock.mockImplementationOnce(async () => {
+      bus.emit(USAGE_UPDATED_EVENT, weeklyRows);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "refresh now" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Codex 5h")).toBeNull();
+      expect(screen.getByText(/3 provider rows/u)).toBeTruthy();
+      expect(
+        screen
+          .getByRole("button", { name: "refresh now" })
+          .hasAttribute("disabled"),
+      ).toBe(false);
+    });
+    expect(
+      within(
+        screen.getByTestId("usage-row-webview-chatgpt-codex:weekly"),
+      ).getByText("80%"),
+    ).toBeTruthy();
+    expect(
+      within(
+        screen.getByTestId("usage-row-webview-claude-ai:weekly"),
+      ).getByText("54%"),
+    ).toBeTruthy();
+    expect(
+      within(
+        screen.getByTestId("usage-row-webview-claude-ai:weekly-fable"),
+      ).getByText("17%"),
+    ).toBeTruthy();
+
+    refreshNowMock.mockImplementationOnce(async () => {
+      bus.emit(USAGE_UPDATED_EVENT, [
+        ...weeklyRows,
+        { ...codexFiveHours, remainingPercent: 62 },
+      ]);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "refresh now" }));
+    await waitFor(() => {
+      expect(
+        within(
+          screen.getByTestId("usage-row-webview-chatgpt-codex:five-hours"),
+        ).getByText("62%"),
+      ).toBeTruthy();
+      expect(screen.getByText(/4 provider rows/u)).toBeTruthy();
+    });
+    expect(
+      within(
+        screen.getByTestId("usage-row-webview-claude-ai:weekly"),
+      ).getByText("54%"),
+    ).toBeTruthy();
+    expect(
+      within(
+        screen.getByTestId("usage-row-webview-claude-ai:weekly-fable"),
+      ).getByText("17%"),
+    ).toBeTruthy();
   });
 
   it("sorts rows within a group by severity (critical first)", () => {

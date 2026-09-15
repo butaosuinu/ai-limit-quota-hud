@@ -163,6 +163,9 @@ Required behavior:
 - User can lock/unlock dragging.
 - User can toggle click-through from tray/menu or global shortcut.
 - User can hide/show overlay from tray/menu.
+- The macOS menu bar summary shows Claude's five-hour headroom and Codex's
+  weekly headroom. Codex's weekly summary remains selected if its five-hour
+  window returns.
 
 Default visual model:
 
@@ -364,6 +367,20 @@ the visible usage figures with a small JavaScript helper, so that no Python
 or external runtime is required. Claude's provider should surface visible
 model-specific usage rows, such as Opus or Fable, as additional Claude rows
 when `claude.ai/settings/usage` exposes them.
+
+Usage windows are discovered from the visible usage cards, not inferred from
+the subscription plan. Codex supports a weekly-only page; its general five-hour
+row is optional and follows the card's disappearance or return. Model-specific
+Codex breakdowns must not supply values for a general quota row. Claude's
+all-model weekly and Fable rows use each card's own percentage and reset label;
+explanatory percentages (for example a model's share of a weekly allowance)
+are neither measurements nor conversion factors. Convert used percentages to
+remaining percentages, and preserve percentages already labeled as remaining.
+
+Bind the reset label to the same usage card, including a clearly associated
+adjacent reset element. Never borrow another card's reset. An unavailable reset
+time leaves `reset_at` empty without discarding valid usage; missing or invalid
+usage values produce an error rather than defaulting to full remaining quota.
 
 Hard rules:
 
@@ -790,7 +807,7 @@ Acceptance:
 - Implement the shared `WebviewScraper` actor under
   `src-tauri/src/providers/webview/`.
 - Implement `claude_web.rs` against `https://claude.ai/settings/usage` and
-  `codex_web.rs` against `https://chatgpt.com/codex/cloud/settings/analytics`.
+  `codex_web.rs` against `https://chatgpt.com/codex/settings/usage`.
 - Implement platform-specific session isolation (see §8): `data_directory`
   on Windows / Linux, `dataStoreIdentifier` (+ `WKWebsiteDataStore`) on
   macOS, with the macOS <14 fallback documented as a limitation.

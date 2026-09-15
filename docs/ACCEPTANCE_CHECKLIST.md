@@ -35,6 +35,8 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 
 ### macOS
 
+- [ ] The menu bar summary shows Claude five-hour and Codex weekly headroom,
+      including when a Codex five-hour row is also available.
 - [ ] Overlay remains visible when switching Spaces.
 - [ ] Overlay remains usable when a normal app is full-screen, or the limitation is documented.
 - [ ] Transparent-window private API setting is documented if enabled.
@@ -57,10 +59,16 @@ Use this checklist before opening a PR, tagging a release, or claiming a phase i
 
 ### WebView providers (opt-in, see PROJECT_SPEC §8)
 
-> Status: `webview-claude-ai` provider implemented (issue #30); the
-> `webview-chatgpt-codex` provider lands in #31. The boxes below cover the
-> Claude provider where backend work is complete; Codex equivalents stay
-> unchecked until #31.
+Both `webview-claude-ai` and `webview-chatgpt-codex` providers are implemented.
+Validate each against its current usage page before a release.
+
+- [ ] Codex succeeds with only a weekly card; disappearance and return of a
+      general five-hour card remove and restore that HUD row without borrowing
+      model-specific quota values.
+- [ ] Claude all-model weekly and Fable percentages and reset times match their
+      respective cards, regardless of order or explanatory 50% text.
+- [ ] Unknown reset labels display `--:--`; invalid usage does not display an
+      assumed 100% remaining.
 
 - [x] Each WebView provider is **disabled by default**. No external network
       activity occurs until the user toggles it on in Settings.

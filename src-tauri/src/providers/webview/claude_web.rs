@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::model::{
     error_snapshot, format_rfc3339, no_data_snapshot, Confidence, ProviderKind, SnapshotStatus,
@@ -213,19 +213,15 @@ fn account_label_for_window(window_kind: Option<&str>) -> String {
 
 fn snapshot_from_row(row: ExtractedRow, now: &OffsetDateTime) -> UsageSnapshot {
     let window = classify_window(row.window_kind.as_deref());
-    let percent_used = row.percent_used.unwrap_or(0.0).clamp(0.0, 100.0);
-    // The page reports % USED; QuotaHUD's data model tracks % REMAINING so
-    // the threshold classifier behaves consistently across providers.
-    let remaining_percent = (100.0 - percent_used).max(0.0);
-    // Map the remaining % to a status using the global thresholds. We don't
-    // have a true `remaining` count here (the page doesn't expose one),
-    // so we rely on `remaining_percent` alone.
-    let status = if remaining_percent < crate::model::DEFAULT_CRITICAL_PCT {
-        SnapshotStatus::Critical
-    } else if remaining_percent < crate::model::DEFAULT_WARN_PCT {
-        SnapshotStatus::Warning
-    } else {
-        SnapshotStatus::Ok
+    let remaining_percent = row
+        .percent_used
+        .filter(|value| value.is_finite() && (0.0..=100.0).contains(value))
+        .map(|value| 100.0 - value);
+    let status = match remaining_percent {
+        Some(value) if value < crate::model::DEFAULT_CRITICAL_PCT => SnapshotStatus::Critical,
+        Some(value) if value < crate::model::DEFAULT_WARN_PCT => SnapshotStatus::Warning,
+        Some(_) => SnapshotStatus::Ok,
+        None => SnapshotStatus::Error,
     };
     let provider_id = match row.window_kind.as_deref() {
         Some(k) => format!("{CLAUDE_WEB_PROVIDER_ID}:{k}"),
@@ -240,13 +236,19 @@ fn snapshot_from_row(row: ExtractedRow, now: &OffsetDateTime) -> UsageSnapshot {
         limit: None,
         used: None,
         remaining: None,
-        remaining_percent: Some(remaining_percent),
-        reset_at: row.reset_at,
+        remaining_percent,
+        reset_at: row.reset_at.filter(|value| {
+            remaining_percent.is_some() && OffsetDateTime::parse(value, &Rfc3339).is_ok()
+        }),
         observed_at: format_rfc3339(now),
         source: UsageSource::WebviewScrape,
         confidence: Confidence::Low,
         status,
-        message: row.reset_label.map(|s| format!("resets {s}")),
+        message: if remaining_percent.is_some() {
+            row.reset_label.map(|s| format!("resets {s}"))
+        } else {
+            Some("claude.ai usage percentage is missing or invalid".into())
+        },
     }
 }
 
@@ -451,33 +453,81 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_from_row_clamps_out_of_range_percent() {
-        let row = ExtractedRow {
-            window_kind: Some("five-hours".into()),
-            percent_used: Some(150.0),
-            reset_at: None,
-            reset_label: None,
-        };
-        let snap = snapshot_from_row(row, &now_fixture());
-        // 150 used clamps to 100 → 0 remaining → Critical.
-        assert_eq!(snap.remaining_percent, Some(0.0));
-        assert_eq!(snap.status, SnapshotStatus::Critical);
+    fn snapshot_from_row_rejects_invalid_percent_without_losing_row_identity() {
+        for percent_used in [
+            None,
+            Some(-1.0),
+            Some(150.0),
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+            Some(f64::NEG_INFINITY),
+        ] {
+            let snap = snapshot_from_row(
+                ExtractedRow {
+                    window_kind: Some("weekly-fable".into()),
+                    percent_used,
+                    reset_at: Some("2026-05-18T08:00:00Z".into()),
+                    reset_label: Some("in 3 days".into()),
+                },
+                &now_fixture(),
+            );
+            assert_eq!(snap.provider_id, "webview-claude-ai:weekly-fable");
+            assert_eq!(snap.account_label, "Claude Fable");
+            assert_eq!(snap.window, UsageWindow::Weekly);
+            assert_eq!(snap.source, UsageSource::WebviewScrape);
+            assert_eq!(snap.confidence, Confidence::Low);
+            assert_eq!(snap.remaining_percent, None);
+            assert_eq!(snap.reset_at, None);
+            assert_eq!(snap.status, SnapshotStatus::Error);
+            assert!(snap.message.unwrap().contains("percentage"));
+        }
     }
 
     #[test]
-    fn snapshot_from_row_defaults_missing_percent_to_full_remaining() {
-        let row = ExtractedRow {
-            window_kind: None,
-            percent_used: None,
-            reset_at: None,
-            reset_label: None,
-        };
-        let snap = snapshot_from_row(row, &now_fixture());
-        assert_eq!(snap.provider_id, "webview-claude-ai:unknown");
-        assert_eq!(snap.account_label, "Claude");
-        assert_eq!(snap.remaining_percent, Some(100.0));
-        assert_eq!(snap.status, SnapshotStatus::Ok);
-        assert!(snap.message.is_none());
+    fn snapshot_from_row_keeps_valid_percent_without_a_valid_reset() {
+        for reset_at in [
+            None,
+            Some(""),
+            Some("invalid"),
+            Some("2026-02-30T12:00:00Z"),
+        ] {
+            for percent_used in [0.0, 100.0] {
+                let snap = snapshot_from_row(
+                    ExtractedRow {
+                        window_kind: Some("weekly".into()),
+                        percent_used: Some(percent_used),
+                        reset_at: reset_at.map(str::to_owned),
+                        reset_label: None,
+                    },
+                    &now_fixture(),
+                );
+                assert_eq!(snap.remaining_percent, Some(100.0 - percent_used));
+                assert!(!snap.status.is_failure());
+                assert_eq!(snap.reset_at, None);
+            }
+        }
+    }
+
+    #[test]
+    fn snapshots_from_payload_rejects_missing_and_null_percent() {
+        let snaps = ClaudeWebProvider::snapshots_from_payload(
+            ScraperPayload::Ok {
+                rows: serde_json::json!([
+                    { "windowKind": "weekly" },
+                    { "windowKind": "weekly-fable", "percentUsed": null }
+                ]),
+                generation: None,
+            },
+            &now_fixture(),
+        );
+        assert_eq!(snaps.len(), 2);
+        for snap in snaps {
+            assert_eq!(snap.status, SnapshotStatus::Error);
+            assert_eq!(snap.remaining_percent, None);
+            assert_eq!(snap.reset_at, None);
+            assert_eq!(snap.source, UsageSource::WebviewScrape);
+            assert_eq!(snap.confidence, Confidence::Low);
+        }
     }
 
     #[test]

@@ -115,28 +115,24 @@
       // Match "<digits>%" or "<digits>.<digits>%" with optional surrounding
       // whitespace. We intentionally don't anchor — text nodes can wrap a
       // single percent inline with the label.
-      var m = text.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+      var m = text.match(/(?:^|[^\d.+\-−])(\d+(?:\.\d+)?)\s*%/);
       if (!m) continue;
       var pct = parseFloat(m[1]);
       if (!isFinite(pct) || pct < 0 || pct > 100) continue;
+      if (isPercentDescription(node)) continue;
       // Climb up a few ancestors to grab context. Stop after ~6 levels so we
       // don't bring in the entire document.
       var ctxNode = node.parentNode;
-      var ctxLines = [];
       var nearestContext = "";
-      var singleModelContext = "";
+      var localQuotaContext = "";
       var modelQuotaAnchor = "";
       var depth = 0;
       while (ctxNode && depth < 6) {
         var candidates = contextCandidatesFor(ctxNode, depth);
         for (var ci = 0; ci < candidates.length; ci++) {
           var ctxText = candidates[ci];
-          if (ci === 0) ctxLines.push(ctxText);
-          if (
-            singleModelContext.length === 0 &&
-            isLocalSingleModelContext(ctxText)
-          ) {
-            singleModelContext = ctxText;
+          if (localQuotaContext.length === 0 && isLocalQuotaContext(ctxText)) {
+            localQuotaContext = ctxText;
             modelQuotaAnchor = scopedModelQuotaAnchorFor(ctxNode);
           }
           if (
@@ -150,15 +146,14 @@
         depth += 1;
       }
       samples.push({
+        node: node,
         pct: pct,
         context:
           nearestContext.length > 0
             ? nearestContext
-            : singleModelContext.length > 0 && modelQuotaAnchor.length > 0
-              ? singleModelContext + " " + modelQuotaAnchor
-              : singleModelContext.length > 0
-                ? singleModelContext
-                : ctxLines.join(" | "),
+            : localQuotaContext.length > 0 && modelQuotaAnchor.length > 0
+              ? localQuotaContext + " " + modelQuotaAnchor
+              : "",
       });
     }
     return samples;
@@ -190,26 +185,43 @@
   function isNodeHiddenInTree(node) {
     var cursor = node;
     while (cursor) {
-      if (isElementHidden(cursor)) return true;
+      if (isElementHidden(cursor) || isExcludedSection(cursor)) return true;
       cursor = cursor.parentNode;
     }
     return false;
   }
 
-  function readNodeText(node) {
+  function isExcludedSection(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+    if (node.getAttribute("role") === "status") return true;
+    if (node.tagName !== "SECTION") return false;
+    var heading = node.querySelector("h1, h2, h3, h4");
+    return (
+      !!heading &&
+      /製品別|usage by product|product usage/i.test(heading.textContent || "")
+    );
+  }
+
+  function readNodeText(node, includeDescriptions) {
     if (!node) return "";
-    if (isElementHidden(node)) return "";
+    if (isElementHidden(node) || isExcludedSection(node)) return "";
     if (node.nodeType === Node.TEXT_NODE) {
-      return (node.nodeValue || "").trim();
+      var value = (node.nodeValue || "").trim();
+      return !includeDescriptions && isCapDescription(value) ? "" : value;
     }
     var children = node.childNodes || [];
     var parts = [];
     for (var i = 0; i < children.length; i++) {
-      var text = readNodeText(children[i]);
+      var text = readNodeText(children[i], includeDescriptions);
       if (text.length > 0) parts.push(text);
     }
-    if (parts.length > 0) {
-      return parts.join(" ").replace(/\s+/g, " ").trim();
+    if (children.length > 0) {
+      var joined = parts.join(" ").replace(/\s+/g, " ").trim();
+      return !includeDescriptions &&
+        percentValueCount(joined) === 1 &&
+        isCapDescription(joined)
+        ? ""
+        : joined;
     }
     if (typeof node.innerText === "string") return node.innerText.trim();
     return ((node && node.textContent) || "").trim();
@@ -220,19 +232,13 @@
     var sibling = node.previousSibling;
     while (sibling && out.length < maxCount) {
       var text = readNodeText(sibling);
+      if (isCapDescription(text)) {
+        sibling = sibling.previousSibling;
+        continue;
+      }
+      if (percentValueCount(text) > 0) break;
       if (text.length > 0) out.unshift(text);
       sibling = sibling.previousSibling;
-    }
-    return out;
-  }
-
-  function nextSiblingTexts(node, maxCount) {
-    var out = [];
-    var sibling = node.nextSibling;
-    while (sibling && out.length < maxCount) {
-      var text = readNodeText(sibling);
-      if (text.length > 0) out.push(text);
-      sibling = sibling.nextSibling;
     }
     return out;
   }
@@ -250,12 +256,37 @@
     if (ownText.length === 0 || ownText.length >= 600) return [];
     var localText = depth <= 1 ? localContextFor(node, ownText) : "";
     if (localText.length === 0) return [ownText];
-    return [localText, ownText];
+    return [ownText, localText];
   }
 
   function percentValueCount(context) {
-    var matches = context.match(/\d{1,3}(?:\.\d+)?\s*%/g);
+    var matches = context.match(/\d+(?:\.\d+)?\s*%/g);
     return matches ? matches.length : 0;
+  }
+
+  function isCapDescription(text) {
+    return (
+      percentValueCount(text) > 0 &&
+      (/\bup to\b|\bmaximum\b|最大/i.test(text) ||
+        /%\s*(?:of (?:your |the )?weekly|まで)/i.test(text))
+    );
+  }
+
+  function isPercentDescription(node) {
+    var cursor = node;
+    var depth = 0;
+    while (cursor && depth < 6) {
+      var text = readNodeText(cursor, true);
+      if (percentValueCount(text) > 1) break;
+      if (isCapDescription(text)) return true;
+      cursor = cursor.parentNode;
+      depth += 1;
+    }
+    return false;
+  }
+
+  function hasAllModelsContext(context) {
+    return /\ball models\b|すべてのモデル|全モデル/i.test(context);
   }
 
   function hasFableContext(context) {
@@ -266,10 +297,11 @@
     return context.toLowerCase().indexOf("opus") !== -1;
   }
 
-  function hasExactlyOneModel(context) {
+  function hasExactlyOneQuotaLabel(context) {
     var isFable = hasFableContext(context);
     var isOpus = hasOpusContext(context);
-    return (isFable && !isOpus) || (isOpus && !isFable);
+    var isAllModels = hasAllModelsContext(context);
+    return Number(isFable) + Number(isOpus) + Number(isAllModels) === 1;
   }
 
   function hasStrongRateLimitContext(context) {
@@ -284,6 +316,7 @@
     var lower = context.toLowerCase();
     return (
       lower.indexOf("week") !== -1 ||
+      context.indexOf("今週") !== -1 ||
       context.indexOf("週間") !== -1 ||
       context.indexOf("毎週") !== -1
     );
@@ -304,16 +337,17 @@
     var cursor = node;
     var depth = 0;
     while (cursor && depth < 5) {
-      var siblings = previousSiblingTexts(cursor, 3);
-      for (var i = siblings.length - 1; i >= 0; i--) {
-        var text = siblings[i];
+      var sibling = cursor.previousSibling;
+      while (sibling) {
+        var text = readNodeText(sibling);
         if (
-          hasStrongRateLimitContext(text) &&
+          (hasStrongRateLimitContext(text) || hasWeeklyContext(text)) &&
           !hasSessionContext(text) &&
           percentValueCount(text) === 0
         ) {
           return "rate limit";
         }
+        sibling = sibling.previousSibling;
       }
       cursor = cursor.parentNode;
       depth += 1;
@@ -325,24 +359,27 @@
     return kind === "weekly-fable" || kind === "weekly-opus";
   }
 
-  function isLocalSingleModelContext(context) {
+  function isLocalQuotaContext(context) {
     return (
-      hasExactlyOneModel(context) &&
+      hasExactlyOneQuotaLabel(context) &&
       !hasSessionContext(context) &&
       percentValueCount(context) <= 1
     );
   }
 
   function isUsableDirectWindowContext(context) {
+    if (percentValueCount(context) > 1 || isCapDescription(context))
+      return false;
     var kind = classifyWindow(context);
     if (kind === "unknown") return false;
     if (!isModelWindowKind(kind)) return true;
-    return isLocalSingleModelContext(context);
+    return isLocalQuotaContext(context);
   }
 
   function classifyWindow(context) {
     var isFable = hasFableContext(context);
     var isOpus = hasOpusContext(context);
+    var isAllModels = hasAllModelsContext(context);
     var isRateLimit = hasStrongRateLimitContext(context);
     var isWeekly = hasWeeklyContext(context);
     var isSession = hasSessionContext(context);
@@ -355,17 +392,16 @@
     if (isWeekly && isSession) return "unknown";
     if (isSession && (isFable || isOpus)) return "unknown";
     if (isFable && isOpus) return "unknown";
+    if (isAllModels && (isFable || isOpus)) return "unknown";
     if (isFable && (isWeekly || isRateLimit)) return "weekly-fable";
     if (isOpus && (isWeekly || isRateLimit)) return "weekly-opus";
     if (isSession) return "five-hours";
+    if (isAllModels && (isWeekly || isRateLimit)) return "weekly";
     if (isWeekly) return "weekly";
     return "unknown";
   }
 
-  // Try to pull a "Resets <relative>" or "Resets at <time>" hint from the
-  // context block. We do not attempt to convert relative strings into ISO —
-  // the Rust side knows the observation time and can compute a reset_at if
-  // needed. We just return the raw label.
+  // Pull the reset label from the same quota card as the measured percent.
   function pickResetLabel(context) {
     // English: "Resets in 3 hours", "Resets at 5:00 PM", "Resets May 20" etc.
     var m = context.match(/Resets?\s+(?:in|at|on)?\s*([^|]+?)(?:\s*\||$)/i);
@@ -383,11 +419,13 @@
     // a parenthesised weekday. claude.ai renders the weekly window this way
     // while the 5h window uses the relative "N時間後" form handled below.
     var jpWeekday = context.match(
-      /(\d{1,2}:\d{2})\s*[（(]\s*([日月火水木金土])\s*[)）]/,
+      /(\d{1,2}:\d{2})\s*[（(]\s*([日月火水木金土](?:曜日)?)\s*[)）]/,
     );
     if (jpWeekday) {
       return jpWeekday[1] + " (" + jpWeekday[2] + ")";
     }
+    var jpClock = context.match(/(?:^|[^\d:])(\d{1,2}:\d{2})\s*にリセット/);
+    if (jpClock) return jpClock[1];
     // Japanese: "4時間17分後にリセット" — at least one numeric component
     // is required so the optional-only group cannot match "後" alone.
     var jp = context.match(
@@ -402,130 +440,96 @@
     return null;
   }
 
-  function resetSiblingContextFor(node, ownText) {
-    var parts = previousSiblingTexts(node, 2);
-    parts.push(ownText);
-    parts = parts.concat(nextSiblingTexts(node, 2));
-    var text = parts.join(" ").trim();
-    if (text === ownText || text.length >= 600) return "";
-    return text;
-  }
-
-  function resetLabelCandidatesFor(node, text) {
-    var candidates = [];
-    if (node) {
-      var ownText = readNodeText(node);
-      if (ownText.length > 0 && ownText.length < 600) candidates.push(ownText);
-      var parentText = "";
-      if (node.parentNode) {
-        parentText = readNodeText(node.parentNode);
-        if (
-          parentText.length > 0 &&
-          parentText.length < 600 &&
-          parentText !== ownText
-        ) {
-          candidates.push(parentText);
-        }
-      }
-      if (mentionsResetHint(ownText) || mentionsResetHint(parentText)) {
-        var siblingText = resetSiblingContextFor(node, ownText);
-        if (siblingText.length > 0) candidates.push(siblingText);
-      }
+  function hasDifferentWindow(text, windowKind) {
+    var heading = text.split(
+      /resets?|renews?|refreshes?|(?:\d+\s*(?:週間?|日|時間|分)\s*)+後/i,
+    )[0];
+    var kind = classifyWindow(heading);
+    if (kind === "unknown" && hasExactlyOneQuotaLabel(heading)) {
+      kind = classifyWindow(heading + " rate limit");
     }
-    candidates.push(text);
-    return candidates;
+    return kind !== "unknown" && kind !== windowKind;
   }
 
-  function mentionsResetHint(text) {
-    return (
-      /resets?|renews?|refreshes?/i.test(text) ||
-      text.indexOf("リセット") !== -1 ||
-      text.indexOf("更新") !== -1
-    );
-  }
-
-  function collectResetSamples() {
-    var samples = [];
-    var walker;
-    try {
-      walker = document.createTreeWalker(
-        document.body || document.documentElement,
-        NodeFilter.SHOW_TEXT,
-        null,
-      );
-    } catch (e) {
-      return samples;
-    }
-    var node;
-    while ((node = walker.nextNode())) {
-      if (isNodeHiddenInTree(node)) continue;
-      var text = (node.nodeValue || "").trim();
-      if (text.length === 0) continue;
-      var ctxNode = node.parentNode;
-      var label = null;
-      var resetCandidates = resetLabelCandidatesFor(ctxNode, text);
-      for (var ri = 0; ri < resetCandidates.length; ri++) {
-        var resetText = resetCandidates[ri];
-        if (!mentionsResetHint(resetText)) continue;
-        label = pickResetLabel(resetText);
-        if (label) break;
-      }
-      if (!label) continue;
-      var depth = 0;
-      var resolved = false;
-      var singleModelContext = "";
-      var modelQuotaAnchor = "";
-      while (ctxNode && depth < 5) {
-        var candidates = contextCandidatesFor(ctxNode, depth);
-        for (var ci = 0; ci < candidates.length; ci++) {
-          var ctxText = candidates[ci];
-          if (
-            singleModelContext.length === 0 &&
-            isLocalSingleModelContext(ctxText)
-          ) {
-            singleModelContext = ctxText;
-            modelQuotaAnchor = scopedModelQuotaAnchorFor(ctxNode);
-          }
-          var kind = classifyWindow(ctxText);
-          if (kind !== "unknown" && isUsableDirectWindowContext(ctxText)) {
-            samples.push({
-              windowKind: kind,
-              label: label,
-              context: ctxText.slice(0, 200),
-            });
-            resolved = true;
-            break;
-          }
-        }
-        if (resolved) break;
-        ctxNode = ctxNode.parentNode;
-        depth += 1;
-      }
+  function pickResetLabelForSample(sample, windowKind) {
+    var cursor = sample.node.parentNode;
+    var depth = 0;
+    while (cursor && depth < 6) {
+      var text = readNodeText(cursor);
       if (
-        !resolved &&
-        singleModelContext.length > 0 &&
-        modelQuotaAnchor.length > 0
-      ) {
-        var syntheticContext = singleModelContext + " " + modelQuotaAnchor;
-        var syntheticKind = classifyWindow(syntheticContext);
-        if (syntheticKind !== "unknown") {
-          samples.push({
-            windowKind: syntheticKind,
-            label: label,
-            context: syntheticContext.slice(0, 200),
-          });
-        }
-      }
-    }
-    return samples;
-  }
-
-  function pickResetLabelForWindow(resetSamples, windowKind) {
-    for (var i = 0; i < resetSamples.length; i++) {
-      var sample = resetSamples[i];
-      if (sample.windowKind === windowKind) return sample.label;
+        percentValueCount(text) > 1 ||
+        hasDifferentWindow(text, windowKind) ||
+        containsOtherCard(cursor, sample.node)
+      )
+        break;
+      var label = pickResetLabel(text);
+      if (label) return label;
+      var adjacentLabel = pickAdjacentResetLabel(cursor);
+      if (adjacentLabel) return adjacentLabel;
+      cursor = cursor.parentNode;
+      depth += 1;
     }
     return null;
+  }
+
+  function pickAdjacentResetLabel(node) {
+    var sibling = node.nextSibling;
+    while (sibling) {
+      var text = readNodeText(sibling);
+      if (text.length > 0) {
+        if (text.length > 100 || percentValueCount(text) > 0) return null;
+        if (sibling.querySelector && sibling.querySelector("h1, h2, h3, h4"))
+          return null;
+        if (
+          !/^(?:resets?\b|\d{1,2}:\d{2}\b|\d+\s*(?:週間?|日|時間|分))/i.test(
+            text,
+          )
+        )
+          return null;
+        return pickResetLabel(text);
+      }
+      sibling = sibling.nextSibling;
+    }
+    return null;
+  }
+
+  function containsOtherCard(node, sampleNode) {
+    var children = node.children || [];
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      var heading = child.querySelector("h1, h2, h3, h4");
+      if (
+        !child.contains(sampleNode) &&
+        !isElementHidden(child) &&
+        heading &&
+        readNodeText(child) !== readNodeText(heading)
+      )
+        return true;
+    }
+    return false;
+  }
+
+  function percentUsedForSample(sample) {
+    var cursor = sample.node;
+    var depth = 0;
+    while (cursor && depth < 6) {
+      var text = readNodeText(cursor);
+      if (percentValueCount(text) > 1) break;
+      var remaining =
+        /%\s*(?:remaining|left|残り|残量)|(?:remaining|left|残り|残量)\s*\d+(?:\.\d+)?\s*%/i.test(
+          text,
+        );
+      var used =
+        /%\s*(?:used|consumed|使用済|消費)|(?:used|consumed|使用済み?|消費)\s*\d+(?:\.\d+)?\s*%/i.test(
+          text,
+        );
+      if (remaining && used) return null;
+      if (remaining) return 100 - sample.pct;
+      if (used) return sample.pct;
+      cursor = cursor.parentNode;
+      depth += 1;
+    }
+    return sample.pct;
   }
 
   // Map a label's weekday token to a 0-6 index (Sunday = 0), or -1 when the
@@ -533,7 +537,7 @@
   // parentheses — bare 日 / 月 also mean "day" / "month" in the relative
   // forms, so the paren guard keeps "N日後" from being read as a weekday.
   function resolveWeekday(label) {
-    var jp = label.match(/[（(]\s*([日月火水木金土])\s*[)）]/);
+    var jp = label.match(/[（(]\s*([日月火水木金土])(?:曜日)?\s*[)）]/);
     if (jp) return "日月火水木金土".indexOf(jp[1]);
     // Whole-token match (full name or 3-letter abbreviation) so a weekday
     // prefix can't be read out of an unrelated word — e.g. "mon" in "month".
@@ -559,10 +563,11 @@
     // local-time HH:MM handling in extractors/codex.js).
     var dow = resolveWeekday(label);
     var tod = label.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-    if (dow >= 0 && tod) {
+    if (tod && (dow >= 0 || /^\d{1,2}:\d{2}\s*(?:am|pm)?$/i.test(label))) {
       var hh = parseInt(tod[1], 10);
       var mm = parseInt(tod[2], 10);
       var ap = tod[3] ? tod[3].toLowerCase() : "";
+      if (ap && (hh < 1 || hh > 12)) return null;
       if (ap === "pm" && hh < 12) hh += 12;
       else if (ap === "am" && hh === 12) hh = 0;
       if (hh >= 0 && hh < 24 && mm >= 0 && mm < 60) {
@@ -574,25 +579,30 @@
           hh,
           mm,
         );
-        dt.setDate(dt.getDate() + ((dow - now.getDay() + 7) % 7));
-        if (dt.getTime() <= now.getTime()) dt.setDate(dt.getDate() + 7);
+        if (dow >= 0) dt.setDate(dt.getDate() + ((dow - now.getDay() + 7) % 7));
+        if (dt.getTime() <= now.getTime())
+          dt.setDate(dt.getDate() + (dow >= 0 ? 7 : 1));
         return dt.toISOString();
       }
     }
-    // English form: a single "<n> <minute|hour|day|week>(s)" component is
-    // enough for the page's relative labels.
-    var m = label.match(/(\d+)\s*(minute|hour|day|week)s?/i);
-    if (m) {
-      var n = parseInt(m[1], 10);
-      if (isFinite(n) && n >= 0) {
-        var unit = m[2].toLowerCase();
-        var ms = 0;
-        if (unit === "minute") ms = n * 60 * 1000;
-        else if (unit === "hour") ms = n * 60 * 60 * 1000;
-        else if (unit === "day") ms = n * 24 * 60 * 60 * 1000;
-        else if (unit === "week") ms = n * 7 * 24 * 60 * 60 * 1000;
-        if (ms > 0) return new Date(Date.now() + ms).toISOString();
-      }
+    var duration =
+      /(\d+)\s*(weeks?|w|days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)(?=\d|\b)/gi;
+    var totalEnglishMs = 0;
+    var remainder = label.replace(duration, function (_, value, unit) {
+      var factors = {
+        w: 604800000,
+        d: 86400000,
+        h: 3600000,
+        m: 60000,
+        s: 1000,
+      };
+      totalEnglishMs +=
+        parseInt(value, 10) * factors[unit.charAt(0).toLowerCase()];
+      return "";
+    });
+    if (remainder.trim().length === 0) {
+      var reset = new Date(Date.now() + totalEnglishMs);
+      if (!isNaN(reset.getTime())) return reset.toISOString();
     }
     // Japanese form: sum every "N(週|日|時間|分)" component so "4時間17分後"
     // resolves correctly (a single-match version would round to just 4h).
@@ -669,7 +679,6 @@
       return;
     }
     var rows = [];
-    var resetSamples = collectResetSamples();
     for (var i = 0; i < samples.length; i++) {
       var s = samples[i];
       var kind = classifyWindow(s.context);
@@ -679,10 +688,12 @@
       // showed up as `unknown` rows in the wild). The Rust side then
       // treats an empty rows array as `no-rows` and retries.
       if (kind === "unknown") continue;
-      var label = pickResetLabelForWindow(resetSamples, kind);
+      var percentUsed = percentUsedForSample(s);
+      if (percentUsed === null) continue;
+      var label = pickResetLabelForSample(s, kind);
       rows.push({
         windowKind: kind,
-        percentUsed: s.pct,
+        percentUsed: percentUsed,
         resetAt: deriveResetAt(label),
         resetLabel: label,
         raw: s.context.slice(0, 200),

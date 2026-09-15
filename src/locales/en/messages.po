@@ -55,8 +55,8 @@ msgid "macOS のみ対応"
 msgstr "macOS only"
 
 #: src/lib/components/SettingsPanel.tsx:272
-msgid "macOS のメニューバーに Claude / Codex の 5h リミット残量を表示"
-msgstr "Show Claude / Codex 5h limit headroom in the macOS menu bar"
+msgid "macOS のメニューバーに Claude の 5h 残量と Codex の週次残量を表示"
+msgstr "Show Claude 5h headroom and Codex weekly headroom in the macOS menu bar"
 
 #: src/lib/components/SettingsPanel.tsx:255
 msgid "off にすると overlay ウィンドウを隠す (設定は保持)"
@@ -123,7 +123,7 @@ msgstr "WebView providers read DOM from third-party sites to display remaining q
 msgid "アップデート"
 msgstr "Updates"
 
-#: src/lib/atoms/updateAtoms.ts:170
+#: src/lib/atoms/updateAtoms.ts:234
 msgid "アップデートのダウンロードに失敗"
 msgstr "Failed to download update"
 
@@ -135,7 +135,7 @@ msgstr "Update ready to install"
 msgid "アップデートを確認"
 msgstr "Check for updates"
 
-#: src/lib/atoms/updateAtoms.ts:169
+#: src/lib/atoms/updateAtoms.ts:233
 msgid "アップデート確認に失敗"
 msgstr "Failed to check for updates"
 
