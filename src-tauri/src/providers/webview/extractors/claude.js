@@ -451,6 +451,17 @@
     return kind !== "unknown" && kind !== windowKind;
   }
 
+  function pickResetLabelFromNode(node) {
+    var text = readNodeText(node);
+    if (text.length === 0) return null;
+    var children = node.children || [];
+    for (var i = 0; i < children.length; i++) {
+      var label = pickResetLabelFromNode(children[i]);
+      if (label) return label;
+    }
+    return pickResetLabel(text);
+  }
+
   function pickResetLabelForSample(sample, windowKind) {
     var cursor = sample.node.parentNode;
     var depth = 0;
@@ -459,10 +470,10 @@
       if (
         percentValueCount(text) > 1 ||
         hasDifferentWindow(text, windowKind) ||
-        containsOtherCard(cursor, sample.node)
+        containsOtherCard(cursor, sample.node, windowKind)
       )
         break;
-      var label = pickResetLabel(text);
+      var label = pickResetLabelFromNode(cursor);
       if (label) return label;
       var adjacentLabel = pickAdjacentResetLabel(cursor);
       if (adjacentLabel) return adjacentLabel;
@@ -493,18 +504,27 @@
     return null;
   }
 
-  function containsOtherCard(node, sampleNode) {
+  function containsOtherCard(node, sampleNode, windowKind) {
     var children = node.children || [];
+    var passedSample = false;
     for (var i = 0; i < children.length; i++) {
       var child = children[i];
-      var heading = child.querySelector("h1, h2, h3, h4");
+      if (child.contains(sampleNode)) {
+        passedSample = true;
+        continue;
+      }
+      var heading = child.matches("h1, h2, h3, h4")
+        ? child
+        : child.querySelector("h1, h2, h3, h4");
+      if (!heading || isElementHidden(child)) continue;
+      var headingText = readNodeText(heading);
       if (
-        !child.contains(sampleNode) &&
-        !isElementHidden(child) &&
-        heading &&
-        readNodeText(child) !== readNodeText(heading)
+        !passedSample &&
+        !child.matches("section, article, tr") &&
+        classifyWindow(headingText + " rate limit") === windowKind
       )
-        return true;
+        continue;
+      if (passedSample || readNodeText(child) !== headingText) return true;
     }
     return false;
   }

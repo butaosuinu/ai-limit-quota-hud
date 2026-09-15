@@ -61,6 +61,51 @@ describe("claude.js — challenge / login detection", () => {
 });
 
 describe("claude.js — extract rows", () => {
+  it.each([
+    ["Current session", "five-hours"],
+    ["Weekly usage", "weekly"],
+    ["Weekly Opus usage", "weekly-opus"],
+    ["Fable rate limit", "weekly-fable"],
+  ])(
+    "readsResetBetweenHeadingAndMeasurementFor%s",
+    async (heading, windowKind) => {
+      const payload = await runExtractor(CLAUDE_JS, {
+        html: `<section><h2>${heading}</h2><p>Resets in 3 hours</p><p>30% used</p></section>`,
+        now: FIXED_NOW,
+      });
+      expect(payload).toMatchObject({
+        ok: true,
+        rows: [
+          {
+            windowKind,
+            percentUsed: 30,
+            resetAt: new Date(FIXED_NOW.getTime() + 3 * 3600_000).toISOString(),
+          },
+        ],
+      });
+    },
+  );
+
+  it.each([
+    ["Weekly usage", "Resets at 8:00 AM Sun"],
+    ["週間使用量", "8:00 (日曜日)にリセット"],
+  ])("readsResetInsideWrappedHeadingFor%s", async (heading, reset) => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `<section><div><h3>${heading}</h3><p>${reset}</p></div><p>12% used</p></section>`,
+      now: new Date(2026, 8, 16, 12, 0),
+    });
+    expect(payload).toMatchObject({
+      ok: true,
+      rows: [
+        {
+          windowKind: "weekly",
+          percentUsed: 12,
+          resetAt: new Date(2026, 8, 20, 8, 0).toISOString(),
+        },
+      ],
+    });
+  });
+
   it.each(["-10%", "1000%", "-0.5%", "−10%", "used 12% remaining"])(
     "rejectsInvalidOrContradictoryMeasurementsFor%s",
     async (measurement) => {
