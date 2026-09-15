@@ -255,17 +255,21 @@ describe("claude.js — reset label parsing", () => {
     },
   );
 
-  it.each(["12% remaining", "残り 12%", "12% 残量"])(
-    "normalizesLocalRemainingMeasurementFor%s",
-    async (measurement) => {
-      const payload = await runExtractor(CLAUDE_JS, {
-        html: `<section><h2>Current session usage</h2><p>${measurement}</p><p>Resets in 2 hours</p></section>`,
-        now: FIXED_NOW,
-      });
-      const rows = payload?.ok ? payload.rows : [];
-      expect(rows[0]?.percentUsed).toBe(88);
-    },
-  );
+  it.each([
+    "12% remaining",
+    "Remaining 12%",
+    "Remaining: 12%",
+    "残り 12%",
+    "残り：12%",
+    "12% 残量",
+  ])("normalizesLocalRemainingMeasurementFor%s", async (measurement) => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `<section><h2>Current session usage</h2><p>${measurement}</p><p>Resets in 2 hours</p></section>`,
+      now: FIXED_NOW,
+    });
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows[0]?.percentUsed).toBe(88);
+  });
 
   it("normalizesRemainingSplitAcrossInlineElements", async () => {
     const payload = await runExtractor(CLAUDE_JS, {

@@ -423,11 +423,11 @@
 
   function flipIfRemaining(pct, context) {
     var saysRemaining =
-      /%\s*(?:remaining|left|残り|残量)|(?:remaining|left|残り|残量)\s*\d+(?:\.\d+)?\s*%/i.test(
+      /%\s*(?:remaining|left|残り|残量)|(?:remaining|left|残り|残量)\s*[:：]?\s*\d+(?:\.\d+)?\s*%/i.test(
         context,
       );
     var saysUsed =
-      /%\s*(?:used|consumed|使用済|消費)|(?:used|consumed|使用済み?|消費)\s*\d+(?:\.\d+)?\s*%/i.test(
+      /%\s*(?:used|consumed|使用済|消費)|(?:used|consumed|使用済み?|消費)\s*[:：]?\s*\d+(?:\.\d+)?\s*%/i.test(
         context,
       );
     if (saysRemaining && !saysUsed) {

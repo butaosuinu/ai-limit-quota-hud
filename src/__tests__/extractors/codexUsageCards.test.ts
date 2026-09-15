@@ -51,6 +51,24 @@ describe("codex.js — independent usage cards", () => {
     });
   });
 
+  it.each(["Remaining 80%", "Remaining: 80%", "残り 80%", "残り：80%"])(
+    "normalizesLocalRemainingMeasurementFor%s",
+    async (measurement) => {
+      const payload = await runExtractor(CODEX_JS, {
+        html: `<main><section><h2>5-hour limit</h2><p>${measurement}</p></section>
+          <section><h2>Weekly limit</h2><p>${measurement}</p></section></main>`,
+        now: FIXED_NOW,
+      });
+      expect(payload).toMatchObject({
+        ok: true,
+        rows: [
+          { windowKind: "five-hours", percentUsed: 20 },
+          { windowKind: "weekly", percentUsed: 20 },
+        ],
+      });
+    },
+  );
+
   it("excludesLimitsNestedUnderAModelHeading", async () => {
     const payload = await runExtractor(CODEX_JS, {
       html: `<section><h2>GPT-5.3-Codex-Spark</h2><div><h3>5-hour limit</h3>

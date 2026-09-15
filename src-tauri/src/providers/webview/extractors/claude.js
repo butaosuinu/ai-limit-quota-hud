@@ -536,11 +536,11 @@
       var text = readNodeText(cursor);
       if (percentValueCount(text) > 1) break;
       var remaining =
-        /%\s*(?:remaining|left|残り|残量)|(?:remaining|left|残り|残量)\s*\d+(?:\.\d+)?\s*%/i.test(
+        /%\s*(?:remaining|left|残り|残量)|(?:remaining|left|残り|残量)\s*[:：]?\s*\d+(?:\.\d+)?\s*%/i.test(
           text,
         );
       var used =
-        /%\s*(?:used|consumed|使用済|消費)|(?:used|consumed|使用済み?|消費)\s*\d+(?:\.\d+)?\s*%/i.test(
+        /%\s*(?:used|consumed|使用済|消費)|(?:used|consumed|使用済み?|消費)\s*[:：]?\s*\d+(?:\.\d+)?\s*%/i.test(
           text,
         );
       if (remaining && used) return null;
