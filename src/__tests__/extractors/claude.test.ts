@@ -61,6 +61,62 @@ describe("claude.js — challenge / login detection", () => {
 });
 
 describe("claude.js — extract rows", () => {
+  it.each([
+    ["Current session", "five-hours"],
+    ["Weekly usage", "weekly"],
+    ["Weekly Opus usage", "weekly-opus"],
+    ["Fable rate limit", "weekly-fable"],
+  ])(
+    "readsResetBetweenHeadingAndMeasurementFor%s",
+    async (heading, windowKind) => {
+      const payload = await runExtractor(CLAUDE_JS, {
+        html: `<section><h2>${heading}</h2><p>Resets in 3 hours</p><p>30% used</p></section>`,
+        now: FIXED_NOW,
+      });
+      expect(payload).toMatchObject({
+        ok: true,
+        rows: [
+          {
+            windowKind,
+            percentUsed: 30,
+            resetAt: new Date(FIXED_NOW.getTime() + 3 * 3600_000).toISOString(),
+          },
+        ],
+      });
+    },
+  );
+
+  it.each([
+    ["Weekly usage", "Resets at 8:00 AM Sun"],
+    ["週間使用量", "8:00 (日曜日)にリセット"],
+  ])("readsResetInsideWrappedHeadingFor%s", async (heading, reset) => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `<section><div><h3>${heading}</h3><p>${reset}</p></div><p>12% used</p></section>`,
+      now: new Date(2026, 8, 16, 12, 0),
+    });
+    expect(payload).toMatchObject({
+      ok: true,
+      rows: [
+        {
+          windowKind: "weekly",
+          percentUsed: 12,
+          resetAt: new Date(2026, 8, 20, 8, 0).toISOString(),
+        },
+      ],
+    });
+  });
+
+  it.each(["-10%", "1000%", "-0.5%", "−10%", "used 12% remaining"])(
+    "rejectsInvalidOrContradictoryMeasurementsFor%s",
+    async (measurement) => {
+      const payload = await runExtractor(CLAUDE_JS, {
+        html: `<section><h2>Current session</h2><p>${measurement}</p></section>`,
+        now: FIXED_NOW,
+      });
+      expect(payload).toMatchObject({ kind: "no-rows-final" });
+    },
+  );
+
   it("emitsNoRowsFinalAfterRetryBudgetExhaustedOnEmptyPage", async () => {
     const payload = await runExtractor(CLAUDE_JS, {
       html: "<p>nothing of interest</p>",
@@ -173,6 +229,59 @@ describe("claude.js — extract rows", () => {
 });
 
 describe("claude.js — reset label parsing", () => {
+  it("resolvesJapaneseSessionClockAfterMidnight", async () => {
+    const now = new Date(2026, 8, 16, 23, 40);
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: "<section><h2>現在のセッション</h2><p>5:40にリセットされます</p><p>12% 使用済み</p></section>",
+      now,
+    });
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows[0]?.resetAt).toBe(new Date(2026, 8, 17, 5, 40).toISOString());
+  });
+
+  it.each(["2 hours 17 minutes", "2h 17m", "2h17m"])(
+    "addsAllEnglishDurationComponentsFor%s",
+    async (duration) => {
+      const payload = await runExtractor(CLAUDE_JS, {
+        html: `<section><h2>Current session</h2><p>12% used</p><p>Resets in ${duration}</p></section>`,
+        now: FIXED_NOW,
+      });
+      const rows = payload?.ok ? payload.rows : [];
+      expect(rows[0]?.resetAt).toBe(
+        new Date(
+          FIXED_NOW.getTime() + (2 * 3600 + 17 * 60) * 1000,
+        ).toISOString(),
+      );
+    },
+  );
+
+  it.each([
+    "12% remaining",
+    "Remaining 12%",
+    "Remaining: 12%",
+    "残り 12%",
+    "残り：12%",
+    "12% 残量",
+  ])("normalizesLocalRemainingMeasurementFor%s", async (measurement) => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html: `<section><h2>Current session usage</h2><p>${measurement}</p><p>Resets in 2 hours</p></section>`,
+      now: FIXED_NOW,
+    });
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows[0]?.percentUsed).toBe(88);
+  });
+
+  it("normalizesRemainingSplitAcrossInlineElements", async () => {
+    const payload = await runExtractor(CLAUDE_JS, {
+      html:
+        "<section><h2>Current session usage</h2>" +
+        "<p><span>12%</span><span>remaining</span></p></section>",
+      now: FIXED_NOW,
+    });
+    const rows = payload?.ok ? payload.rows : [];
+    expect(rows[0]?.percentUsed).toBe(88);
+  });
+
   it("derivesResetAtFromEnglishHoursPhrase", async () => {
     const payload = await runExtractor(CLAUDE_JS, {
       html: `

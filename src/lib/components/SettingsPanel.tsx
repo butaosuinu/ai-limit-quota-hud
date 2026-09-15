@@ -269,7 +269,7 @@ export function SettingsPanel() {
               description={
                 IS_MAC
                   ? _(
-                      msg`macOS のメニューバーに Claude / Codex の 5h リミット残量を表示`,
+                      msg`macOS のメニューバーに Claude の 5h 残量と Codex の週次残量を表示`,
                     )
                   : _(msg`macOS のみ対応`)
               }

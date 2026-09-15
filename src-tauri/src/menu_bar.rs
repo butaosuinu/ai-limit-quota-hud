@@ -1,9 +1,8 @@
 //! macOS menu bar (NSStatusItem) summary text composition + tray binding.
 //!
 //! Tauri's `TrayIcon::set_title()` shows text next to the tray icon on macOS
-//! / Linux (no-op on Windows). We surface only the short 5h limit for Claude
-//! and Codex so the menu bar stays narrow; weekly limits and other providers
-//! stay in the overlay.
+//! / Linux (no-op on Windows). The summary shows Claude's 5h limit and
+//! Codex's weekly limit.
 
 use tauri::{AppHandle, Manager};
 
@@ -65,16 +64,17 @@ pub fn compute_menu_bar_title(
     }
 }
 
-/// Prefer the 5h limit row for the requested provider, then fall back to a
-/// provider-level failure row (Error / NoData with window=Unknown) so login
-/// timeouts, Cloudflare challenges, and extractor crashes still surface as
-/// `--` instead of vanishing from the title. The fallback is intentionally
-/// scoped to `Unknown` windows so a weekly NoData row doesn't bubble up.
+/// Select the provider's summary window, falling back to a provider-level
+/// failure so login and collection errors still show `--`.
 fn pick_snapshot(snapshots: &[UsageSnapshot], kind: ProviderKind) -> Option<&UsageSnapshot> {
+    let window = match kind {
+        ProviderKind::WebviewChatgptCodex => UsageWindow::Weekly,
+        _ => UsageWindow::FiveHours,
+    };
     let owned_by = |s: &&UsageSnapshot| s.provider_kind == kind;
     snapshots
         .iter()
-        .find(|s| owned_by(s) && s.window == UsageWindow::FiveHours)
+        .find(|s| owned_by(s) && s.window == window)
         .or_else(|| {
             snapshots
                 .iter()
@@ -187,7 +187,7 @@ mod tests {
     fn always_mode_returns_text_regardless_of_visibility() {
         let snaps = vec![snap(
             ProviderKind::WebviewChatgptCodex,
-            UsageWindow::FiveHours,
+            UsageWindow::Weekly,
             Some(87.0),
             SnapshotStatus::Ok,
         )];
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn weekly_snapshots_are_filtered_out() {
+    fn claude_weekly_snapshots_are_filtered_out() {
         let snaps = vec![
             snap(
                 ProviderKind::WebviewClaudeAi,
@@ -227,6 +227,54 @@ mod tests {
     }
 
     #[test]
+    fn codex_weekly_takes_precedence_when_five_hours_returns() {
+        let snaps = vec![
+            snap(
+                ProviderKind::WebviewChatgptCodex,
+                UsageWindow::FiveHours,
+                Some(10.0),
+                SnapshotStatus::Ok,
+            ),
+            snap(
+                ProviderKind::WebviewChatgptCodex,
+                UsageWindow::Weekly,
+                Some(63.0),
+                SnapshotStatus::Ok,
+            ),
+        ];
+        assert_eq!(
+            compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                .as_deref(),
+            Some("Codex 63%")
+        );
+    }
+
+    #[test]
+    fn unavailable_codex_weekly_does_not_show_five_hours_instead() {
+        for status in [SnapshotStatus::NoData, SnapshotStatus::Error] {
+            let snaps = vec![
+                snap(
+                    ProviderKind::WebviewChatgptCodex,
+                    UsageWindow::FiveHours,
+                    Some(87.0),
+                    SnapshotStatus::Ok,
+                ),
+                snap(
+                    ProviderKind::WebviewChatgptCodex,
+                    UsageWindow::Weekly,
+                    None,
+                    status,
+                ),
+            ];
+            assert_eq!(
+                compute_menu_bar_title(&snaps, &settings_with(MenuBarSummaryMode::Always, true))
+                    .as_deref(),
+                Some("Codex --")
+            );
+        }
+    }
+
+    #[test]
     fn returns_none_when_only_unsupported_windows_present() {
         let snaps = vec![snap(
             ProviderKind::WebviewClaudeAi,
@@ -246,7 +294,7 @@ mod tests {
         let snaps = vec![
             snap(
                 ProviderKind::WebviewChatgptCodex,
-                UsageWindow::FiveHours,
+                UsageWindow::Weekly,
                 Some(87.0),
                 SnapshotStatus::Ok,
             ),
@@ -275,7 +323,7 @@ mod tests {
             ),
             snap(
                 ProviderKind::WebviewChatgptCodex,
-                UsageWindow::FiveHours,
+                UsageWindow::Weekly,
                 Some(87.0),
                 SnapshotStatus::Ok,
             ),
@@ -375,7 +423,7 @@ mod tests {
             ),
             snap(
                 ProviderKind::WebviewChatgptCodex,
-                UsageWindow::FiveHours,
+                UsageWindow::Weekly,
                 Some(87.0),
                 SnapshotStatus::Ok,
             ),
@@ -388,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn weekly_no_data_does_not_trigger_fallback() {
+    fn claude_weekly_no_data_does_not_trigger_fallback() {
         // A NoData row on the weekly window is not a provider-level
         // failure — overlay surfaces it; the menu bar should ignore it.
         let snaps = vec![snap(

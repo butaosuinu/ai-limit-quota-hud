@@ -613,6 +613,47 @@ mod tests {
     }
 
     #[test]
+    fn successful_codex_refresh_removes_and_restores_five_hours() {
+        let id = "webview-chatgpt-codex";
+        let providers: Vec<Arc<dyn UsageProvider>> = vec![Arc::new(FakeProvider {
+            id,
+            kind: ProviderKind::WebviewChatgptCodex,
+        })];
+        let weekly = UsageSnapshot {
+            provider_kind: ProviderKind::WebviewChatgptCodex,
+            window: UsageWindow::Weekly,
+            remaining_percent: Some(80.0),
+            ..snap("webview-chatgpt-codex:weekly")
+        };
+        let five_hours = UsageSnapshot {
+            provider_id: "webview-chatgpt-codex:five-hours".into(),
+            window: UsageWindow::FiveHours,
+            ..weekly.clone()
+        };
+        let prev = vec![five_hours.clone(), weekly.clone()];
+        let mut state = SchedulerState::default();
+        assert_eq!(
+            apply_refresh_outcome(
+                &mut state,
+                id,
+                &prev,
+                std::slice::from_ref(&weekly),
+                false,
+                std::time::Instant::now(),
+                Duration::from_secs(GRACE_PERIOD_SECS),
+            ),
+            OutcomeDecision::Insert,
+        );
+        let mut refreshed = HashMap::from([(id, vec![weekly.clone()])]);
+        let next = merge_refreshed_snapshots(&prev, &providers, &mut refreshed);
+        assert!(snapshots_equivalent(&next, &[weekly.clone()]));
+        assert!(!snapshots_equivalent(&prev, &next));
+        refreshed.insert(id, vec![five_hours, weekly]);
+        let restored = merge_refreshed_snapshots(&next, &providers, &mut refreshed);
+        assert!(snapshots_equivalent(&restored, &prev));
+    }
+
+    #[test]
     fn snapshots_equivalent_ignores_observed_at() {
         let mut a = snap("a:1");
         let mut b = snap("a:1");

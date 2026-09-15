@@ -78,7 +78,7 @@ describe("codex.js — challenge / login detection", () => {
   it("includesRefreshGenerationFromQuery", async () => {
     const payload = await runExtractor(CODEX_JS, {
       html: "<div>Verify you are human</div>",
-      path: "/codex/cloud/settings/analytics?qhgen=42",
+      path: "/codex/settings/usage?qhgen=42",
       now: FIXED_NOW,
     });
     expect(payload).toMatchObject({ generation: 42 });
